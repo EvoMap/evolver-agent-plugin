@@ -29,7 +29,7 @@ adapter that turns its hook events into that logic's calls.
 | Codex | Every prompt | From the turn's checks (read from the rollout) and follow-up | — | `bin/command-hook.mjs codex`, wired by `hosts/codex/hooks.json` |
 | Muse Code | Every prompt | Exposure only, and follow-up | — | `bin/command-hook.mjs muse-code`, wired by `.muse-plugin/plugin.json` |
 | Grok Bot | Planned: memory-file injection, see [`docs/grok-bot-memory-file.md`](docs/grok-bot-memory-file.md) | — | — | — |
-| OpenAI Dots, Claude Duet, Meta Muse | Planned: EvoMap's remote MCP at `https://evomap.ai/mcp` with a connect prompt and skills; it needs recall tools and dynamic client registration in production first | — | — | — |
+| OpenAI Dots, Claude Duet, Meta Muse | Planned: a connect prompt to EvoMap's remote MCP at `https://evomap.ai/mcp`: `evomap_search_assets` to find, `evomap_get_asset` with `full: true` to read the steps, billed like a fetch ([EvoMap/evomap-hub#3866](https://github.com/EvoMap/evomap-hub/pull/3866)); needs dynamic client registration in production | — | — | — |
 
 Muse Code's transcript format is not published, so its turns are reported without check
 evidence until a real transcript has been read. OpenAI Dots run no plugin hooks in their
