@@ -16,6 +16,37 @@ what they wrote, which shell runs are checks) in `lib/claude-code/`; the section
 that name events describe it. Other hosts are added as further adapters over the same `lib/`, not as
 separate plugins.
 
+## Command-hook hosts (Codex, Muse Code)
+
+Hosts that run a hook as a command get `bin/command-hook.mjs <host> <event>`: one JSON
+event on stdin, one JSON answer on stdout, `{}` on any failure. `SessionStart` delivers
+reports earlier sessions left queued; `UserPromptSubmit` reports a follow-up label for
+the previous turn, recalls, and answers `hookSpecificOutput.additionalContext`; `Stop`
+reads the turn from the transcript, reports every injection with the checks it shows,
+and answers a `systemMessage` with the one-line summary. A recall still running after 9
+seconds is dropped: a command hook cannot add context once it has answered.
+
+State is one JSON file per session under `$PLUGIN_DATA`, or
+`~/.evolver/agent-plugin/<host>/`, replaced whole through a rename: the ledger, the turn
+counter, the byte offset the turn started at, the follow-up labels and the outbox.
+Session files untouched for 8 days are removed at the next session start.
+
+Codex turns are read from its rollout's `response_item` records. Direct `shell` and
+`apply_patch` calls and code-mode `exec` scripts (`tools.exec_command`,
+`tools.apply_patch`, each command's `exit_code` in its own JSON output part) both count;
+the code-mode shape was checked against Codex 0.144.1 rollouts. Muse Code's transcript is
+not read yet.
+
+## Recipes
+
+A prompt is searched for Recipes (`POST /recipe/search`) alongside the single-strategy
+recall. A Recipe whose title and description pass the relevance gate is expanded: its
+steps' assets are fetched by id through `/asset/fetch`, priced per asset as any fetch is,
+and shown in order under one heading each. A Recipe missing a required step, or longer
+than 6,000 characters, is passed over for the next one or for a single strategy. Each
+step's own text goes to the injection ledger, so the turn's end reports every step's
+reuse on its own evidence.
+
 ## Commands
 
 The plugin registers no tools: recall, reuse reports and distillation all run from hooks.

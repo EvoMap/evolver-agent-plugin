@@ -6,6 +6,7 @@ import { recallStrategy, promptTextOf } from '../lib/recall.js';
 function stubProxy(recalled) {
   const calls = [];
   const proxyFetch = async (method, path, body) => {
+    if (path === '/recipe/search') return { ok: true, data: [] };
     calls.push({ method, path, body });
     if (recalled instanceof Error) throw recalled;
     return recalled === undefined ? { ok: false, error: 'nope' } : { ok: true, data: recalled };

@@ -37,7 +37,7 @@ type Report = ReturnType<typeof immediateReportOf>
 type QueuedReport = { report: Report; sessionId: string }
 type ReportedReuse = ReturnType<typeof reportedReuseOf>
 type PendingRetention = { sessionId: string; projectDir: string; reuses: ReportedReuse[]; files: { path: string; before: string; after: string }[]; atMs: number }
-type RecallMatch = { ids: string[]; name?: string; text: string }
+type RecallMatch = { ids: string[]; name?: string; text: string; stepTexts?: Record<string, string> }
 type Draft = NonNullable<ReturnType<typeof draftOf>>
 type DistillEvidence = { checks: Check[]; paths: string[] }
 
@@ -218,8 +218,8 @@ async function showOnboardingNotices($: EngineInterface, options: PluginOptions)
 async function injectStrategy($: EngineInterface, sessionId: string, turn: number, match: RecallMatch): Promise<void> {
   if (!match.text) return
   turnRecord.reusedNames.push(match.name ?? match.ids.join(', '))
-  const injection = { turn, strategyText: match.text }
-  await updateLedger($, sessionId, (ledger, now) => match.ids.reduce((next, id) => withInjected(next, id, injection, now), ledger))
+  const injectionOf = (id: string) => ({ turn, strategyText: match.stepTexts?.[id] ?? match.text })
+  await updateLedger($, sessionId, (ledger, now) => match.ids.reduce((next, id) => withInjected(next, id, injectionOf(id), now), ledger))
   await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: match.text }] } })
 }
 

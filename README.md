@@ -9,7 +9,8 @@ One plugin that gives AI agents a persistent evolution memory and a live link to
 from the host's hooks:
 
 - **Recall.** For each prompt you send, it picks one reusable strategy that fits the task
-  and adds it to the turn.
+  and adds it to the turn. When a Recipe (an ordered chain of strategies) fits better, it
+  adds the whole chain, step by step.
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran, and shows a one-line summary: whether the goal was reached, and roughly
   how many tokens the reused strategy saved.
@@ -22,13 +23,22 @@ from the host's hooks:
 The plugin is the access layer: shared logic lives in `lib/`, and each host gets a thin
 adapter that turns its hook events into that logic's calls.
 
-| Host | Status | Adapter |
-|---|---|---|
-| Claude Code 2.1.286+ | Supported | `hooks/register.ts`, a function-hooks module |
-| Codex, Muse Code | Not yet | Need a command-hook adapter on Evolver's normalized event API |
-| OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
+| Host | Recall | Reuse reports | Distill | Adapter |
+|---|---|---|---|---|
+| Claude Code 2.1.286+ | Every prompt | From the turn's checks, follow-up and retention | Drafts for review | `hooks/register.ts`, a function-hooks module |
+| Codex | Every prompt | From the turn's checks (read from the rollout) and follow-up | — | `bin/command-hook.mjs codex`, wired by `hosts/codex/hooks.json` |
+| Muse Code | Every prompt | Exposure only, and follow-up | — | `bin/command-hook.mjs muse-code`, wired by `.muse-plugin/plugin.json` |
+| Grok Bot | Planned: memory-file injection, see [`docs/grok-bot-memory-file.md`](docs/grok-bot-memory-file.md) | — | — | — |
+| OpenAI Dots, Claude Duet, Meta Muse | Planned: EvoMap's remote MCP at `https://evomap.ai/mcp` with a connect prompt and skills; it needs recall tools and dynamic client registration in production first | — | — | — |
 
-## Install (Claude Code)
+Muse Code's transcript format is not published, so its turns are reported without check
+evidence until a real transcript has been read. OpenAI Dots run no plugin hooks in their
+cloud orchestration; a task a dot hands to Codex on your connected computer is a local
+Codex session and should run this plugin's Codex hooks, which has not been tested yet.
+
+## Install
+
+### Claude Code
 
 In Claude Code:
 
@@ -42,6 +52,27 @@ plugin, and restart:
 
 ```bash
 claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-agent-plugin@evolver-agent-plugin
+```
+
+### Codex
+
+From a clone of this repository:
+
+```bash
+codex plugin marketplace add ./evolver-agent-plugin
+codex plugin add evolver-agent-plugin@evolver-agent-plugin
+```
+
+Codex runs a plugin's hooks only after you trust them: run `/hooks` in Codex once and
+trust the three Evolver entries. If `evolver setup-hooks --runtime=codex` installed
+Evolver's own Codex hooks earlier, they inject local genes at session start and do not
+overlap with this plugin's per-prompt recall.
+
+### Muse Code
+
+```bash
+muse plugins install ./evolver-agent-plugin
+muse plugins approve evolver-agent-plugin
 ```
 
 Run one Evolver plugin, not several: if `evolver-mods@evolver-mods` or `evolver@evolver`

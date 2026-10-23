@@ -33,8 +33,8 @@ the plugin gives you no tools.
   of the turn before it is reported once more as `failed` or `success`.
 - **The next session** — when the files that turn edited are still as it left them, or
   back to how they were, the reuse is reported once more as `success` or `failed`.
-- **After a verified turn** — a turn that edited files and ended on a passing test, build,
-  lint or type-check is read back once, and a reusable lesson becomes a draft with the
+- **After a verified turn** (Claude Code) — a turn that edited files and ended on a
+  passing test, build, lint or type-check is read back once, and a reusable lesson becomes a draft with the
   checks that passed attached. Nothing reaches the Hub until the person publishes the
   draft with `/evolver-drafts`.
 
@@ -71,9 +71,11 @@ Trivial or purely conversational turns don't need any of this — skip it.
 Signals are descriptive tags, not a verdict: whether a reuse is reported as a success or a
 failure comes from the checks the turn ran.
 
-## Commands
+## Commands (Claude Code)
 
-The person runs these; they talk to the local EvoMap Proxy from the plugin's hooks:
+On Claude Code the person runs these; they talk to the local EvoMap Proxy from the
+plugin's hooks. Codex and Muse Code have recall and reuse reports from their hooks, and
+none of these commands:
 
 - `/evolver-status` — Proxy state: node id, pending messages, last Hub sync.
 - `/evolver-search <task or error text>` — adds the best matching network strategy to the

@@ -53,6 +53,7 @@ function engine({ asset = ASSET, options = {} } = {}) {
   const stored = new Map();
   const reports = [];
   const sidecarRuns = [];
+  const fake = { recipeAnswer: null };
   const proxy = { up: true, answer: { recorded: true }, distillAnswer: DISTILLED };
   const distills = [];
   const submits = [];
@@ -71,7 +72,12 @@ function engine({ asset = ASSET, options = {} } = {}) {
       stat: async (path) => ({ realPath: path }),
     },
     http: { fetch: async (url, options) => {
-      if (url.endsWith('/asset/fetch')) return { ok: true, status: 200, text: JSON.stringify({ assets: [asset] }) };
+      if (url.endsWith('/recipe/search')) return { ok: true, status: 200, text: JSON.stringify(fake.recipeAnswer ? [fake.recipeAnswer.recipe] : []) };
+      if (url.endsWith('/asset/fetch')) {
+        const ids = JSON.parse(options.body).asset_ids;
+        const assets = ids ? (fake.recipeAnswer?.steps ?? []).filter((step) => ids.includes(step.asset_id)) : [asset];
+        return { ok: true, status: 200, text: JSON.stringify({ assets }) };
+      }
       if (!proxy.up) throw new Error('ECONNREFUSED');
       if (url.endsWith('/conversation/distill')) {
         distills.push(JSON.parse(options.body));
@@ -111,7 +117,11 @@ function engine({ asset = ASSET, options = {} } = {}) {
   const signal = new AbortController().signal;
   const call = (event, input = {}, answer = (value) => value) => handlers.get(event)($, input, Object.assign(async (value) => answer(value), { signal }));
   const command = (name, args = '') => call(`command.run:${name}`, { command: name, args });
-  return { files, reports, sidecarRuns, proxy, stored, call, command, distills, submits, forks, toasts, model, useSession: (id) => { sessionId = id; } };
+  return {
+    files, reports, sidecarRuns, proxy, stored, call, command, distills, submits, forks, toasts, model,
+    useSession: (id) => { sessionId = id; },
+    set recipeAnswer(value) { fake.recipeAnswer = value; },
+  };
 }
 
 async function injectedTurn(f, { checks = [], edit = false, reason = 'answer' } = {}) {
@@ -340,6 +350,22 @@ test('a searched strategy is reported when the next turn ends', async () => {
   await f.call('turn.complete', { turnId, reason: 'answer', answer: 'done', isAborted: false, durationMs: 1 });
   await settle();
   assert.deepEqual(f.reports.map((report) => [report.asset_id, report.task_id]), [[ASSET.asset_id, 'claude-code:s1:1']]);
+});
+
+test('each step of an injected Recipe is reported on its own evidence', async () => {
+  const recipe = { id: 'rcp_redis', title: 'Stabilise flaky redis connection retries', description: 'redis connection retries in tests', steps: [
+    { asset_id: 'sha256:step1', position: 1 }, { asset_id: 'sha256:step2', position: 2 },
+  ] };
+  const steps = [
+    { asset_id: 'sha256:step1', short_title: 'Unbound redis retries', strategy: ['Set `maxRetriesPerRequest` to null in lib/redis.js', 'Run npm test to confirm the suite passes'] },
+    { asset_id: 'sha256:step2', short_title: 'Ship a dashboard', strategy: ['Create `grafana/dashboard.json`', 'Run `terraform apply` on it'] },
+  ];
+  const f = engine();
+  f.recipeAnswer = { recipe, steps };
+  await f.call('session.start');
+  await injectedTurn(f, { edit: true, checks: [{ command: 'npm test', failed: false }] });
+  const byAsset = Object.fromEntries(f.reports.filter((report) => report.asset_id?.startsWith('sha256:step')).map((report) => [report.asset_id, report.evidence.applied]));
+  assert.deepEqual(byAsset, { 'sha256:step1': 'used', 'sha256:step2': 'unused' });
 });
 
 test('a report the Hub refuses outright is logged once and not sent again', async () => {

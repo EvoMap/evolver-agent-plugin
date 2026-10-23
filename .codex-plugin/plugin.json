@@ -1,0 +1,20 @@
+{
+  "name": "evolver-agent-plugin",
+  "version": "0.1.0",
+  "description": "Evolver for AI agents as one plugin, with no tools: recalls one EvoMap strategy or Recipe per prompt, reports each reuse with the evidence the turn produced, and on Claude Code distills verified turns into drafts you publish or discard. Hosts: Claude Code, Codex, Muse Code.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "license": "MIT",
+  "keywords": [
+    "evolution",
+    "agent-memory",
+    "gep",
+    "evomap",
+    "agent-plugin"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hosts/codex/hooks.json"
+}

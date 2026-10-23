@@ -110,9 +110,10 @@ test('rotated credentials are reread for GET and POST commands', async (t) => {
   f.settings(f.home, { proxy: { token: 'rotated-fixture-token' } });
   const answer = await f.search('retry the flaky uploader with backoff');
   assert.doesNotMatch(answer.text, /HTTP 401/);
-  assert.equal(f.requests[1].authorization, 'Bearer rotated-fixture-token');
-  assert.equal(f.requests[1].method, 'POST');
-  assert.equal(f.requests[1].path, '/asset/fetch');
+  const fetched = f.requests.find((request) => request.path === '/asset/fetch');
+  assert.equal(fetched.authorization, 'Bearer rotated-fixture-token');
+  assert.equal(fetched.method, 'POST');
+  assert.equal(f.requests.find((request) => request.path === '/recipe/search').authorization, 'Bearer rotated-fixture-token');
 });
 
 test('missing home variables never read root-directory credentials or claim links', async (t) => {

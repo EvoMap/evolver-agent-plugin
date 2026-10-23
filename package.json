@@ -2,7 +2,7 @@
   "name": "@evomap/evolver-agent-plugin",
   "version": "0.1.0",
   "private": true,
-  "description": "Evolver as one agent plugin with no tools: strategy recall, edit signals, evidence-backed reuse reports and distillation of verified turns, all from hooks. Claude Code is the first host.",
+  "description": "Evolver as one agent plugin with no tools: strategy and Recipe recall, evidence-backed reuse reports, and distillation of verified turns, all from hooks. Hosts: Claude Code, Codex, Muse Code.",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"

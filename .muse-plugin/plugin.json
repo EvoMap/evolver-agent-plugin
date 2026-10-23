@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "name": "evolver-agent-plugin",
+  "displayName": "Evolver — Self-Evolving Agent Memory",
+  "version": "0.1.0",
+  "description": "Evolver for AI agents as one plugin, with no tools: recalls one EvoMap strategy or Recipe per prompt, reports each reuse with the evidence the turn produced, and on Claude Code distills verified turns into drafts you publish or discard. Hosts: Claude Code, Codex, Muse Code.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {
+        "id": "capability-evolver",
+        "path": "skills/capability-evolver/SKILL.md",
+        "enabledDefault": true
+      }
+    ],
+    "commands": [],
+    "hooks": [
+      {
+        "id": "session-start",
+        "event": "SessionStart",
+        "command": [
+          "node",
+          "bin/command-hook.mjs",
+          "muse-code",
+          "SessionStart"
+        ],
+        "timeoutMs": 15000
+      },
+      {
+        "id": "user-prompt-submit",
+        "event": "UserPromptSubmit",
+        "command": [
+          "node",
+          "bin/command-hook.mjs",
+          "muse-code",
+          "UserPromptSubmit"
+        ],
+        "timeoutMs": 15000,
+        "statusMessage": "Recalling an EvoMap strategy"
+      },
+      {
+        "id": "stop-report",
+        "event": "Stop",
+        "command": [
+          "node",
+          "bin/command-hook.mjs",
+          "muse-code",
+          "Stop"
+        ],
+        "timeoutMs": 15000
+      }
+    ],
+    "mcpServers": [],
+    "reminders": []
+  }
+}

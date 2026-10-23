@@ -1,0 +1,43 @@
+{
+  "description": "Evolver: recall one EvoMap strategy per prompt and report what its reuse produced when the turn ends.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/bin/command-hook.mjs\" codex SessionStart",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\command-hook.mjs\" codex SessionStart",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/bin/command-hook.mjs\" codex UserPromptSubmit",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\command-hook.mjs\" codex UserPromptSubmit",
+            "timeout": 15,
+            "statusMessage": "Recalling an EvoMap strategy"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/bin/command-hook.mjs\" codex Stop",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\command-hook.mjs\" codex Stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
