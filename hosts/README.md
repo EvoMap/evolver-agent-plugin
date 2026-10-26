@@ -37,10 +37,10 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext |
 | Evidence | **transcript at turn end** | hook exit codes, **answer from afterAgentResponse** | **transcript step exit codes** | **`metadata.exit`** | **agent-reported** | PostToolUse / rollout |
 | Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop / Interrupt / next prompt |
-| Session end | event | event, **for its generation** | owner's exit | **deleted / dispose** | **connection close** | event |
-| Commands | **inline-script** | **intercept** | cli-only | **prompt / TUI** | **tool** | cli-only |
+| Session end | event | event, **for its generation** | **none: the next session start reports and distills a session whose owner exited** | **deleted / dispose** | **connection close** | event |
+| Commands | **inline-script** | **intercept** | cli-only: `node <plugin>/bin/command.mjs antigravity evolver-status` | **prompt / TUI** | **tool** | cli-only |
 | Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/`** |
-| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy -p`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |
+| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |
 | State | **plugin data folder** | default | default | default | default | default |
 | Installed from | **`dist/workbuddy`, packed** | the repo root (`.cursor-plugin`) | **`dist/antigravity`, packed** | **npm, packed** | **its MCP config** | `.codex-plugin` |
 

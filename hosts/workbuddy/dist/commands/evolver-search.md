@@ -1,5 +1,5 @@
 ---
-description: "Find the EvoMap strategy that best fits a task and add it to the conversation."
+description: "Find the EvoMap strategy that best fits a task; where the agent sees the answer, its reuse is reported."
 argument-hint: "<task description or error text>"
 ---
 

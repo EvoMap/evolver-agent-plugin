@@ -145,3 +145,8 @@ test('a mark is small and holds no transcript text', () => {
   assert.deepEqual(Object.keys(mark), ['at', 'chars', 'fingerprint']);
   assert.doesNotMatch(JSON.stringify(mark), /secret|ghp_/);
 });
+
+test('an error-recovery input the host sends mid-turn is ignored, like a subagent\'s', () => {
+  assert.equal(profile.payload.isIgnored({ ...PAYLOADS.UserPromptSubmit, is_internal_continuation: true }), true);
+  assert.equal(profile.payload.isIgnored(PAYLOADS.UserPromptSubmit), false);
+});

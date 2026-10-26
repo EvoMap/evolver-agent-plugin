@@ -68,6 +68,8 @@ into `dist/`:
   the standalone plugin of that name and keeps its data folder.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver`.
 - **Antigravity:** `agy plugin install <checkout>/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
+  Its commands run from a terminal: `node <installed plugin>/bin/command.mjs antigravity evolver-status` (or
+  `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
 - **OpenCode:** `opencode plugin <checkout>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove the
   old `evolver-opencode-plugin` first, or every reuse is reported twice.
 - **An MCP client without hooks:** register `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.

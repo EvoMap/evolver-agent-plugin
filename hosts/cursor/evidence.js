@@ -55,8 +55,8 @@ const answerNote = ({ text: answer }) => (text(answer).trim() ? { kind: 'answer'
 
 const NOTES = { postToolUse: toolUseNote, postToolUseFailure: toolFailureNote, afterFileEdit: editNote, afterAgentResponse: answerNote };
 
-/** What one of Cursor's tool, edit or response hooks says the turn did, by the event the payload names. */
-export const toolNoteOf = (payload) => NOTES[payload.hook_event_name]?.(payload) ?? null;
+/** What one of Cursor's tool, edit or response hooks says the turn did, by the hook it came to. */
+export const toolNoteOf = (payload, context) => NOTES[context?.hostEvent ?? payload.hook_event_name]?.(payload) ?? null;
 
 /** The file a Write or Delete is about to change, absolute; preToolUse's matcher sends only those. */
 export function editedFileOf({ tool_name: name, tool_input: input, workspace_roots: roots }) {

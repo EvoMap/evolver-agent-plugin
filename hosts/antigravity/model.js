@@ -34,8 +34,6 @@ function answerOf({ stdout, stderr }) {
 }
 
 /** `model` is what the turn's hooks named, `{ model: modelName }`, the shape candidates are stored with. */
-// TODO: lib/runtime/model-executor.js honours neither `input` nor `workdir` yet; until it does, agy gets the raw
-// prompt on stdin, rejects it as invalid stream-json and the candidate's tries run out.
 export const agyModel = Object.freeze({
   kind: 'cli',
   command: () => 'agy',

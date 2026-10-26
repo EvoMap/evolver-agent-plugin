@@ -1,5 +1,5 @@
 ---
-description: "Find the EvoMap strategy that best fits a task and add it to the conversation."
+description: "Find the EvoMap strategy that best fits a task; where the agent sees the answer, its reuse is reported."
 ---
 
 The Evolver plugin answers `/evolver-search <task description or error text>` itself, from its beforeSubmitPrompt hook, before this prompt reaches you.

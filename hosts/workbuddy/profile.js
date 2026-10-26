@@ -31,6 +31,8 @@ export default defineProfile({
     SessionEnd: EVENTS.SESSION_END,
   },
   payload: {
+    // An error-recovery input the host sends mid-turn is no prompt of the person's.
+    isIgnored: (payload) => Boolean(payload.agent_id) || payload.is_internal_continuation === true,
     // SessionStart carries no cwd; the host sets the project in every hook's environment.
     projectDir: (payload, context) => (typeof payload.cwd === 'string' && payload.cwd) || context?.env?.CODEBUDDY_PROJECT_DIR || null,
     model: (payload, context) => modelOf(latestTurnOf(context)),
