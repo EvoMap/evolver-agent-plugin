@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor sessionStart", "timeout": 10 }
+    ],
+    "beforeSubmitPrompt": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor beforeSubmitPrompt", "timeout": 660 }
+    ],
+    "preToolUse": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor preToolUse", "matcher": "^(Write|Delete)$", "timeout": 5 }
+    ],
+    "postToolUse": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor postToolUse", "timeout": 5 }
+    ],
+    "postToolUseFailure": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor postToolUseFailure", "timeout": 5 }
+    ],
+    "afterFileEdit": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor afterFileEdit", "timeout": 5 }
+    ],
+    "afterAgentResponse": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor afterAgentResponse", "timeout": 5 }
+    ],
+    "stop": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor stop", "timeout": 10 }
+    ],
+    "sessionEnd": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/bin/hook.mjs\" cursor sessionEnd", "timeout": 10 }
+    ]
+  }
+}

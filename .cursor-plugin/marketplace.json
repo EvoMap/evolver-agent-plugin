@@ -1,0 +1,31 @@
+{
+  "name": "evolver",
+  "owner": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "metadata": {
+    "description": "Official Evolver plugin for Cursor — persistent, auditable evolution memory for the agent, powered by the Genome Evolution Protocol (GEP).",
+    "version": "3.0.0"
+  },
+  "plugins": [
+    {
+      "name": "evolver",
+      "source": ".",
+      "description": "Prompt-relevant strategy recall, turn-end reuse reports and session-end distillation, from hooks only — nothing in the model's context but the recalled steps.",
+      "version": "3.0.0",
+      "author": {
+        "name": "EvoMap"
+      },
+      "homepage": "https://evomap.ai",
+      "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+      "license": "MIT",
+      "keywords": [
+        "evolution",
+        "self-improvement",
+        "agent-memory",
+        "gep"
+      ]
+    }
+  ]
+}
