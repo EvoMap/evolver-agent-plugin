@@ -177,3 +177,20 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
   const stored = await ports.sessions.read('s1');
   assert.equal(Object.values(stored.injected)[0].reportedAt, undefined);
 });
+
+test('the wait for a turn end still writing runs from when that turn began closing, after a settle wait', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  const start = ports.clock.now();
+  const sleep = ports.clock.sleep;
+  let closedAt = null;
+  ports.clock.sleep = async (ms) => {
+    await sleep(ms);
+    if (closedAt === null && ports.clock.now() - start >= 2_500) {
+      closedAt = ports.clock.now();
+      await ports.sessions.update('s1', (stored) => ({ ...stored, open: false, settling: closedAt }));
+    }
+  };
+  await closeUnfinishedTurn(ports, { sessionId: 's1', settleMs: 3_000, projectDir: '/proj' });
+  assert.ok(ports.clock.now() >= closedAt + 2_000);
+});

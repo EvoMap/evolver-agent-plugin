@@ -12,7 +12,7 @@ const profile = defineProfile({
   events: { [SCRIPT_EVENTS.COMMAND]: 'command', [SCRIPT_EVENTS.AGENT_GENE]: 'agentGene' },
   evidence: { toolNote: () => null, editedFile: () => null },
   commands: { entry: 'inline-script', sessionOf: (env) => env.TEST_SESSION_ID },
-  reply: { command: (result, hostEvent, payload) => `${result.text}\n[script ${payload.script.endsWith('bin/command.mjs')} nonce ${payload.nonce.length}]` },
+  reply: { command: (result, hostEvent, payload) => `${result.text}\n[script ${payload.script.endsWith('bin/command.mjs')} nonce ${payload.nonce.length} cwd ${payload.cwd}]` },
 });
 
 let proxy;
@@ -31,9 +31,10 @@ function run(name, input, argv = []) {
 
 test('a command script reads its arguments from stdin and prints the plugin\'s answer as text', async () => {
   const answer = await run('evolver-drafts', '');
-  assert.match(answer, /^No distilled drafts are waiting\.\n\[script true nonce 16\]$/);
+  assert.equal(answer, `No distilled drafts are waiting.\n[script true nonce 16 cwd ${process.cwd()}]`);
 });
 
 test('a Gene posted for no candidate says there is nothing to distill', async () => {
   assert.match(await run('evolver-distill', '{"summary":"s"}', ['--post', '123']), /^Nothing to distill yet/);
 });
+
