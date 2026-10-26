@@ -16,7 +16,7 @@ starts a process, takes a lock or reads a file itself: what has to run is declar
 | Evidence | `evidence: { toolNote, editedFile, turnStart?, turnRecord?, source }` | required |
 | Turn end | `turnEnd: { reason, answer, unclosed: { settleMs, as } }` | every end is `answer`; an unclosed turn ends as `error` at the next prompt |
 | Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse, sessionOf?(env) }`; an inline script runs `bin/command.mjs <agent> <command>` | `cli-only` |
-| Budgets | `budgets: { prompt, … }` in ms, matching the host's hook timeouts | `prompt: 5000` |
+| Budgets | `budgets: { prompt }` in ms, the host's prompt-hook timeout | `prompt: 5000` |
 | Owner | `owner: 'self' \| 'parent' \| { ancestor: RegExp }` | `parent` |
 | Headless model | `model: { kind: 'cli', command, args, parse, shim? } \| { kind: 'sdk', complete } \| { kind: 'in-session' } \| null` | `null` |
 | State | `stateDir(env)` | `~/.evolver/state` |
@@ -33,7 +33,7 @@ From each agent's reviewed standalone plugin; bold is where it differs from the 
 | Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext |
 | Evidence | **transcript at turn end** | hook exit codes | **transcript step exit codes** | **`metadata.exit` + part updates** | **agent-reported** | PostToolUse / rollout |
 | Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop / Interrupt / next prompt |
-| Session end | event | event | owner-gone | **dispose** | **connection close** | event |
+| Session end (event map; without one, the owner's exit) | event | event | owner gone | **dispose** | **connection close** | event |
 | Commands | **inline-script** | **intercept** | cli-only | **prompt / TUI** | **tool** | cli-only |
 | Owner | parent | port's process chain | port's process chain | **self** | **self** | **ancestor `/^codex/`** |
 | Headless model | `codebuddy -p`, **agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy -p` | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |

@@ -106,3 +106,16 @@ test('every command answers from the plugin; evolve is the one prompt for the ag
   assert.match((await runCommand(ports, { sessionId: 's1', name: 'evolver-status' })).text, /No distillation candidate in this session/);
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-nope' })).ok, false);
 });
+
+test('a plugin command runs the engine in the session\'s project directory', async () => {
+  const { ports } = memoryPorts();
+  assert.equal((await runCommand(ports, { sessionId: 's1', projectDir: '/proj', name: 'evolver-run', args: '--dry-run' })).text, 'ran run --dry-run in /proj');
+});
+
+test('a search during a turn books its strategy for that turn; between turns, for the next', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'explain the build', waitMs: 1_000 });
+  await runCommand(ports, { sessionId: 's1', name: 'evolver-search', args: 'flaky redis connection retries in tests' });
+  const { reports } = await turnEnded(ports, { sessionId: 's1', reason: 'answer', answer: 'ok', projectDir: '/p' });
+  assert.deepEqual(reports.map((report) => report.task_id), ['testagent:s1:1']);
+});

@@ -41,7 +41,7 @@ test('an intercepted command answers in the chat and starts no turn', async () =
   const made = memoryPorts();
   const { driver } = driverOf(hookProfile({ commands: { entry: 'intercept' } }), made);
   const answer = await driver.handle('UserPromptSubmit', { ...base, prompt: '/evolver-sync --dry-run' });
-  assert.equal(answer.hookSpecificOutput.additionalContext, 'ran sync --dry-run');
+  assert.equal(answer.hookSpecificOutput.additionalContext, 'ran sync --dry-run in /proj');
   assert.equal(made.sessions.get('s1'), undefined);
 });
 
@@ -105,4 +105,25 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });
   assert.match(status.content[0].text, /verified turn waiting to be distilled/);
+});
+
+test('a session start answers the engine notice once, and a session end schedules distillation', async () => {
+  const made = memoryPorts();
+  made.ports.engine.takeUnannounced = async () => ({ status: 'install_failed', error: 'npm missing', at: 1 });
+  const { driver } = driverOf(hookProfile(), made);
+  const answer = await driver.handle('SessionStart', base);
+  assert.match(answer.hookSpecificOutput.additionalContext, /^\[Evolver\] Installing Evolver failed \(npm missing\)/);
+  assert.deepEqual(await driver.handle('SessionEnd', base), {});
+  assert.ok(made.scheduled.includes('distill'));
+});
+
+test('over MCP, only the report of the turn that became the candidate asks for a Gene', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(mcpGeneric, made);
+  await driver.handle('evolver_recall', { session_id: 'm1', task: PROMPT });
+  const first = await driver.handle('evolver_report', { session_id: 'm1', outcome: 'success', summary: 'Fixed.', checks: [{ command: 'npm test', exit: 0 }], files: ['a.js'] });
+  assert.match(first.content[0].text, /evolver_distill/);
+  await driver.handle('evolver_recall', { session_id: 'm1', task: 'now explain what changed in the retry logic' });
+  const second = await driver.handle('evolver_report', { session_id: 'm1', outcome: 'failed', summary: 'Gave up.' });
+  assert.equal(second.content[0].text, 'Reported.');
 });

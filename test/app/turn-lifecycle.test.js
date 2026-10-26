@@ -157,3 +157,23 @@ test('a turn left open waits out its settle time, then closes as an error', asyn
   assert.ok(ports.clock.now() - before >= 3_000);
   assert.equal(await openTurnOf(ports, 's1'), null);
 });
+
+test('a prompt waits for a turn end that is still writing, even on a host that needs no settle time', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await ports.sessions.update('s1', (stored) => ({ ...stored, open: false, settling: ports.clock.now() }));
+  const before = ports.clock.now();
+  await closeUnfinishedTurn(ports, { sessionId: 's1', settleMs: 0, projectDir: '/proj' });
+  assert.ok(ports.clock.now() - before >= 2_000);
+});
+
+test('a turn end that cannot queue its reports leaves the injections unreported for a later end to report', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async () => { throw new Error('killed'); };
+  await assert.rejects(end(ports, 's1'));
+  ports.reports.enqueue = enqueue;
+  const stored = await ports.sessions.read('s1');
+  assert.equal(Object.values(stored.injected)[0].reportedAt, undefined);
+});

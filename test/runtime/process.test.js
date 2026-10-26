@@ -58,3 +58,15 @@ test('a cli model declaration runs headless and parses its answer; none or in-se
   assert.equal(modelRunnerOf({ kind: 'in-session' }), null);
   assert.equal(modelRunnerOf({ kind: 'cli', command: () => null }), null);
 });
+
+test('the CLI runs the plugin-installed engine in the project directory, before any on PATH', async () => {
+  const { evolverCliOf } = await import('../../lib/runtime/cli-executor.js');
+  const { mkdtempSync, writeFileSync, realpathSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'evolver-cli-')));
+  const entry = join(dir, 'evolver.mjs');
+  writeFileSync(entry, 'process.stdout.write(process.argv.slice(2).join(" ") + " in " + process.cwd())');
+  const cli = evolverCliOf({ enginePrefix: '/managed', managedEngine: (prefix) => (prefix === '/managed' ? { path: entry } : null) });
+  assert.deepEqual(await cli.run(['run', '--dry-run'], { cwd: dir }), { ok: true, text: `run --dry-run in ${dir}` });
+});

@@ -75,8 +75,10 @@ Gene itself when asked.
 **MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <agent>`, an stdio server with six
 tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
 (the Gene the report asked for), `evolver_status`, `evolver_search`, `evolver_drafts`. The connection is the
-session. It shares every use case with the hook agents, except that the evidence is the agent's own report. An agent
-with hooks never uses it, so its model's context holds no Evolver tool. The engine's `@evomap/evolver-mcp` is a
+session. It shares every use case with the hook agents, except that the evidence is the agent's own report, and
+that there is no retention follow-up: the server never sees a file before the agent edits it. A session start's
+engine notice leads the first recall's answer. An agent with hooks never uses it, so its model's context holds no
+Evolver tool. The engine's `@evomap/evolver-mcp` is a
 separate, general tool server.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under

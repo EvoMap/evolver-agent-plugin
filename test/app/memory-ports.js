@@ -102,7 +102,7 @@ export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = nu
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
     ledger: { record: async () => true },
-    cli: { run: async (args) => ({ ok: true, text: `ran ${args.join(' ')}` }) },
+    cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
   };
   return { ports, requests, queued, scheduled, retained, sessions, advance: (ms) => { time += ms; } };
 }
