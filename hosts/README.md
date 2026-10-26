@@ -15,15 +15,17 @@ a channel.
 | Events | `events: { hostEvent: canonicalEvent }`, onto `sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene` | — (MCP: its six tools) |
 | Payload | `payload: { sessionId, turnId, prompt, projectDir, isIgnored, model, transcriptPath, gene, writtenFor }`, each `(payload, context)`; `context` has `env`, `transcriptSize()`, `transcriptSince(offset)`, and `turnStart` at a turn's end. `isIgnored` skips a subagent's event or any other that is no turn of the person's | Claude Code's field names |
 | Session start | `sessionStart: 'event' \| 'owner-change' \| 'connection'` | `event` |
-| Answer | `reply: { context, notice, empty, command, turnEnd, lifetime: 'turn' \| 'call' }`, each `(value, hostEvent, payload)`; `lifetime: 'call'` replays the turn's strategy before every model call | `hookSpecificOutput.additionalContext`, `{}` |
+| Answer | `reply: { context, notice, empty, command, turnEnd, late?, lifetime: 'turn' \| 'call' }`, each `(value, hostEvent, payload)`; `lifetime: 'call'` replays the turn's strategy before every model call; `late(answer, late)` lets a host that can add context to a running turn take a recall slower than the wait (`late` resolves to `{ text, join }`) | `hookSpecificOutput.additionalContext`, `{}` |
 | Evidence | `evidence: { toolNote, editedFile \| editedFiles, turnStart?, turnRecord?, source }`: tool notes as hooks see them, or a turn record read from the host's transcript | required |
 | Turn end | `turnEnd: { reason → 'answer' \| 'aborted' \| 'refusal' \| 'error' \| 'unknown', answer, unclosed: { settleMs, as } }` | every end is `answer`; a turn with no end closes as `error` at the next prompt |
-| Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse, sessionOf?(env), answerReachesModel }`; an inline script runs `bin/command.mjs <host> <command>` | `cli-only` |
+| Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse, sessionOf?(env), scriptArgs?(text), scriptAnswer?(result, script), answerReachesModel }`; a script runs `bin/command.mjs <host> <command> [args…]`, from a host or a terminal; `answerReachesModel` defaults to true for `inline-script`, `prompt` and `tool` | `cli-only` |
 | Budgets | `budgets: { prompt }`, ms, the host's prompt-hook timeout; a recall waits what it leaves, at most 6 s | `prompt: 5000` |
 | Owner | `owner: 'self' \| 'parent' \| { ancestor: RegExp } \| { ancestorPath: RegExp }` | `parent` |
-| Headless model | `model: { kind: 'cli', command: (env) → path \| { names, dirs?(env) }, args(model, prompt), parse, input?(prompt), workdir?: 'empty', shim? } \| { kind: 'sdk', complete? } \| { kind: 'in-session' } \| null` | `null` |
+| Headless model | `model: { kind: 'cli', command: (env) → path \| { names, dirs?(env), accepts?(name, realPath), nodeScriptOnWindows? }, args(model, prompt, { workdir }), parse, input?(prompt), workdir?: 'empty', shim? } \| { kind: 'sdk', complete? } \| { kind: 'in-session' } \| null`; names are looked up on PATH, then in `dirs` | `null` |
 | State | `stateDir(env)` | `~/.evolver/state` |
-| Leftovers | `legacy: [{ rename } \| { ledgers } \| { turns } \| { retention }]`: what the host's standalone plugin left, adopted once | `[]` |
+| Leftovers | `legacy: [{ rename } \| { sessions } \| { ledgers } \| { turns } \| { retention }]`: what the host's standalone plugin left, adopted file by file until none is left; its unreported injections are reported aborted at the next session start | `[]` |
+
+Every host also honours `EVOLVER_RECALL=off`, which turns recall off.
 
 ## Matrix
 
