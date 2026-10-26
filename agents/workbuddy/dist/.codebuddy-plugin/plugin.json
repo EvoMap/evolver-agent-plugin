@@ -1,0 +1,27 @@
+{
+  "name": "evolver",
+  "version": "0.4.0",
+  "description": "Evolver for WorkBuddy / CodeBuddy: recalls proven strategies behind the prompt, reports their reuse and distills verified work into draft Genes from hooks, with nothing else of Evolver in the model's context.",
+  "description_en": "Evolver for WorkBuddy / CodeBuddy: recalls proven strategies behind the prompt, reports their reuse and distills verified work into draft Genes from hooks, with nothing else of Evolver in the model's context.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolver",
+    "evomap",
+    "gep",
+    "genes",
+    "capsules",
+    "workbuddy",
+    "codebuddy",
+    "agent-evolution"
+  ],
+  "category": "productivity",
+  "commands": "./commands",
+  "hooks": "./hooks/hooks.json"
+}
