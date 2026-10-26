@@ -1,0 +1,74 @@
+{
+  "source": "Input examples from https://antigravity.google/docs/hooks (fetched 2026-10-26); PreToolUseEdit swaps the documented run_command call for write_to_file with the documented arguments, Stop adds the NO_TOOL_CALL reason agy 1.2.7 and 1.3.0 were seen sending.",
+  "SessionStart": {
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  },
+  "PreToolUse": {
+    "toolCall": {
+      "name": "run_command",
+      "args": {
+        "CommandLine": "npm test",
+        "Cwd": "/workspace/project",
+        "WaitMsBeforeAsync": 5000
+      }
+    },
+    "stepIdx": 19,
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  },
+  "PreToolUseEdit": {
+    "toolCall": {
+      "name": "write_to_file",
+      "args": {
+        "TargetFile": "/workspace/project/src/lru.js",
+        "Overwrite": false,
+        "CodeContent": "export class Lru {}\n",
+        "Description": "Add the cache"
+      }
+    },
+    "stepIdx": 8,
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  },
+  "PreInvocation": {
+    "invocationNum": 3,
+    "initialNumSteps": 10,
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  },
+  "Stop": {
+    "executionNum": 1,
+    "terminationReason": "model_stop",
+    "error": "",
+    "fullyIdle": true,
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  },
+  "StopNoToolCall": {
+    "executionNum": 0,
+    "terminationReason": "NO_TOOL_CALL",
+    "error": "",
+    "fullyIdle": true,
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/project"],
+    "transcriptPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl",
+    "artifactDirectoryPath": "~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "modelName": "gemini-3.6-flash-medium"
+  }
+}
