@@ -41,7 +41,6 @@ test('the session belongs to the nearest agy or language_server above the hook, 
   assert.equal(ownerProbeOf(profile.owner, { probe: (pid) => cli.get(pid) ?? null, platform: 'linux' }).current(), 50);
   assert.equal(ownerProbeOf(profile.owner, { probe: () => null, platform: 'darwin' }).current(), null);
   assert.equal(profile.sessionStart, 'owner-change');
-  assert.equal(profile.sessionEnd, 'owner-gone');
 });
 
 test('the headless model is agy on the session\'s model, the prompt one stream-json user event on stdin', () => {

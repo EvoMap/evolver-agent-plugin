@@ -147,7 +147,7 @@ test('with no SessionStart, the first model call under a new Antigravity process
   assert.equal(s.scheduled.filter((task) => task === 'distill').length, 2, 'a resumed conversation under a new process starts again');
 });
 
-test('a turn that runs again after its Stop opens no second turn, and its later Stop re-judges the candidate', { todo: 'needs the driver to take a closed turn with the same turnId for the same turn' }, async () => {
+test('a turn that runs again after its Stop opens no second turn, and its later Stop re-judges the candidate', async () => {
   const s = conversation();
   await verifiedTurn(s);
   s.command('npm test', FAILED_RUN);
@@ -159,7 +159,7 @@ test('a turn that runs again after its Stop opens no second turn, and its later 
   assert.equal(fetches(s.requests), 1);
 });
 
-test('a model call before the next prompt reaches the transcript opens no turn', { todo: 'needs the driver to take a closed turn with the same turnId for the same turn' }, async () => {
+test('a model call before the next prompt reaches the transcript opens no turn', async () => {
   const s = conversation();
   await verifiedTurn(s);
   assert.deepEqual(await s.invoke(), {});
@@ -167,7 +167,7 @@ test('a model call before the next prompt reaches the transcript opens no turn',
   assert.equal(fetches(s.requests), 1);
 });
 
-test('a turn closed by the next prompt is judged on its transcript, not as a bare error', { todo: 'needs closeUnfinishedTurn to take the profile\'s turnRecord' }, async () => {
+test('a turn closed by the next prompt is judged on its transcript, not as a bare error', async () => {
   const s = conversation();
   s.prompt(PROMPT);
   await s.invoke();
@@ -177,7 +177,7 @@ test('a turn closed by the next prompt is judged on its transcript, not as a bar
   assert.deepEqual([s.queued[0].report.outcome, s.queued[0].report.evidence.tier], ['success', 'L1']);
 });
 
-test('where no Antigravity process is found, the session still starts only once', { todo: 'needs session start to record the owner it ran under, null included' }, async () => {
+test('where no Antigravity process is found, the session still starts only once', async () => {
   const s = conversation();
   s.ports.owner.current = () => null;
   s.prompt(PROMPT);

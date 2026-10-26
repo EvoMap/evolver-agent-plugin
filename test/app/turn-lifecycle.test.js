@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { promptSubmitted, openTurnOf } from '../../lib/app/prompt.js';
+import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
@@ -141,12 +141,12 @@ test('an asset already injected into the session is not injected again', async (
   assert.equal((await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT })).injection, '');
 });
 
-test('the open turn keeps its strategy for a host whose injection lasts one model call', async () => {
+test('the last turn keeps its strategy while open, for a host whose injection lasts one model call', async () => {
   const { ports } = memoryPorts();
   const { injection } = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 't1', ...WAIT });
-  assert.deepEqual(await openTurnOf(ports, 's1'), { turn: 1, turnId: 't1', strategy: injection });
+  assert.deepEqual(await lastTurnOf(ports, 's1'), { turn: 1, turnId: 't1', strategy: injection });
   await end(ports, 's1');
-  assert.equal(await openTurnOf(ports, 's1'), null);
+  assert.deepEqual(await lastTurnOf(ports, 's1'), { turn: 1, turnId: 't1', strategy: '' });
 });
 
 test('a turn left open waits out its settle time, then closes as an error', async () => {
@@ -155,7 +155,7 @@ test('a turn left open waits out its settle time, then closes as an error', asyn
   const before = ports.clock.now();
   await closeUnfinishedTurn(ports, { sessionId: 's1', settleMs: 3_000, as: 'error', projectDir: '/proj' });
   assert.ok(ports.clock.now() - before >= 3_000);
-  assert.equal(await openTurnOf(ports, 's1'), null);
+  assert.equal((await lastTurnOf(ports, 's1')).strategy, '');
 });
 
 test('a prompt waits for a turn end that is still writing, even on a host that needs no settle time', async () => {

@@ -186,7 +186,7 @@ test('a killed session\'s open strategy is reported aborted at the first model c
   assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', aborted: true, stage: 'immediate' });
 });
 
-test('the candidate of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', { todo: 'needs the cli model runner to honour model.input and model.workdir' }, async (t) => {
+test('the candidate of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', async (t) => {
   const proxy = await fakeProxy({ assets: [] });
   t.after(() => proxy.close());
   const home = proxy.env.HOME;
