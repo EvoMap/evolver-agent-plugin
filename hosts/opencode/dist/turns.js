@@ -19,6 +19,7 @@ export function createTurnTracker() {
       turns.set(sessionID, { turnID, error: null, errorDuring: null, lastAssistant: null, answerMessageID: null, written: '', answer: '' });
     },
     isOpen: (sessionID) => turns.has(sessionID),
+    openTurnOf: (sessionID) => turns.get(sessionID)?.turnID ?? null,
     isBusy: (sessionID) => busy.has(sessionID),
     noteStatus(sessionID, status) {
       if (status?.type === 'idle') busy.delete(sessionID);

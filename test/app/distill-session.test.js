@@ -121,3 +121,12 @@ test('a searched strategy is only offered; adopted during a turn it is that turn
   const { reports } = await turnEnded(ports, { sessionId: 's1', reason: 'answer', answer: 'ok', projectDir: '/p' });
   assert.deepEqual(reports.map((report) => report.task_id), ['testagent:s1:1']);
 });
+
+test('a command run can be stopped: its signal reaches the evolver CLI', async () => {
+  const { ports } = memoryPorts();
+  let seen = null;
+  ports.cli = { run: async (args, { signal }) => { seen = signal; return { ok: true, text: 'ran' }; } };
+  const controller = new AbortController();
+  await runCommand(ports, { sessionId: 's1', name: 'evolver-run', args: '--loop', signal: controller.signal });
+  assert.equal(seen, controller.signal);
+});

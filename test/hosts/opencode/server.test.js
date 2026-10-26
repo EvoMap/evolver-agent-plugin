@@ -7,9 +7,9 @@ import {
   ASSET, PROMPT, fakeClient, host, loadServer, reportsOf, requestsTo, startProxy, until, verifiedTurn,
 } from './host.js';
 
-async function harness(t, { client, assets } = {}) {
-  const proxy = await startProxy(t, { assets });
-  const loaded = await loadServer({ client });
+async function harness(t, { client, assets, recallDelayMs, options } = {}) {
+  const proxy = await startProxy(t, { assets, recallDelayMs });
+  const loaded = await loadServer({ client, options });
   return { ...loaded, proxy, oc: host(loaded.hooks) };
 }
 
@@ -206,4 +206,26 @@ test('the first prompt of a session in this instance starts it, and the engine n
   await oc.prompt('ses_n', PROMPT);
   await until(() => client.calls.some((call) => call.name === 'toast'), 'the notice toast', 1_000);
   assert.match(client.calls.find((call) => call.name === 'toast').options.body.message, /^\[Evolver\] The Evolver Proxy was not running/);
+});
+
+test('a recall slower than the prompt\'s wait joins the prompt from the turn\'s next step, and is reported', async (t) => {
+  const { hooks, oc, proxy } = await harness(t, { recallDelayMs: 7_000 });
+  const output = await oc.prompt('ses_late', PROMPT);
+  assert.equal(output.parts.length, 1, 'nothing joined while the prompt waited');
+  const messages = () => [{ info: { id: output.message.id }, parts: [...output.parts] }];
+  await until(async () => {
+    const step = messages();
+    await hooks['experimental.chat.messages.transform']({}, { messages: step });
+    return step[0].parts.some((part) => part.synthetic && part.text.startsWith('[Evolution Memory]'));
+  }, 'the late strategy', 12_000);
+  await oc.answer('ses_late', 'Done.');
+  await oc.idle('ses_late');
+  await until(() => reportsOf(proxy).some((report) => report.task_id === 'opencode:ses_late:1'), 'the late strategy\'s report');
+});
+
+test('a person who turned recall off gets no recall', async (t) => {
+  const { oc, proxy } = await harness(t, { options: { assetPrimeEnabled: false } });
+  const output = await oc.prompt('ses_off', PROMPT);
+  assert.equal(output.parts.length, 1);
+  assert.deepEqual(requestsTo(proxy, '/asset/fetch'), []);
 });

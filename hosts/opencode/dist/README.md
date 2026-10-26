@@ -17,8 +17,8 @@ TUI plugin: the `/evolver-*` commands). Restart OpenCode afterwards. From a chec
 `EvoMap/evolver-agent-plugin`, use the absolute path of this folder instead:
 `opencode plugin /path/to/evolver-agent-plugin/hosts/opencode/dist`.
 
-One option, in both files: `["@evomap/evolver-opencode", { "proxyPort": 19820 }]`, the Proxy port used when
-`~/.evolver/settings.json` names no URL.
+Options, in both files: `["@evomap/evolver-opencode", { "proxyPort": 19820 }]`, the Proxy port used when
+`~/.evolver/settings.json` names no URL, and `"assetPrimeEnabled": false` to turn recall off.
 
 ## Commands
 
@@ -46,6 +46,8 @@ State lives in `~/.evolver/state/opencode-*`.
 ## Upgrading from `evolver-opencode-plugin`
 
 Remove the old package from `opencode.json` and `tui.json` (and `.opencode/plugins/evolver.js` if you used its
-local installer) before adding this one; both at once report every reuse twice.
+local installer) before adding this one; both at once report every reuse twice. Turn counters, open strategies,
+undelivered reports and retention checks carry over. Of the old options only `proxyPort` and `assetPrimeEnabled`
+still apply; the recall's similarity, wait and timeout, the edit tools and the skill are now the same on every host.
 
 MIT © EvoMap.

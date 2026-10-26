@@ -54,6 +54,7 @@ export default defineProfile({
       ...(result.strategy && strategyPart(result.strategy.text)),
     }),
     turnEnd: () => ({}),
+    late: (answer, late) => ({ ...answer, late }),
     lifetime: 'turn',
   },
   evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },

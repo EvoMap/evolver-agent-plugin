@@ -37,7 +37,8 @@ async function run(api, channel, command, rawInput) {
     return;
   }
   api.ui.toast({ variant: 'info', message: `Running /${command.name}…` });
-  const answer = await channel.handle('tui.command', { sessionID: sessionID ?? NO_SESSION, directory: api.state.path.directory, command: command.name, arguments: rawInput });
+  const payload = { sessionID: sessionID ?? NO_SESSION, directory: api.state.path.directory, command: command.name, arguments: rawInput };
+  const answer = await channel.handle('tui.command', payload, { signal: api.lifecycle?.signal });
   if (answer.part) await addToConversation(api, sessionID, answer.part);
   showResult(api, command, answer);
 }

@@ -24,7 +24,7 @@ function defaultAnswer(path, body, assets) {
 }
 
 /** A loopback Proxy whose settings live in a scratch HOME the plugin is pointed at through `process.env`. */
-export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer } = {}) {
+export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer, recallDelayMs = 0 } = {}) {
   const requests = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -32,7 +32,9 @@ export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer }
     request.on('end', () => {
       const parsed = body ? JSON.parse(body) : undefined;
       requests.push({ path: request.url, body: parsed });
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer(request.url, parsed, assets)));
+      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer(request.url, parsed, assets)));
+      if (request.url === '/asset/fetch' && recallDelayMs) setTimeout(reply, recallDelayMs);
+      else reply();
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

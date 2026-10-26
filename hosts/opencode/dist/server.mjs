@@ -49,6 +49,25 @@ async function EvolverServer(input, options) {
   const started = new Set();
   const deleted = new Set();
   const evolving = new Set();
+  const lateParts = new Map();
+
+  // A recall slower than the prompt's wait keeps going; when it lands while its turn still runs, it is booked and
+  // joins the prompt it was found for from the turn's next model step, through the message transform.
+  const joinWhenLanded = (sessionID, messageID, late) => late.then(async (landed) => {
+    if (!landed || turns.openTurnOf(sessionID) !== messageID || !(await landed.join())) return;
+    lateParts.set(messageID, { sessionID, part: placedPart(sessionID, messageID, { type: 'text', text: landed.text, synthetic: true }) });
+  }).catch(() => {});
+
+  const joinLate = (messages) => {
+    for (const { info, parts } of messages ?? []) {
+      const late = lateParts.get(info?.id);
+      if (late && !parts.some((part) => part.id === late.part.id)) parts.push(late.part);
+    }
+  };
+
+  const forgetLate = (sessionID) => {
+    for (const [messageID, late] of lateParts) if (late.sessionID === sessionID) lateParts.delete(messageID);
+  };
 
   const toast = (answer) => {
     if (answer?.toast) input.client.tui.showToast({ body: { message: answer.toast, variant: 'info', duration: NOTICE_MS } }).catch(() => {});
@@ -82,6 +101,7 @@ async function EvolverServer(input, options) {
       infos.note(info);
       deleted.add(sessionID);
       started.delete(sessionID);
+      forgetLate(sessionID);
       turns.close(sessionID);
       return raise('session.deleted', sessionID);
     },
@@ -116,7 +136,10 @@ async function EvolverServer(input, options) {
       startSession(sessionID);
       const answer = await raise('chat.message', sessionID, { turnID: output.message.id, parts: output.parts, command });
       if (answer.part) output.parts.push(placedPart(sessionID, output.message.id, answer.part));
+      if (answer.late) joinWhenLanded(sessionID, output.message.id, answer.late);
     },
+
+    'experimental.chat.messages.transform': async (_input, output) => joinLate(output.messages),
 
     'tool.execute.before': async ({ tool, sessionID }, output) => {
       if (turns.isOpen(sessionID)) await raise('tool.execute.before', sessionID, { tool, args: output.args });
@@ -130,11 +153,11 @@ async function EvolverServer(input, options) {
 
     event: async ({ event }) => onEvent[event?.type]?.(event.properties ?? {}),
 
-    // Shutdown waits five seconds at most, too short for delivery or a model call: what the sessions leave is only
-    // written, and the next start delivers and distills it.
+    // Shutdown waits five seconds at most, too short for delivery, a model call or a recall still in flight: what the
+    // sessions leave is only written, outside each session's queue, and the next start delivers and distills it.
     dispose: async () => {
       channel.close();
-      await Promise.all([...started].map((sessionID) => raise('dispose', sessionID)));
+      await Promise.all([...started].map(async (sessionID) => channel.handle('dispose', { sessionID, directory, session: await infos.of(sessionID) })));
     },
   };
 }
