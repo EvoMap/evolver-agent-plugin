@@ -22,6 +22,11 @@ test('failure output fails it even when the command exited zero', () => {
   assert.equal(verificationFailed({ text: 'TypeError: cannot read properties of undefined' }), true);
 });
 
+test('a zero count beside a failure does not hide it', () => {
+  assert.equal(verificationFailed({ text: 'Tests: 1 failed, 0 errors' }), true);
+  assert.equal(verificationFailed({ text: 'failures: 0, errors: 2 — test failed' }), true);
+});
+
 test('a passing summary that counts zero failures passes', () => {
   assert.equal(verificationFailed({ text: 'ℹ tests 78\nℹ pass 78\nℹ fail 0' }), false);
   assert.equal(verificationFailed({ text: 'Tests: 0 failed, 12 passed' }), false);
