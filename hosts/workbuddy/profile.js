@@ -56,4 +56,6 @@ export default defineProfile({
   budgets: { prompt: 8_000 },
   model: headlessCodebuddy,
   stateDir: stateDirOf,
+  // 0.3.0 named its files without the agent; their formats are unchanged.
+  legacy: [{ rename: /^(?:session-[0-9a-f]{16}\.json|edits-[0-9a-f]{16}\.jsonl|reports-queue\.jsonl|reports-outbox\.json|retention-pending\.jsonl|engine\.json|engine-announced\.json|engine)$/ }],
 });

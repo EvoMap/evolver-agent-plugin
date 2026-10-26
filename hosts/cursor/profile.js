@@ -53,4 +53,5 @@ export default defineProfile({
   budgets: { prompt: 660_000 },
   owner: { ancestorPath: /cursor/i },
   model: { kind: 'cli', command: { names: ['cursor-agent', 'agent'], dirs: (env) => (env.HOME ? [`${env.HOME}/.local/bin`] : []) }, args: cursorAgentArguments, parse: completionOf },
+  legacy: [{ ledgers: /^cursor-injected-[0-9a-f]{16}\.json$/ }],
 });

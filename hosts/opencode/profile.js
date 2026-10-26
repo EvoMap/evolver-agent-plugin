@@ -67,4 +67,9 @@ export default defineProfile({
     parse: (payload) => (payload.command ? { name: payload.command, args: text(payload.arguments).trim() } : null),
   },
   model: { kind: 'sdk' },
+  legacy: [
+    { ledgers: /^opencode-injected-[0-9a-f]{16}\.json$/ },
+    { turns: 'opencode-turns.json' },
+    { retention: 'opencode-retention-pending.json' },
+  ],
 });

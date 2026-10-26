@@ -97,4 +97,5 @@ export default defineProfile({
   budgets: { prompt: 10_000 },
   owner: { ancestor: /^(?:agy|language_server)/i },
   model: agyModel,
+  legacy: [{ ledgers: /^antigravity-injected-[0-9a-f]{16}\.json$/ }],
 });
