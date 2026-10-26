@@ -9,7 +9,7 @@ import { ASSET } from '../app/memory-ports.js';
  * A loopback Proxy that answers recall with one asset and records every request, plus a scratch HOME whose
  * settings name it as a current Proxy, so no test ever starts setting the engine up.
  */
-export async function fakeProxy({ assets = [ASSET] } = {}) {
+export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' } } = {}) {
   const requests = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -18,7 +18,8 @@ export async function fakeProxy({ assets = [ASSET] } = {}) {
       requests.push({ method: request.method, path: request.url, body: body ? JSON.parse(body) : undefined });
       const answer = request.url === '/asset/fetch' ? { assets }
         : request.url === '/proxy/status' ? { running: true, status: 'running', node_id: 'node_test' }
-          : { recorded: true };
+          : request.url === '/conversation/distill' ? distillAnswer
+            : { recorded: true };
       response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
     });
   });

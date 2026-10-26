@@ -72,7 +72,8 @@ into `dist/`:
   `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
 - **OpenCode:** `opencode plugin <checkout>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove the
   old `evolver-opencode-plugin` first, or every reuse is reported twice.
-- **An MCP client without hooks:** register `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
+- **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
+  `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 
 A host's first session adopts what its standalone plugin left (turn counters, open injections, undelivered reports),
 so nothing is reported twice or lost on the way over.

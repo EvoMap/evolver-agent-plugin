@@ -97,9 +97,9 @@ test('a host that keeps a transcript hands the turn record over from it', async 
 test('the MCP profile turns tool calls into a turn whose report is agent-reported and asks for a Gene', async () => {
   const made = memoryPorts({ distillAnswer: null });
   const { driver, queued } = driverOf(mcpGeneric, made);
-  const recalled = await driver.handle('evolver_recall', { session_id: 'm1', task: PROMPT });
-  assert.ok(recalled.content[0].text.endsWith('Apply them where they fit.'));
-  const reported = await driver.handle('evolver_report', { session_id: 'm1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] });
+  const recalled = await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
+  assert.match(recalled.content[0].text, /Apply them where they fit\.\n\nturn_id: t1 /);
+  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] });
   assert.match(reported.content[0].text, /call evolver_distill with written_for \d+/);
   assert.equal(queued[0].report.evidence.reported_by, 'agent');
   assert.equal(queued[0].report.evidence.tier, 'none');
@@ -120,10 +120,10 @@ test('a session start answers the engine notice once, and a session end schedule
 test('over MCP, only the report of the turn that became the candidate asks for a Gene', async () => {
   const made = memoryPorts();
   const { driver } = driverOf(mcpGeneric, made);
-  await driver.handle('evolver_recall', { session_id: 'm1', task: PROMPT });
-  const first = await driver.handle('evolver_report', { session_id: 'm1', outcome: 'success', summary: 'Fixed.', checks: [{ command: 'npm test', exit: 0 }], files: ['a.js'] });
+  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
+  const first = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed.', checks: [{ command: 'npm test', exit: 0 }], files: ['a.js'] });
   assert.match(first.content[0].text, /evolver_distill/);
-  await driver.handle('evolver_recall', { session_id: 'm1', task: 'now explain what changed in the retry logic' });
-  const second = await driver.handle('evolver_report', { session_id: 'm1', outcome: 'failed', summary: 'Gave up.' });
+  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't2', task: 'now explain what changed in the retry logic' });
+  const second = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't2', outcome: 'failed', summary: 'Gave up.' });
   assert.equal(second.content[0].text, 'Reported.');
 });
