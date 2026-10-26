@@ -18,7 +18,10 @@ function filesUnder(dir) {
   });
 }
 
-const importsOf = (file) => [...readFileSync(join(root, file), 'utf8').matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((match) => match[1]);
+// Static imports and re-exports, a bare `import 'x'`, and a dynamic `import('x')` of a literal.
+const IMPORT = /^\s*(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|^\s*import\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/gm;
+const importsOf = (file) => [...readFileSync(join(root, file), 'utf8').matchAll(IMPORT)].map((match) => match[1] ?? match[2] ?? match[3]);
+const hostOf = (path) => /^hosts\/([^/]+)\//.exec(path)?.[1] ?? null;
 const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)) : specifier);
 
 // A host's `dist/` and `bin/` are entries: the glue a host loads, which reaches the plugin only through a channel.
@@ -45,7 +48,7 @@ const MAY_IMPORT = {
   agent: ['domain', 'app', 'runtime', 'agent'],
   channels: ['domain', 'app', 'runtime', 'agent', 'channels'],
   hosts: ['domain', 'agent', 'hosts'],
-  entries: ['domain', 'agent', 'channels', 'hosts', 'entries'],
+  entries: ['domain', 'channels', 'hosts', 'entries'],
 };
 
 // A host's readers are pure functions over payloads; only path and URL helpers (and the home folder for a default
@@ -53,6 +56,8 @@ const MAY_IMPORT = {
 const PURE_NODE = new Set(['node:path', 'node:url', 'node:os']);
 
 const NODE_FREE = new Set(['domain', 'app']);
+// Packages are IO: only the runtime (evolver-core) and the channels (the MCP SDK) take them.
+const MAY_IMPORT_PACKAGES = new Set(['runtime', 'channels']);
 const SHARED_LAYERS = new Set(['domain', 'app', 'runtime', 'agent', 'channels']);
 
 test('each layer imports only the layers below it, and domain and app never touch Node', () => {
@@ -67,10 +72,12 @@ test('each layer imports only the layers below it, and domain and app never touc
       }
       const target = layerOf(targetOf(file, specifier));
       if (target === 'external') {
-        if (layer !== 'channels') problems.push(`${file} (${layer}) imports package ${specifier}`);
+        if (!MAY_IMPORT_PACKAGES.has(layer)) problems.push(`${file} (${layer}) imports package ${specifier}`);
         continue;
       }
       if (!MAY_IMPORT[layer].includes(target)) problems.push(`${file} (${layer}) imports ${specifier} (${target})`);
+      const targetHost = hostOf(targetOf(file, specifier));
+      if (targetHost && targetHost !== hostOf(file)) problems.push(`${file} imports another host's ${specifier}`);
     }
   }
   assert.deepEqual(problems, []);

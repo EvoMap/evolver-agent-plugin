@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const STATIC_IMPORT = /^(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|^import\s*['"]([^'"]+)['"]/gm;
 const MODULE_PACKAGE = { private: true, type: 'module' };
+// Written into every packed folder, so a later pack knows the folder is its own to replace.
+const PACKED_MARK = '.evolver-packed';
 
 const specifiersOf = (file) => [...readFileSync(path.join(ROOT, file), 'utf8').matchAll(STATIC_IMPORT)].map((match) => match[1] ?? match[2]);
 
@@ -57,15 +59,31 @@ function patchJson(file, fields) {
   writeFileSync(file, `${JSON.stringify({ ...value, ...fields }, null, 2)}\n`);
 }
 
-/** Writes `host`'s folder into `out`, replacing what was there, and returns the repo files it took. */
+const isInside = (child, parent) => {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+};
+
+// The folder is emptied first, so it must be one this script made, or new and empty, and never hold the repo.
+function assertReplaceable(out) {
+  const resolved = path.resolve(out);
+  if (isInside(ROOT, resolved)) throw new Error(`Refusing to pack into ${resolved}: it holds this repository.`);
+  if (!existsSync(resolved)) return;
+  const isOwn = existsSync(path.join(resolved, PACKED_MARK)) || readdirSync(resolved).length === 0;
+  if (!isOwn) throw new Error(`Refusing to pack into ${resolved}: it is not empty and was not made by scripts/pack.mjs.`);
+}
+
+/** Writes `host`'s folder into `out`, replacing an earlier pack there, and returns the repo files it took. */
 export function pack(host, out) {
   const spec = packSpecOf(host);
   const files = closureOf([...spec.entries, ...profileFilesOf(host)]);
+  assertReplaceable(out);
   rmSync(out, { recursive: true, force: true });
   for (const file of files) copied(path.join(ROOT, file), path.join(out, file));
   for (const [target, source] of Object.entries(spec.root ?? {})) copied(path.join(ROOT, source), path.join(out, target));
   if (!existsSync(path.join(out, 'package.json'))) writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(MODULE_PACKAGE, null, 2)}\n`);
   for (const [target, fields] of Object.entries(spec.patch ?? {})) patchJson(path.join(out, target), fields);
+  writeFileSync(path.join(out, PACKED_MARK), `${host}\n`);
   return files;
 }
 

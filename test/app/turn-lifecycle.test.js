@@ -205,3 +205,22 @@ test('an injection adopted from a standalone plugin is reported aborted at the n
   const [report] = queued.map(({ report }) => report).filter((candidate) => candidate.asset_id === 'sha256:adopted');
   assert.deepEqual([report.task_id, report.outcome, report.evidence.aborted, report.evidence.tier], ['testagent:old:3', 'failed', true, 'none']);
 });
+
+test('a session end that names an earlier turn is stale even once the later turn has ended', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 'g1', ...WAIT });
+  await end(ports, 's1', { turnId: 'g1' });
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'and now the readme', turnId: 'g2', ...WAIT });
+  await end(ports, 's1', { turnId: 'g2' });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj', turnId: 'g1' });
+  assert.equal((await ports.sessions.read('s1')).turnId, 'g2', 'the stale end changed nothing');
+});
+
+test('a note that raced past the open-turn check is still kept out of the next turn', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 'g2', ...WAIT });
+  await ports.notes.append('s1', { kind: 'shell', command: 'npm test', exit: 1, turnId: 'g1' });
+  await toolFinished(ports, { sessionId: 's1', turnId: 'g2', note: { kind: 'shell', command: 'npm run lint', exit: 0 } });
+  const { record } = await end(ports, 's1', { turnId: 'g2' });
+  assert.deepEqual(record.checks, [{ command: 'npm run lint', failed: false }]);
+});

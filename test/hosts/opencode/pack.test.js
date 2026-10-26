@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { closureOf, pack, packSpecOf } from '../../../scripts/pack.mjs';
 
@@ -41,4 +41,18 @@ test('a checkout loads as a path plugin from hosts/opencode/dist, whose exports 
   const manifest = JSON.parse(readFileSync(new URL('../../../hosts/opencode/dist/package.json', import.meta.url), 'utf8'));
   assert.deepEqual([manifest.exports['./server'], manifest.exports['./tui']], ['./server.mjs', './tui.mjs']);
   assert.ok(closureOf(packSpecOf('opencode').entries).every((file) => !file.startsWith('..')));
+});
+
+test('a pack never empties a folder it did not make, nor one holding the repository', (t) => {
+  const mine = mkdtempSync(join(tmpdir(), 'evolver-pack-guard-'));
+  t.after(() => rmSync(mine, { recursive: true, force: true }));
+  writeFileSync(join(mine, 'notes.txt'), 'keep me');
+  assert.throws(() => pack('opencode', mine), /not empty and was not made by scripts\/pack\.mjs/);
+  assert.equal(readFileSync(join(mine, 'notes.txt'), 'utf8'), 'keep me');
+  assert.throws(() => pack('opencode', fileURLToPath(new URL('../../../', import.meta.url))), /holds this repository/);
+  assert.throws(() => pack('opencode', fileURLToPath(new URL('../../../../', import.meta.url))), /holds this repository/);
+  const again = mkdtempSync(join(tmpdir(), 'evolver-pack-again-'));
+  t.after(() => rmSync(again, { recursive: true, force: true }));
+  pack('opencode', again);
+  assert.doesNotThrow(() => pack('opencode', again));
 });

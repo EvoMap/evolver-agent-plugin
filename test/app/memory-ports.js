@@ -74,10 +74,11 @@ export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = nu
       clear: (id) => notes.clear(id),
     },
     baseline: {
-      remember: (id, file) => edits.append(id, { file, before: `hash-of-${file}` }),
-      take: async (id) => {
+      remember: (id, file, turnId = null) => edits.append(id, { file, before: `hash-of-${file}`, turnId }),
+      take: async (id, turnId = null) => {
         const { lines: taken, commit } = await edits.take(id);
-        return { before: new Map(taken.map(({ file, before }) => [file, before])), commit };
+        const ofTurn = (line) => !line.turnId || !turnId || line.turnId === turnId;
+        return { before: new Map(taken.filter(ofTurn).map(({ file, before }) => [file, before])), commit };
       },
     },
     candidates: table({}),
