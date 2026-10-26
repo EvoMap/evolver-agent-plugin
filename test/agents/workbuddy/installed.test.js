@@ -212,7 +212,7 @@ test('the agent\'s post distills the candidate it was written for, once its shel
   assert.equal(pending()['s-post'], undefined);
 });
 
-test('the agent\'s post works from its own shell, which has no plugin data folder', { ...posix, todo: 'the command-script payload must carry the state directory (state_dir) for the hand-over to name it' }, async () => {
+test('the agent\'s post works from its own shell, which has no plugin data folder', posix, async () => {
   await verifiedTurn(session('s-agent-shell'));
   const handed = await runCommand('evolver-distill', 's-agent-shell', { env: { FAKE_CODEBUDDY_ANSWER: 'auth' } });
   await shell(postCommandOf(handed.stdout).replace('<the JSON object>', AGENT_GENE), { env: shellEnv });
@@ -239,7 +239,7 @@ test('a session end reports an open strategy aborted and distills the session\'s
   await waitFor(() => !pending()['s-done']);
 });
 
-test('a session start tells the model the engine setup outcome once', { ...posix, todo: 'lib/agent/driver.js answers sessionStart and sessionEnd with an undefined `payload`, so the notice is lost' }, async () => {
+test('a session start tells the model the engine setup outcome once', posix, async () => {
   writeFileSync(join(data, 'workbuddy-engine.json'), JSON.stringify({ status: 'started', version: '2.0.46', at: 1, source: 'managed' }));
   const answer = await session('s-notice').start();
   assert.match(answer.hookSpecificOutput.additionalContext, /^\[Evolver\]/);

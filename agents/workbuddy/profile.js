@@ -33,6 +33,8 @@ export default defineProfile({
     AgentGene: EVENTS.AGENT_GENE,
   },
   payload: {
+    // SessionStart carries no cwd; the host sets the project in every hook's environment.
+    projectDir: (payload, context) => (typeof payload.cwd === 'string' && payload.cwd) || context?.env?.CODEBUDDY_PROJECT_DIR || null,
     model: (payload, context) => modelOf(latestTurnOf(context)),
   },
   reply: { command: commandAnswer, empty: emptyAnswer },

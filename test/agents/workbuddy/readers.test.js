@@ -31,16 +31,17 @@ const bashRecords = (command, text, { status = 'completed', callId = 'c1', args 
 ];
 const shellText = (command, stdout, exit) => `Command: ${command}\nStdout: ${stdout}\nStderr: (empty)\nExit Code: ${exit}\nSignal: (none)`;
 
-test('the hook payloads WorkBuddy sends read as one session, with no project at session start', () => {
+test('the hook payloads WorkBuddy sends read as one session; at session start the project comes from the hook environment', () => {
   for (const event of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'FinalStop', 'SessionEnd']) {
     assert.equal(profile.payload.sessionId(PAYLOADS[event]), '01a12002-706d-79c9-a210-fbc680bb6d83');
-    assert.equal(profile.payload.isSubagent(PAYLOADS[event]), false);
+    assert.equal(profile.payload.isIgnored(PAYLOADS[event]), false);
     assert.equal(profile.payload.transcriptPath(PAYLOADS[event]), PAYLOADS[event].transcript_path);
   }
-  assert.equal(profile.payload.projectDir(PAYLOADS.SessionStart), null);
+  assert.equal(profile.payload.projectDir(PAYLOADS.SessionStart, { env: {} }), null);
+  assert.equal(profile.payload.projectDir(PAYLOADS.SessionStart, { env: { CODEBUDDY_PROJECT_DIR: '/Users/me/project' } }), '/Users/me/project');
   assert.equal(profile.payload.projectDir(PAYLOADS.FinalStop), '/Users/me/project');
   assert.equal(profile.payload.prompt(PAYLOADS.UserPromptSubmit), '用 Node 写一个 LRU 缓存，带测试');
-  assert.equal(profile.payload.isSubagent({ ...PAYLOADS.FinalStop, agent_id: 'agent-1' }), true);
+  assert.equal(profile.payload.isIgnored({ ...PAYLOADS.FinalStop, agent_id: 'agent-1' }), true);
 });
 
 test('every hook event and both command-script events map onto a canonical event', () => {
