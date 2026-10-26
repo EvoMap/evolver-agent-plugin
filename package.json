@@ -9,7 +9,7 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "validate": "claude plugin validate .",
     "dev:sync": "bash scripts/sync-dev-mod.sh"
   },
