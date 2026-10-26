@@ -3,9 +3,7 @@
 
 import { realpathSync } from 'node:fs';
 
-import { EVOLVE_PROMPT } from '../../../lib/app/commands/evolve.js';
-import { commandNamed } from '../../../lib/app/commands/index.js';
-import { createPluginChannel } from '../../../lib/channels/plugin/adapter.js';
+import { EVOLVE_PROMPT, commandCatalog, createPluginChannel } from '../../../lib/channels/plugin/adapter.js';
 import profile from '../profile.js';
 import { helperModel, serverSessions } from './helper-session.js';
 import { pluginEnv } from './options.js';
@@ -37,23 +35,13 @@ function inOrderPerSession() {
   };
 }
 
-// Shutdown waits five seconds at most, too short for a model call, so no distillation starts once it began: the
-// candidate stays on disk for the next session start.
-function closableModel(model) {
-  let closed = false;
-  return {
-    close: () => { closed = true; },
-    complete: (...args) => (closed ? Promise.reject(new Error('OpenCode is shutting down')) : model.complete(...args)),
-  };
-}
-
 /**
  * Nothing of Evolver but the recalled strategy enters the model's context: no tools, no skill, no instructions.
  * The person reaches it through the TUI plugin's /evolver-* commands; only /evolver-evolve is a prompt command.
  */
 async function EvolverServer(input, options) {
   const directory = projectDirOf(input.directory);
-  const model = closableModel(helperModel(serverSessions(input.client)));
+  const model = helperModel(serverSessions(input.client));
   const channel = createPluginChannel({ profile, env: pluginEnv(options, process.env), overrides: { model } });
   const infos = createSessionInfos(async (id) => (await input.client.session.get({ path: { id } }))?.data);
   const turns = createTurnTracker();
@@ -101,7 +89,8 @@ async function EvolverServer(input, options) {
 
   return {
     config: async (cfg) => {
-      cfg.command = { [EVOLVE]: { description: commandNamed(EVOLVE).description, template: EVOLVE_PROMPT }, ...cfg.command };
+      const evolve = commandCatalog.find((command) => command.name === EVOLVE);
+      cfg.command = { [EVOLVE]: { description: evolve.description, template: EVOLVE_PROMPT }, ...cfg.command };
     },
 
     'command.execute.before': async ({ command, sessionID, arguments: rawInput }, output) => {
@@ -141,10 +130,11 @@ async function EvolverServer(input, options) {
 
     event: async ({ event }) => onEvent[event?.type]?.(event.properties ?? {}),
 
+    // Shutdown waits five seconds at most, too short for delivery or a model call: what the sessions leave is only
+    // written, and the next start delivers and distills it.
     dispose: async () => {
-      model.close();
+      channel.close();
       await Promise.all([...started].map((sessionID) => raise('dispose', sessionID)));
-      await channel.idle();
     },
   };
 }

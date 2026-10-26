@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { COMMANDS } from '../../../lib/app/commands/index.js';
-import { createPluginChannel } from '../../../lib/channels/plugin/adapter.js';
-import { evolverCliOf } from '../../../lib/runtime/cli-executor.js';
+import { commandCatalog, createPluginChannel } from '../../../lib/channels/plugin/adapter.js';
 import profile from '../profile.js';
 import { helperModel, tuiSessions } from './helper-session.js';
 import { pluginEnv } from './options.js';
@@ -13,7 +11,6 @@ import { pluginEnv } from './options.js';
 // text asks for it in a prompt dialog first, since a TUI command receives no arguments. /evolver-evolve is the
 // server plugin's prompt command, since reflecting on the work is the agent's job.
 
-const PROMPT_COMMANDS = new Set(['evolver-evolve']);
 const SESSION_COMMANDS = new Set(['evolver-search', 'evolver-distill']);
 const NO_SESSION = 'opencode-tui';
 
@@ -40,7 +37,7 @@ async function run(api, channel, command, rawInput) {
     return;
   }
   api.ui.toast({ variant: 'info', message: `Running /${command.name}…` });
-  const answer = await channel.handle('tui.command', { sessionID: sessionID ?? NO_SESSION, command: command.name, arguments: rawInput });
+  const answer = await channel.handle('tui.command', { sessionID: sessionID ?? NO_SESSION, directory: api.state.path.directory, command: command.name, arguments: rawInput });
   if (answer.part) await addToConversation(api, sessionID, answer.part);
   showResult(api, command, answer);
 }
@@ -73,9 +70,9 @@ async function tui(api, options) {
   const channel = createPluginChannel({
     profile,
     env: pluginEnv(options, process.env),
-    overrides: { model: helperModel(tuiSessions(api.client)), cli: evolverCliOf({ cwd: api.state.path.directory }) },
+    overrides: { model: helperModel(tuiSessions(api.client)) },
   });
-  const commands = COMMANDS.filter((command) => !PROMPT_COMMANDS.has(command.name));
+  const commands = commandCatalog.filter((command) => !command.forAgent);
   api.keymap.registerLayer({ commands: commands.map((command) => paletteCommandOf(api, channel, command)) });
 }
 

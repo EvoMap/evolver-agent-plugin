@@ -47,10 +47,10 @@ test('edit, write and apply_patch are edits of every file they touch; a read nam
   assert.equal(note({ tool: 'todowrite', args: { todos: [] } }), null);
 });
 
-test('the file an edit is about to change is resolved against the project; other tools change none', () => {
-  assert.equal(profile.evidence.editedFile({ tool: 'edit', args: args.edit, directory: '/proj' }), '/proj/src/upload.js');
-  assert.equal(profile.evidence.editedFile({ tool: 'apply_patch', args: args.applyPatch, directory: '/proj' }), '/proj/src/upload.js');
-  assert.equal(profile.evidence.editedFile({ tool: 'read', args: args.read, directory: '/proj' }), null);
+test('the files an edit is about to change are resolved against the project; other tools change none', () => {
+  assert.deepEqual(profile.evidence.editedFiles({ tool: 'edit', args: args.edit, directory: '/proj' }), ['/proj/src/upload.js']);
+  assert.deepEqual(profile.evidence.editedFiles({ tool: 'apply_patch', args: args.applyPatch, directory: '/proj' }), ['/proj/src/upload.js', '/proj/src/retry.js']);
+  assert.deepEqual(profile.evidence.editedFiles({ tool: 'read', args: args.read, directory: '/proj' }), []);
 });
 
 test('a turn ends as answer, aborted or error, read off its session error and last assistant message', () => {
@@ -83,6 +83,7 @@ test('the strategy answers as a synthetic text part, a notice as a toast, a sear
   assert.deepEqual(profile.reply.context(''), {});
   assert.deepEqual(profile.reply.notice('[Evolver] started'), { toast: '[Evolver] started' });
   assert.deepEqual(profile.reply.command({ ok: true, text: 'ran' }, 'tui.command', { command: 'evolver-status' }), { ok: true, text: 'ran' });
-  assert.equal(profile.reply.command({ ok: true, text: '1. Retry.' }, 'tui.command', { command: 'evolver-search' }).part.synthetic, true);
+  const searched = { ok: true, text: '1. Retry.', strategy: { assetId: 'sha256:a', text: '1. Retry.' } };
+  assert.equal(profile.reply.command(searched, 'tui.command', { command: 'evolver-search' }).part.synthetic, true);
   assert.equal(profile.reply.command({ ok: false, text: 'none' }, 'tui.command', { command: 'evolver-search' }).part, undefined);
 });

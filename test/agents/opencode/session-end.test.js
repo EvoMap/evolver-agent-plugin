@@ -96,18 +96,20 @@ test('a strategy whose turn never ended is reported aborted when its session is 
   assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', aborted: true, stage: 'immediate' });
 });
 
-test('shutting OpenCode down ends its sessions without a model call; the next instance distills the candidate', async (t) => {
+test('shutting OpenCode down only writes what its sessions leave; the next instance delivers and distills it', async (t) => {
   const { oc, proxy, hooks, client, stores } = await harness(t);
   await oc.prompt('ses_open', PROMPT);
   await verifiedTurn(oc, 'ses_done', 'make the flaky redis connection retries in the worker tests pass');
 
+  const before = reportsOf(proxy).length;
   await hooks.dispose();
   assert.deepEqual(callsNamed(client, 'prompt'), [], 'no helper session while shutting down');
-  assert.ok(reportsOf(proxy).some((report) => report.task_id === 'opencode:ses_open:1' && report.evidence.aborted));
+  assert.equal(reportsOf(proxy).length, before, 'nothing delivered while shutting down');
   assert.equal((await stores.candidates.read()).ses_done.closed, true);
 
   const next = await loadServer({ client });
   await host(next.hooks).prompt('ses_later', 'what does this repo do?');
+  await until(() => reportsOf(proxy).some((report) => report.task_id === 'opencode:ses_open:1' && report.evidence.aborted), 'the aborted report');
   await until(() => distills(proxy).length === 1, 'the leftover distillation');
   assert.equal(distills(proxy)[0].body.session_id, 'opencode:ses_done');
 });

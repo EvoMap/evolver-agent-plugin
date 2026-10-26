@@ -18,7 +18,7 @@ const base = { session_id: 's1', cwd: '/proj' };
 
 test('a profile missing a difference point fails when it is defined, naming what is wrong', () => {
   assert.throws(() => defineProfile({ name: 'Bad Name', label: 'x', events: { A: 'nope' } }),
-    /name must be lower-case.*events must map host events to canonical events.*evidence\.toolNote and evidence\.editedFile are required/);
+    /name must be lower-case.*events must map host events to canonical events.*evidence\.toolNote and evidence\.editedFile or editedFiles are required/);
 });
 
 test('a prompt answers the recalled strategy in the hook channel\'s shape', async () => {

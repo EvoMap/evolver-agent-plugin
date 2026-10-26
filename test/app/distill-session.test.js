@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { runCommand } from '../../lib/app/commands/index.js';
 import { distillLeftovers, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
-import { promptSubmitted } from '../../lib/app/prompt.js';
+import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
@@ -112,10 +112,12 @@ test('a plugin command runs the engine in the session\'s project directory', asy
   assert.equal((await runCommand(ports, { sessionId: 's1', projectDir: '/proj', name: 'evolver-run', args: '--dry-run' })).text, 'ran run --dry-run in /proj');
 });
 
-test('a search during a turn books its strategy for that turn; between turns, for the next', async () => {
+test('a searched strategy is only offered; adopted during a turn it is that turn\'s, between turns the next one\'s', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'explain the build', waitMs: 1_000 });
-  await runCommand(ports, { sessionId: 's1', name: 'evolver-search', args: 'flaky redis connection retries in tests' });
+  const searched = await runCommand(ports, { sessionId: 's1', name: 'evolver-search', args: 'flaky redis connection retries in tests' });
+  assert.equal(Object.keys((await ports.sessions.read('s1')).injected).length, 0);
+  await adoptStrategy(ports, { sessionId: 's1', strategy: searched.strategy });
   const { reports } = await turnEnded(ports, { sessionId: 's1', reason: 'answer', answer: 'ok', projectDir: '/p' });
   assert.deepEqual(reports.map((report) => report.task_id), ['testagent:s1:1']);
 });

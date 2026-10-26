@@ -50,9 +50,8 @@ export function toolNoteOf({ tool, args, result }) {
   return command || paths.length > 0 ? { kind: 'tool', ...(command && { command }), paths } : null;
 }
 
-/** The file an edit tool is about to change, from `tool.execute.before`, resolved against the project. */
-export function editedFileOf({ tool, args, directory }) {
-  if (!EDIT_TOOLS.has(tool)) return null;
-  const [file] = touchedPaths(args);
-  return file && directory ? path.resolve(directory, file) : null;
+/** The files an edit tool is about to change, from `tool.execute.before`, resolved against the project. */
+export function editedFilesOf({ tool, args, directory }) {
+  if (!EDIT_TOOLS.has(tool) || !directory) return [];
+  return touchedPaths(args).map((file) => path.resolve(directory, file));
 }

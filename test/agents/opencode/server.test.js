@@ -199,7 +199,7 @@ test('a prompt still being looked up when its session is deleted does not bring 
   assert.deepEqual(requestsTo(proxy, '/asset/fetch'), []);
 });
 
-test('the first prompt of a session in this instance starts it, and the engine notice is a toast for the person', { todo: 'lib/agent/driver.js loses the session-start notice: its sessionStart handler does not destructure `payload`' }, async (t) => {
+test('the first prompt of a session in this instance starts it, and the engine notice is a toast for the person', async (t) => {
   const { oc, proxy, client } = await harness(t);
   mkdirSync(proxy.stateDir, { recursive: true });
   writeFileSync(join(proxy.stateDir, 'opencode-engine.json'), JSON.stringify({ status: 'started', version: '2.0.46', at: 1 }));

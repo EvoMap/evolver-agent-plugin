@@ -4,7 +4,7 @@
 import { EVENTS } from '../../lib/agent/events.js';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { isPersonSession } from './sessions.js';
-import { editedFileOf, toolNoteOf } from './tools.js';
+import { editedFilesOf, toolNoteOf } from './tools.js';
 import { modelOf, turnEndReason } from './turn-end.js';
 
 // OpenCode loads the plugin into its own process (`dist/server.mjs`, `dist/tui.mjs`). Those entries raise these
@@ -20,7 +20,6 @@ const personText = (parts) => (parts ?? [])
   .join('\n');
 
 const strategyPart = (strategy) => ({ part: { type: 'text', text: strategy, synthetic: true } });
-const IN_CONVERSATION = 'evolver-search';
 
 export default defineProfile({
   name: 'opencode',
@@ -52,18 +51,19 @@ export default defineProfile({
     command: (result, hostEvent, payload) => ({
       ok: result.ok,
       text: result.text,
-      ...(result.ok && payload.command === IN_CONVERSATION && strategyPart(result.text)),
+      ...(result.strategy && strategyPart(result.strategy.text)),
     }),
     turnEnd: () => ({}),
     lifetime: 'turn',
   },
-  evidence: { toolNote: toolNoteOf, editedFile: editedFileOf },
+  evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },
   turnEnd: {
     reason: turnEndReason,
     answer: (payload) => text(payload.answer),
   },
   commands: {
     entry: 'prompt',
+    answerReachesModel: true,
     parse: (payload) => (payload.command ? { name: payload.command, args: text(payload.arguments).trim() } : null),
   },
   model: { kind: 'sdk' },
