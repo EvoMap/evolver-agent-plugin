@@ -17,15 +17,15 @@ const PAYLOADS = JSON.parse(readFileSync(join(FIXTURES, 'hook-payloads.json'), '
 const ANSWER_LINE = `${JSON.stringify(PAYLOADS.assistantMessage)}\n`;
 const AGENT_GENE = JSON.stringify({ title: 'LRU cache', summary: 'An LRU cache over a Map.', strategy: ['Keep a Map.', 'Re-insert on read.'] });
 
-// What WorkBuddy's installer leaves in its plugin cache from agents/workbuddy/dist, with bin, lib and the
+// What WorkBuddy's installer leaves in its plugin cache from hosts/workbuddy/dist, with bin, lib and the
 // profile placed beside it as the plugin needs them.
 function installedPlugin() {
   const root = mkdtempSync(join(tmpdir(), 'workbuddy-plugin-'));
-  cpSync(join(REPO, 'agents', 'workbuddy', 'dist'), root, { recursive: true });
+  cpSync(join(REPO, 'hosts', 'workbuddy', 'dist'), root, { recursive: true });
   for (const dir of ['bin', 'lib']) cpSync(join(REPO, dir), join(root, dir), { recursive: true });
-  mkdirSync(join(root, 'agents', 'workbuddy'), { recursive: true });
-  for (const file of readdirSync(join(REPO, 'agents', 'workbuddy')).filter((name) => name.endsWith('.js'))) {
-    cpSync(join(REPO, 'agents', 'workbuddy', file), join(root, 'agents', 'workbuddy', file));
+  mkdirSync(join(root, 'hosts', 'workbuddy'), { recursive: true });
+  for (const file of readdirSync(join(REPO, 'hosts', 'workbuddy')).filter((name) => name.endsWith('.js'))) {
+    cpSync(join(REPO, 'hosts', 'workbuddy', file), join(root, 'hosts', 'workbuddy', file));
   }
   return root;
 }

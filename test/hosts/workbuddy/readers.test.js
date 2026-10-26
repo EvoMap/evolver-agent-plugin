@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import profile from '../../../agents/workbuddy/profile.js';
+import profile from '../../../hosts/workbuddy/profile.js';
 import { checkEvidenceOf } from '../../../lib/checks.js';
 import { transcripts } from '../../../lib/runtime/transcripts.js';
 

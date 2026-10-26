@@ -7,11 +7,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Assembles the publishable @evomap/evolver-opencode folder: the two OpenCode entries, every file of this repo they
-// load (the shared lib/ and agents/opencode/, nothing of the MCP channel), and a package.json whose exports point
+// load (the shared lib/ and hosts/opencode/, nothing of the MCP channel), and a package.json whose exports point
 // at the entries. OpenCode loads `exports["./server"]` and `exports["./tui"]` from the package's root.
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const DIST = 'agents/opencode/dist';
+const DIST = 'hosts/opencode/dist';
 const ENTRIES = { './server': `${DIST}/server.mjs`, './tui': `${DIST}/tui.mjs` };
 const STATIC_IMPORT = /^(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|^import\s*['"]([^'"]+)['"]/gm;
 
@@ -37,7 +37,7 @@ export function filesOf(entries = Object.values(ENTRIES)) {
 function manifestOf() {
   const manifest = JSON.parse(readFileSync(path.join(ROOT, DIST, 'package.json'), 'utf8'));
   const exports = Object.fromEntries(Object.entries(ENTRIES).map(([key, file]) => [key, `./${file}`]));
-  return { ...manifest, exports: { ...exports, './package.json': './package.json' }, files: ['agents/', 'lib/', 'LICENSE', 'README.md'] };
+  return { ...manifest, exports: { ...exports, './package.json': './package.json' }, files: ['hosts/', 'lib/', 'LICENSE', 'README.md'] };
 }
 
 /** Writes the package into `out`, replacing what was there, and returns its file list. */

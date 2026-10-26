@@ -15,7 +15,7 @@ opencode plugin @evomap/evolver-opencode        # add -g for every project
 OpenCode lists it in `opencode.json` (the server plugin: recall, reports, distillation) and in `tui.json` (the
 TUI plugin: the `/evolver-*` commands). Restart OpenCode afterwards. From a checkout of
 `EvoMap/evolver-agent-plugin`, use the absolute path of this folder instead:
-`opencode plugin /path/to/evolver-agent-plugin/agents/opencode/dist`.
+`opencode plugin /path/to/evolver-agent-plugin/hosts/opencode/dist`.
 
 One option, in both files: `["@evomap/evolver-opencode", { "proxyPort": 19820 }]`, the Proxy port used when
 `~/.evolver/settings.json` names no URL.

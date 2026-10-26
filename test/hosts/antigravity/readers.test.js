@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { transcriptRecordOf } from '../../../agents/antigravity/evidence.js';
-import profile from '../../../agents/antigravity/profile.js';
-import { latestTurnOf, promptOf, stepsAfter, stepsOf, turnActivityOf } from '../../../agents/antigravity/transcript.js';
+import { transcriptRecordOf } from '../../../hosts/antigravity/evidence.js';
+import profile from '../../../hosts/antigravity/profile.js';
+import { latestTurnOf, promptOf, stepsAfter, stepsOf, turnActivityOf } from '../../../hosts/antigravity/transcript.js';
 
 const fixture = (name) => readFileSync(new URL(`../../fixtures/antigravity/${name}`, import.meta.url), 'utf8');
 const payloads = JSON.parse(fixture('payloads.json'));

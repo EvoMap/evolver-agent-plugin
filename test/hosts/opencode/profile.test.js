@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import profile from '../../../agents/opencode/profile.js';
-import { createTurnTracker } from '../../../agents/opencode/dist/turns.js';
+import profile from '../../../hosts/opencode/profile.js';
+import { createTurnTracker } from '../../../hosts/opencode/dist/turns.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
 
 const FIXTURE = JSON.parse(readFileSync(new URL('../../fixtures/opencode/payloads.json', import.meta.url), 'utf8'));

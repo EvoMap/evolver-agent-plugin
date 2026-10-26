@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import profile from '../../../agents/workbuddy/profile.js';
+import profile from '../../../hosts/workbuddy/profile.js';
 import { SCRIPT_EVENTS } from '../../../lib/channels/script/runner.js';
 
 const PAYLOADS = JSON.parse(readFileSync(new URL('../../fixtures/workbuddy/hook-payloads.json', import.meta.url), 'utf8'));

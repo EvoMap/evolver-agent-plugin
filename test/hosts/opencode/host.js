@@ -98,7 +98,7 @@ export function fakeClient({ sessions = {}, answer = GENE } = {}) {
 export const callsNamed = (client, name) => client.calls.filter((call) => call.name === name);
 
 export async function loadServer({ client = fakeClient(), directory = projectDirectory(), options = {} } = {}) {
-  const { default: plugin } = await import('../../../agents/opencode/dist/server.mjs');
+  const { default: plugin } = await import('../../../hosts/opencode/dist/server.mjs');
   const hooks = await plugin.server({ client, directory, worktree: directory, project: {} }, options);
   return { plugin, hooks, client, directory };
 }

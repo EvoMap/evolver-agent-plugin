@@ -26,8 +26,8 @@
     "automation",
     "self-improvement"
   ],
-  "commands": "./agents/cursor/dist/commands/",
-  "hooks": "./agents/cursor/dist/hooks.json",
+  "commands": "./hosts/cursor/dist/commands/",
+  "hooks": "./hosts/cursor/dist/hooks.json",
   "skills": [],
   "agents": []
 }

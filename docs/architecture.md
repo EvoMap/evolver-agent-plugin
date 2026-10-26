@@ -23,19 +23,19 @@ whichever agent runs it. Agents differ in three ways, and each kind of differenc
 | Difference | What varies | Owner |
 |---|---|---|
 | Channel | How an event arrives and its answer leaves: a hook process per event, a command script, a plugin inside the host's process, or an MCP tool call | `lib/channels/{hook,script,plugin,mcp}/` |
-| Agent | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed | `agents/<agent>/profile.js` |
+| Agent | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed | `hosts/<agent>/profile.js` |
 | Execution | Process lifetime, locking, background work, time budgets, how a headless model and the CLI run, where state lives | `lib/runtime/`, assembled once per channel |
 
 ```
 host ─▶ lib/channels/*  ─▶ lib/agent/driver.js ─▶ lib/app/*  (use cases over ports)
-                 agents/<agent>/profile.js ┘          ▲
+                 hosts/<agent>/profile.js ┘          ▲
                                        lib/runtime/environment.js builds the ports
                                                       lib/*.js, lib/turn, lib/distill, lib/session: pure rules
 ```
 
 Layer rules, checked by `test/architecture.test.js`: the pure rules import nothing else; `lib/app/` imports only
 pure rules and never Node; `lib/runtime/` implements the ports and is the only shared code that spawns, locks,
-reads files or branches on the platform; `agents/<agent>/` holds data and pure functions, no IO; no shared layer
+reads files or branches on the platform; `hosts/<agent>/` holds data and pure functions, no IO; no shared layer
 names an agent.
 
 **Profiles.** `defineProfile` completes an agent's profile with its channel's defaults and fails on load if a
@@ -47,7 +47,7 @@ hooks, or a transcript read from the turn's start); how a turn ends (its reason,
 to wait for a late end); how commands are typed (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The
 runtime executes what the profile declares: time budgets per event, the owner process (`self`, `parent`, or a named
 ancestor), the headless model (a CLI, an SDK call, the agent's own model in the session, or none) and the state
-directory. `agents/README.md` holds the matrix of every agent against these points.
+directory. `hosts/README.md` holds the matrix of every agent against these points.
 
 **Use cases** (`lib/app/`), each `(ports, input)`:
 

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { filesOf, pack } from '../../../agents/opencode/dist/pack.mjs';
+import { filesOf, pack } from '../../../hosts/opencode/dist/pack.mjs';
 
 test('the published folder holds the two OpenCode entries and what they load, and nothing of the MCP channel', (t) => {
   const out = mkdtempSync(join(tmpdir(), 'evolver-opencode-pack-'));
@@ -19,7 +19,7 @@ test('the published folder holds the two OpenCode entries and what they load, an
   assert.equal(manifest.engines.opencode, '>=1.19.4');
   assert.equal(manifest.dependencies, undefined);
   for (const entry of [manifest.exports['./server'], manifest.exports['./tui']]) assert.ok(existsSync(join(out, entry)), entry);
-  assert.ok(files.includes('agents/opencode/profile.js'));
+  assert.ok(files.includes('hosts/opencode/profile.js'));
   assert.ok(files.includes('lib/channels/plugin/adapter.js'));
   assert.deepEqual(files.filter((file) => /^(lib\/channels\/(mcp|hook|script)|lib\/claude-code|hooks|bin)\//.test(file)), []);
   assert.equal(files.some((file) => readFileSync(join(out, file), 'utf8').includes('@modelcontextprotocol')), false);
@@ -36,8 +36,8 @@ test('the packed entries load as OpenCode plugin modules', async (t) => {
   assert.deepEqual([tui.id, typeof tui.tui, tui.server], ['evomap.evolver', 'function', undefined]);
 });
 
-test('a checkout loads as a path plugin from agents/opencode/dist, whose exports stay inside it', () => {
-  const manifest = JSON.parse(readFileSync(new URL('../../../agents/opencode/dist/package.json', import.meta.url), 'utf8'));
+test('a checkout loads as a path plugin from hosts/opencode/dist, whose exports stay inside it', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../../hosts/opencode/dist/package.json', import.meta.url), 'utf8'));
   assert.deepEqual([manifest.exports['./server'], manifest.exports['./tui']], ['./server.mjs', './tui.mjs']);
   assert.ok(filesOf().every((file) => !file.startsWith('..')));
 });

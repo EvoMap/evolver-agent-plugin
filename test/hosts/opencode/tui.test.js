@@ -53,7 +53,7 @@ function fakeApi({ route = { name: 'home' }, directory = projectDirectory() } = 
 }
 
 async function loadTui(api, options = {}) {
-  const { default: plugin } = await import('../../../agents/opencode/dist/tui.mjs');
+  const { default: plugin } = await import('../../../hosts/opencode/dist/tui.mjs');
   assert.equal(plugin.id, 'evomap.evolver');
   await plugin.tui(api, options);
   return Object.fromEntries(api.layers[0].commands.map((command) => [command.slashName, command]));

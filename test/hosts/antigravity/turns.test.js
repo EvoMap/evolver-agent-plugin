@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import profile from '../../../agents/antigravity/profile.js';
+import profile from '../../../hosts/antigravity/profile.js';
 import { createDriver } from '../../../lib/agent/driver.js';
 import { PROMPT, memoryPorts } from '../../app/memory-ports.js';
 

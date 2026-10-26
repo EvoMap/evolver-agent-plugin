@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import cursor from '../../../agents/cursor/profile.js';
+import cursor from '../../../hosts/cursor/profile.js';
 import { COMMANDS } from '../../../lib/app/commands/index.js';
 
 const root = new URL('../../../', import.meta.url);
 const readJson = (path) => JSON.parse(readFileSync(new URL(path, root), 'utf8'));
-const DIST = 'agents/cursor/dist/';
+const DIST = 'hosts/cursor/dist/';
 
 // Cursor 3.27.6 rejects a whole hooks file that names one event outside this list.
 const CURSOR_HOOK_EVENTS = new Set([
@@ -49,7 +49,7 @@ test("the manifest points Cursor into the agent's dist only: the Claude Code hoo
   assert.equal(plugin.hooks, `./${DIST}hooks.json`);
   assert.equal(plugin.commands, `./${DIST}commands/`);
   assert.deepEqual(plugin.skills, [], 'an empty list replaces the discovery of skills/');
-  assert.deepEqual(plugin.agents, [], 'an empty list replaces the discovery of agents/');
+  assert.deepEqual(plugin.agents, [], 'an empty list replaces the discovery of hosts/');
   assert.equal('mcpServers' in plugin || 'rules' in plugin, false);
   for (const path of [plugin.hooks, plugin.commands, plugin.logo]) assert.ok(existsSync(new URL(path, root)), path);
   for (const path of ['mcp.json', '.mcp.json', 'rules']) assert.equal(existsSync(new URL(path, root)), false, `Cursor would discover ${path}`);

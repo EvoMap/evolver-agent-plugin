@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import profile from '../../../agents/workbuddy/profile.js';
+import profile from '../../../hosts/workbuddy/profile.js';
 import { COMMANDS } from '../../../lib/app/commands/index.js';
 
 const at = (path) => new URL(`../../../${path}`, import.meta.url);
 const json = (path) => JSON.parse(readFileSync(at(path), 'utf8'));
-const DIST = 'agents/workbuddy/dist';
+const DIST = 'hosts/workbuddy/dist';
 const HOOK_EVENTS = Object.keys(profile.events).filter((event) => !['Command', 'AgentGene'].includes(event));
 
 function frontMatterOf(text) {
@@ -38,7 +38,7 @@ test('every plugin command ships as an inline script with the description and hi
   }
 });
 
-test('the marketplace at the repository root installs the plugin from agents/workbuddy/dist', () => {
+test('the marketplace at the repository root installs the plugin from hosts/workbuddy/dist', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
   const manifest = json(`${DIST}/.codebuddy-plugin/plugin.json`);
   const [entry] = marketplace.plugins;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 
-import cursor from '../../../agents/cursor/profile.js';
+import cursor from '../../../hosts/cursor/profile.js';
 import { modelRunnerOf } from '../../../lib/runtime/model-executor.js';
 import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
@@ -116,7 +116,7 @@ test('the headless model is cursor-agent in print and ask mode on the chat model
     await runner.complete({ model: 'default' }, 'PROMPT', AbortSignal.timeout(10_000));
     const [named, unnamed] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(named.args.slice(0, 7), ['-p', '--output-format', 'json', '--mode', 'ask', '--trust', '--workspace']);
-    assert.match(named.args[7], /agents[/\\]cursor[/\\]dist$/);
+    assert.match(named.args[7], /hosts[/\\]cursor[/\\]dist$/);
     assert.deepEqual(named.args.slice(8), ['--model', 'gpt-5']);
     assert.equal(named.args.includes('--force'), false);
     assert.equal(unnamed.args.includes('--model'), false);

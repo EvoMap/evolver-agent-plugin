@@ -42,12 +42,12 @@ From each agent's reviewed standalone plugin; bold is where it differs from the 
 
 ## Adding an agent
 
-1. `agents/<name>/profile.js`: `export default defineProfile({ name, label, channel, events, evidence, … })`, only the
+1. `hosts/<name>/profile.js`: `export default defineProfile({ name, label, channel, events, evidence, … })`, only the
    points that differ; small readers in sibling files when they need more than a line.
-2. `agents/<name>/dist/`: the host's hook registration calling `node bin/hook.mjs <name> <hostEvent>` (or the MCP
+2. `hosts/<name>/dist/`: the host's hook registration calling `node bin/hook.mjs <name> <hostEvent>` (or the MCP
    config calling `node bin/mcp.mjs <name>`), and its commands.
 3. The host's manifest at its fixed place in the repo root, pointing into `dist/`.
-4. `test/agents/<name>/`: each reader against payloads captured from the real host, and the hooks end to end.
+4. `test/hosts/<name>/`: each reader against payloads captured from the real host, and the hooks end to end.
 
 No shared file changes: `lib/agent/registry.js` finds the profile by its folder name. A difference no point covers
 yet becomes a new field with a default in `lib/agent/profile.js`, used in one place in `lib/agent/driver.js`.

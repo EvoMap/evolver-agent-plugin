@@ -7,8 +7,8 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { EDIT_TOOLS } from '../../../agents/antigravity/evidence.js';
-import profile from '../../../agents/antigravity/profile.js';
+import { EDIT_TOOLS } from '../../../hosts/antigravity/evidence.js';
+import profile from '../../../hosts/antigravity/profile.js';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
@@ -23,7 +23,7 @@ const DOCUMENTED_EVENTS = ['SessionStart', 'PreToolUse', 'PostToolUse', 'PreInvo
 const PASSED_RUN = 'The command exited with code 0.\nOutput:\nℹ tests 2\nℹ pass 2\nℹ fail 0\n';
 
 const read = (file) => readFileSync(join(root, file), 'utf8');
-const hooks = JSON.parse(read('agents/antigravity/dist/hooks.json'))[NAME];
+const hooks = JSON.parse(read('hosts/antigravity/dist/hooks.json'))[NAME];
 const handlerOf = (event) => (event === 'PreToolUse' ? hooks[event][0].hooks[0] : hooks[event][0]);
 const commandOf = (event) => handlerOf(event).command;
 const neutralOf = (event) => JSON.stringify(profile.reply.empty(event));
@@ -100,8 +100,8 @@ const reuseReports = (proxy) => proxy.requests.filter((request) => request.path 
 const stateFile = (home, name) => join(home, '.evolver', 'state', name);
 
 test('the repo root holds the dist registration and manifest, the two files Antigravity reads there', () => {
-  assert.equal(read('hooks.json'), read('agents/antigravity/dist/hooks.json'));
-  assert.equal(read('plugin.json'), read('agents/antigravity/dist/plugin.json'));
+  assert.equal(read('hooks.json'), read('hosts/antigravity/dist/hooks.json'));
+  assert.equal(read('plugin.json'), read('hosts/antigravity/dist/plugin.json'));
   const manifest = JSON.parse(read('plugin.json'));
   assert.equal(manifest.name, NAME);
   assert.deepEqual(Object.keys(JSON.parse(read('hooks.json'))), [NAME]);

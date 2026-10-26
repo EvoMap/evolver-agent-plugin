@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import profile from '../../../agents/antigravity/profile.js';
+import profile from '../../../hosts/antigravity/profile.js';
 import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 
 const payloads = JSON.parse(readFileSync(new URL('../../fixtures/antigravity/payloads.json', import.meta.url), 'utf8'));

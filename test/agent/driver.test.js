@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createDriver } from '../../lib/agent/driver.js';
 import { defineProfile } from '../../lib/agent/profile.js';
-import mcpGeneric from '../../agents/mcp-generic/profile.js';
+import mcpGeneric from '../../hosts/mcp-generic/profile.js';
 import { PROMPT, memoryPorts } from '../app/memory-ports.js';
 
 const HOOK_EVENTS = { SessionStart: 'sessionStart', UserPromptSubmit: 'prompt', PreToolUse: 'beforeEdit', PostToolUse: 'toolResult', Stop: 'turnEnd', SessionEnd: 'sessionEnd' };
