@@ -25,8 +25,16 @@ adapter that turns its hook events into that logic's calls.
 | Host | Status | Adapter |
 |---|---|---|
 | Claude Code 2.1.286+ | Supported | `hooks/register.ts`, a function-hooks module |
+| WorkBuddy / CodeBuddy | Supported | `hosts/workbuddy`, command hooks; installs `dist/workbuddy` |
+| Cursor | Supported | `hosts/cursor`, command hooks; installs the repo root |
+| Antigravity | Supported | `hosts/antigravity`, command hooks; installs `dist/antigravity` |
+| OpenCode 1.19.4+ | Supported | `hosts/opencode`, an in-process plugin; the `@evomap/evolver-opencode` package |
+| Any MCP client without hooks (Kiro, openclaw, …) | Supported | `hosts/mcp-generic`, `node bin/mcp.mjs mcp-generic` over stdio |
 | Codex, Muse Code | Not yet | Need a command-hook adapter on Evolver's normalized event API |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
+
+Every host but Claude Code runs on one stack (`lib/channels`, `lib/agent`, `lib/app`, `lib/runtime`), described in
+[`docs/architecture.md`](docs/architecture.md); `hosts/README.md` lists how each host differs.
 
 ## Install (Claude Code)
 
@@ -50,6 +58,22 @@ is installed, disable it so that each reuse is reported only once:
 ```bash
 claude plugin disable evolver-mods@evolver-mods
 ```
+
+## Install (other hosts)
+
+The folders WorkBuddy, Antigravity and OpenCode install are built from a checkout with `npm ci && npm run pack`,
+into `dist/`:
+
+- **WorkBuddy / CodeBuddy:** add the checkout as a marketplace, then install `evolver@evomap-workbuddy`; it replaces
+  the standalone plugin of that name and keeps its data folder.
+- **Cursor:** add this repository as a plugin marketplace and install `evolver`.
+- **Antigravity:** `agy plugin install <checkout>/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
+- **OpenCode:** `opencode plugin <checkout>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove the
+  old `evolver-opencode-plugin` first, or every reuse is reported twice.
+- **An MCP client without hooks:** register `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
+
+A host's first session adopts what its standalone plugin left (turn counters, open injections, undelivered reports),
+so nothing is reported twice or lost on the way over.
 
 ## Commands
 

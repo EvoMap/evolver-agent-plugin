@@ -22,8 +22,8 @@ whichever agent runs it. Agents differ in three ways, and each kind of differenc
 
 | Difference | What varies | Owner |
 |---|---|---|
-| Channel | How an event arrives and its answer leaves: a hook process per event, a command script, a plugin inside the host's process, or an MCP tool call | `lib/channels/{hook,script,plugin,mcp}/` |
-| Agent | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed | `hosts/<agent>/profile.js` |
+| Channel | How an event arrives and its answer leaves: a hook process per event, a command script, a plugin inside the host's process, an MCP tool call, or the background worker a hook starts | `lib/channels/{hook,script,plugin,mcp,worker}/` |
+| Host | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed, what its standalone plugin left behind | `hosts/<host>/profile.js` |
 | Execution | Process lifetime, locking, background work, time budgets, how a headless model and the CLI run, where state lives | `lib/runtime/`, assembled once per channel |
 
 ```
@@ -35,8 +35,8 @@ host ─▶ lib/channels/*  ─▶ lib/agent/driver.js ─▶ lib/app/*  (use ca
 
 Layer rules, checked by `test/architecture.test.js`: the pure rules import nothing else; `lib/app/` imports only
 pure rules and never Node; `lib/runtime/` implements the ports and is the only shared code that spawns, locks,
-reads files or branches on the platform; `hosts/<agent>/` holds data and pure functions, no IO; no shared layer
-names an agent.
+reads files or branches on the platform; `hosts/<host>/` holds data and pure functions, no IO; `bin/` and every
+`hosts/<host>/dist/` are entries that reach the plugin only through a channel; no shared layer names a host.
 
 **Profiles.** `defineProfile` completes an agent's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events
@@ -47,7 +47,8 @@ hooks, or a transcript read from the turn's start); how a turn ends (its reason,
 to wait for a late end); how commands are typed (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The
 runtime executes what the profile declares: time budgets per event, the owner process (`self`, `parent`, or a named
 ancestor), the headless model (a CLI, an SDK call, the agent's own model in the session, or none) and the state
-directory. `hosts/README.md` holds the matrix of every agent against these points.
+directory, and what the host's standalone plugin left in it (adopted once, so a resumed session keeps counting turns
+and nothing undelivered is lost). `hosts/README.md` holds the matrix of every host against these points.
 
 **Use cases** (`lib/app/`), each `(ports, input)`:
 
@@ -80,6 +81,13 @@ that there is no retention follow-up: the server never sees a file before the ag
 engine notice leads the first recall's answer. An agent with hooks never uses it, so its model's context holds no
 Evolver tool. The engine's `@evomap/evolver-mcp` is a
 separate, general tool server.
+
+**Packing.** WorkBuddy copies only its plugin folder and loads every component folder at that folder's root,
+Antigravity installs a whole repo and loads its skills, commands and agents, and OpenCode loads an npm package:
+installed from this repo as it is, they would miss `lib/` or load the Claude Code plugin's skill, commands and hooks.
+`npm run pack` builds each of them its own folder under `dist/<host>` (`scripts/pack.mjs`, from
+`hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its manifests at the root.
+Cursor installs the repo root: its manifest names its commands and hooks, which turns off its folder discovery.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<agent>-engine/` in the background and starts its Proxy, without the self-update service.
