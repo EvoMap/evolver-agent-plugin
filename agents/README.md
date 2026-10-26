@@ -12,10 +12,10 @@ starts a process, takes a lock or reads a file itself: what has to run is declar
 | Events | `events: { hostEvent: canonicalEvent }` | — (MCP: its six tools) |
 | Payload | `payload: { sessionId, turnId, prompt, projectDir, isSubagent, model, transcriptPath, gene, writtenFor }` | Claude Code's field names |
 | Session start | `sessionStart: 'event' \| 'owner-change' \| 'connection'` | `event` |
-| Answer | `reply: { context, notice, empty, command, turnEnd, lifetime: 'turn' \| 'call' }` | `hookSpecificOutput.additionalContext`, `{}` |
+| Answer | `reply: { context, notice, empty, command, turnEnd, lifetime: 'turn' \| 'call' }`, each `(value, hostEvent, payload)` | `hookSpecificOutput.additionalContext`, `{}` |
 | Evidence | `evidence: { toolNote, editedFile, turnStart?, turnRecord?, source }` | required |
 | Turn end | `turnEnd: { reason, answer, unclosed: { settleMs, as } }` | every end is `answer`; an unclosed turn ends as `error` at the next prompt |
-| Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse }` | `cli-only` |
+| Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse, sessionOf?(env) }`; an inline script runs `bin/command.mjs <agent> <command>` | `cli-only` |
 | Budgets | `budgets: { prompt, … }` in ms, matching the host's hook timeouts | `prompt: 5000` |
 | Owner | `owner: 'self' \| 'parent' \| { ancestor: RegExp }` | `parent` |
 | Headless model | `model: { kind: 'cli', command, args, parse, shim? } \| { kind: 'sdk', complete } \| { kind: 'in-session' } \| null` | `null` |

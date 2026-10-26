@@ -22,7 +22,7 @@ whichever agent runs it. Agents differ in three ways, and each kind of differenc
 
 | Difference | What varies | Owner |
 |---|---|---|
-| Channel | How an event arrives and its answer leaves: a hook process per event, a plugin inside the host's process, or an MCP tool call | `lib/channels/{hook,plugin,mcp}/` |
+| Channel | How an event arrives and its answer leaves: a hook process per event, a command script, a plugin inside the host's process, or an MCP tool call | `lib/channels/{hook,script,plugin,mcp}/` |
 | Agent | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed | `agents/<agent>/profile.js` |
 | Execution | Process lifetime, locking, background work, time budgets, how a headless model and the CLI run, where state lives | `lib/runtime/`, assembled once per channel |
 
