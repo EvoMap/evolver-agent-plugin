@@ -4,7 +4,7 @@
 import { EVENTS } from '../../lib/agent/events.js';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { editedFileOf, toolNoteOf } from './evidence.js';
-import { completionOf, cursorAgentArguments, sessionModelOf } from './headless.js';
+import { completionOf, cursorAgentArguments, cursorAgentCommand, sessionModelOf } from './headless.js';
 
 const text = (value) => (typeof value === 'string' ? value : '');
 const firstWorkspaceRoot = ({ workspace_roots: roots }) => (Array.isArray(roots) ? text(roots[0]) : '') || null;
@@ -52,6 +52,6 @@ export default defineProfile({
   // beforeSubmitPrompt also answers the /evolver-* commands, which may run the evolver CLI for ten minutes.
   budgets: { prompt: 660_000 },
   owner: { ancestorPath: /cursor/i },
-  model: { kind: 'cli', command: { names: ['cursor-agent', 'agent'], dirs: (env) => (env.HOME ? [`${env.HOME}/.local/bin`] : []) }, args: cursorAgentArguments, parse: completionOf },
+  model: { kind: 'cli', command: cursorAgentCommand, args: cursorAgentArguments, input: () => '', workdir: 'empty', parse: completionOf },
   legacy: [{ ledgers: /^cursor-injected-[0-9a-f]{16}\.json$/ }],
 });

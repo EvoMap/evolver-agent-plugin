@@ -56,7 +56,9 @@ test('a Gene the headless model could not write is handed to the agent with a co
 
 test('the headless model is the CodeBuddy CLI with no tools and one turn, on the turn\'s model when it is a plain id', () => {
   assert.equal(profile.model.kind, 'cli');
-  assert.equal(profile.model.command({}), 'codebuddy');
+  assert.deepEqual(profile.model.command.names, ['codebuddy']);
+  assert.ok(profile.model.command.dirs({ HOME: '/Users/me' }).includes('/Users/me/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin'));
+  assert.equal(profile.model.command.nodeScriptOnWindows, true);
   assert.equal(profile.model.shim, true);
   assert.deepEqual(profile.model.args({ model: 'glm-5' }), ['-p', '--tools', '', '--no-session-persistence', '--output-format', 'json', '--max-turns', '1', '--model', 'glm-5']);
   assert.equal(profile.model.args({ model: 'bad model; rm -rf' }).includes('--model'), false);

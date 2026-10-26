@@ -72,3 +72,18 @@ test('the CLI runs the plugin-installed engine in the project directory, before 
   const cli = evolverCliOf({ enginePrefix: '/managed', managedEngine: (prefix) => (prefix === '/managed' ? { path: entry } : null) });
   assert.deepEqual(await cli.run(['run', '--dry-run'], { cwd: dir }), { ok: true, text: `run --dry-run in ${dir}` });
 });
+
+test('a CLI is looked up name by name, on PATH then in the host\'s folders, and a generic name must prove itself', async () => {
+  const { executableOf } = await import('../../lib/runtime/process/which.js');
+  const present = new Set(['/usr/bin/agent', '/home/me/.local/bin/cursor-agent', '/apps/wb/codebuddy']);
+  const options = { env: { PATH: '/usr/bin' }, platform: 'darwin', exists: (file) => present.has(file), realPath: (file) => file };
+  const cursor = { names: ['cursor-agent', 'agent'], dirs: ['/home/me/.local/bin'], accepts: (name, real) => name === 'cursor-agent' || real.includes('cursor-agent') };
+  assert.deepEqual(executableOf(cursor, options), { file: '/home/me/.local/bin/cursor-agent', viaNode: false });
+  present.delete('/home/me/.local/bin/cursor-agent');
+  assert.equal(executableOf(cursor, options), null, 'an unrelated agent on PATH is never run');
+  const workbuddy = { names: ['codebuddy'], dirs: ['/apps/wb'], nodeScriptOnWindows: true };
+  assert.deepEqual(executableOf(workbuddy, options), { file: '/apps/wb/codebuddy', viaNode: false });
+  assert.deepEqual(executableOf(workbuddy, { ...options, platform: 'win32', env: { PATH: '/usr/bin' } }), { file: '/apps/wb/codebuddy', viaNode: true });
+  present.add('/usr/bin/tool.cmd');
+  assert.equal(executableOf({ names: ['tool'] }, { ...options, platform: 'win32' }), null, 'a .cmd shim needs a shell');
+});

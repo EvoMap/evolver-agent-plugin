@@ -38,9 +38,23 @@ export function completionOf({ stdout, stderr }) {
 
 const modelArgs = (model) => (MODEL_ID.test(model?.model ?? '') ? ['--model', model.model] : []);
 
+const BUNDLED_CLI = ['app.asar.unpacked', 'cli', 'bin'];
+
+// Without a `codebuddy` on PATH (an npm install), the CLI WorkBuddy bundles; on Windows only the bundled one, since
+// the npm install there is a shell shim.
+function bundledDirs(env) {
+  const home = env.HOME || env.USERPROFILE || '';
+  return [
+    `${home}/Applications/WorkBuddy.app/Contents/Resources/${BUNDLED_CLI.join('/')}`,
+    `/Applications/WorkBuddy.app/Contents/Resources/${BUNDLED_CLI.join('/')}`,
+    ...(env.LOCALAPPDATA ? [`${env.LOCALAPPDATA}/Programs/WorkBuddy/resources/${BUNDLED_CLI.join('/')}`] : []),
+    ...(env.ProgramFiles ? [`${env.ProgramFiles}/WorkBuddy/resources/${BUNDLED_CLI.join('/')}`] : []),
+  ];
+}
+
 export const headlessCodebuddy = Object.freeze({
   kind: 'cli',
-  command: () => 'codebuddy',
+  command: { names: ['codebuddy'], dirs: bundledDirs, nodeScriptOnWindows: true },
   args: (model) => [...HEADLESS_ARGS, ...modelArgs(model)],
   parse: completionOf,
   shim: true,

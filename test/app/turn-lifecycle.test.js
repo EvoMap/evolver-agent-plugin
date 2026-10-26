@@ -194,3 +194,14 @@ test('the wait for a turn end still writing runs from when that turn began closi
   await closeUnfinishedTurn(ports, { sessionId: 's1', settleMs: 3_000, projectDir: '/proj' });
   assert.ok(ports.clock.now() >= closedAt + 2_000);
 });
+
+test('an injection adopted from a standalone plugin is reported aborted at the next session start, never on a later turn', async () => {
+  const { ports, queued } = memoryPorts();
+  await ports.sessions.update('old', () => ({ turn: 3, pid: 4242, injected: { 'sha256:adopted': { turn: 3, injectedAt: 1, strategyText: '1. a.', adopted: true } } }));
+  await promptSubmitted(ports, { sessionId: 'old', prompt: 'update the readme intro', ...WAIT });
+  await toolFinished(ports, { sessionId: 'old', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
+  assert.deepEqual((await end(ports, 'old')).reports, []);
+  await sessionStarted(ports, { sessionId: 'new', projectDir: '/proj' });
+  const [report] = queued.map(({ report }) => report).filter((candidate) => candidate.asset_id === 'sha256:adopted');
+  assert.deepEqual([report.task_id, report.outcome, report.evidence.aborted, report.evidence.tier], ['testagent:old:3', 'failed', true, 'none']);
+});

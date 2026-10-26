@@ -116,11 +116,11 @@ test('the headless model is cursor-agent in print and ask mode on the chat model
     await runner.complete({ model: 'default' }, 'PROMPT', AbortSignal.timeout(10_000));
     const [named, unnamed] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(named.args.slice(0, 7), ['-p', '--output-format', 'json', '--mode', 'ask', '--trust', '--workspace']);
-    assert.match(named.args[7], /hosts[/\\]cursor[/\\]dist$/);
-    assert.deepEqual(named.args.slice(8), ['--model', 'gpt-5']);
+    assert.match(named.args[7], /evolver-model-/, 'the run trusts only its own empty folder');
+    assert.deepEqual(named.args.slice(8), ['--model', 'gpt-5', 'PROMPT']);
     assert.equal(named.args.includes('--force'), false);
     assert.equal(unnamed.args.includes('--model'), false);
-    assert.equal(named.input, 'PROMPT');
+    assert.equal(named.input, '', 'the prompt is the argument the docs name, not stdin');
     assert.equal(named.headless, '1');
   } finally {
     rmSync(bin, { recursive: true, force: true });
