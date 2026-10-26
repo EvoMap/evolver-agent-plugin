@@ -70,7 +70,7 @@ export default defineProfile({
     turnId: (payload, context) => latestTurn(context)?.turnId ?? null,
     prompt: (payload, context) => latestTurn(context)?.prompt ?? '',
     projectDir: (payload) => projectDirOf(payload.workspacePaths),
-    isSubagent: (payload) => Boolean(text(payload.parentConversationId)),
+    isIgnored: (payload) => Boolean(text(payload.parentConversationId)),
     model: (payload) => (text(payload.modelName) ? { model: payload.modelName } : null),
     transcriptPath: (payload) => text(payload.transcriptPath) || null,
   },

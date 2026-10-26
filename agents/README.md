@@ -10,7 +10,7 @@ starts a process, takes a lock or reads a file itself: what has to run is declar
 |---|---|---|
 | Channel | `channel: 'hook' \| 'plugin' \| 'mcp'` | `hook` |
 | Events | `events: { hostEvent: canonicalEvent }` | — (MCP: its six tools) |
-| Payload | `payload: { sessionId, turnId, prompt, projectDir, isSubagent, model, transcriptPath, gene, writtenFor }` | Claude Code's field names |
+| Payload | `payload: { sessionId, turnId, prompt, projectDir, isIgnored` (a subagent's or any other event that is not the person's turn), ` model, transcriptPath, gene, writtenFor }` | Claude Code's field names |
 | Session start | `sessionStart: 'event' \| 'owner-change' \| 'connection'` | `event` |
 | Answer | `reply: { context, notice, empty, command, turnEnd, lifetime: 'turn' \| 'call' }`, each `(value, hostEvent, payload)` | `hookSpecificOutput.additionalContext`, `{}` |
 | Evidence | `evidence: { toolNote, editedFile, turnStart?, turnRecord?, source }` | required |

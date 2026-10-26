@@ -262,14 +262,14 @@ test('inside the headless distillation every hook does nothing', async () => {
   assert.equal(existsSync(statePath('')), false);
 });
 
-test('a verified turn becomes the chat candidate with its final answer', { todo: 'lib/turn/record.js must read the afterAgentResponse answer note' }, async () => {
+test('a verified turn becomes the chat candidate with its final answer', async () => {
   await fixTurn(chat('s-candidate'));
   const candidate = candidates()['s-candidate'];
   assert.equal(candidate?.answer, 'Retries fixed; npm test passes.');
   assert.deepEqual(candidate?.model, { model: 'claude-4.5-sonnet' });
 });
 
-test('session start tells the engine notice once, as additional_context', { todo: 'lib/agent/driver.js sessionStart drops the payload, so the notice never reaches the reply' }, async () => {
+test('session start tells the engine notice once, as additional_context', async () => {
   mkdirSync(statePath(''), { recursive: true });
   writeFileSync(statePath('cursor-engine.json'), JSON.stringify({ status: 'started', version: '2.0.46', at: 1 }));
   const answer = await chat('s-notice').start();

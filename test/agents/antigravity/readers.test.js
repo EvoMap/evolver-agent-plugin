@@ -71,8 +71,8 @@ test('the payload readers take the conversation, the first workspace, the model 
   assert.deepEqual(payload.model(payloads.Stop), { model: 'gemini-3.6-flash-medium' });
   assert.equal(payload.model({}), null);
   assert.match(payload.transcriptPath(payloads.Stop), /transcript\.jsonl$/);
-  assert.equal(payload.isSubagent(payloads.PreInvocation), false);
-  assert.equal(payload.isSubagent({ ...payloads.PreInvocation, parentConversationId: 'c-parent' }), true);
+  assert.equal(payload.isIgnored(payloads.PreInvocation), false);
+  assert.equal(payload.isIgnored({ ...payloads.PreInvocation, parentConversationId: 'c-parent' }), true);
 });
 
 test('the prompt, turn id and turn start come from the transcript, read once per event', () => {

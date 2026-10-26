@@ -41,7 +41,7 @@ export default defineProfile({
     turnId: (payload) => text(payload.turnID) || null,
     prompt: (payload) => personText(payload.parts),
     projectDir: (payload) => text(payload.directory) || null,
-    isSubagent: (payload) => !isPersonSession(payload.session),
+    isIgnored: (payload) => !isPersonSession(payload.session),
     model: (payload) => modelOf(payload.lastAssistant),
   },
   reply: {

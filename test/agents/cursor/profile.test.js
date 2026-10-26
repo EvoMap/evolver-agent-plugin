@@ -24,9 +24,9 @@ test('the session is the conversation, the turn its generation, the project the 
 });
 
 test('only the agent chat counts: an inline edit names no composer_mode and is left alone', () => {
-  assert.equal(cursor.payload.isSubagent(payload('beforeSubmitPrompt')), false);
-  assert.equal(cursor.payload.isSubagent(payload('beforeSubmitPrompt.inlineEdit')), true);
-  assert.equal(cursor.payload.isSubagent(payload('postToolUse.shellPassed')), false, 'a tool event names no composer_mode either');
+  assert.equal(cursor.payload.isIgnored(payload('beforeSubmitPrompt')), false);
+  assert.equal(cursor.payload.isIgnored(payload('beforeSubmitPrompt.inlineEdit')), true);
+  assert.equal(cursor.payload.isIgnored(payload('postToolUse.shellPassed')), false, 'a tool event names no composer_mode either');
 });
 
 test('the chat model is kept as Cursor names it; an empty name is the default', () => {
@@ -88,7 +88,7 @@ test('the owner is the nearest ancestor named Cursor, past the shell the extensi
   assert.equal(ownerProbeOf(cursor.owner, { probe: (pid) => table.get(pid) ?? null, platform: 'darwin' }).current(), 600);
 });
 
-test('under the CLI the owner is the cursor-agent process, whose executable is a node inside its install', { todo: 'the owner probe matches the executable name only; this needs an owner kind that matches its path' }, () => {
+test('under the CLI the owner is the cursor-agent process, whose executable is a node inside its install', () => {
   const table = new Map([
     [process.ppid, { ppid: 900, name: 'bash' }],
     [900, { ppid: 1, name: 'node', path: '/Users/me/.local/share/cursor-agent/versions/2026.10.20/node' }],

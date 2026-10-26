@@ -31,7 +31,7 @@ export default defineProfile({
     sessionId: (payload) => text(payload.conversation_id) || text(payload.session_id) || null,
     turnId: (payload) => text(payload.generation_id) || null,
     projectDir: firstWorkspaceRoot,
-    isSubagent: isInlineEdit,
+    isIgnored: isInlineEdit,
     model: sessionModelOf,
   },
   reply: {
@@ -40,8 +40,7 @@ export default defineProfile({
     command: (result) => (result.forAgent
       ? { continue: true, additional_context: result.text }
       : { continue: false, user_message: result.text }),
-    // A generation Cursor submits again gets its turn's strategy again instead of closing that turn as an error.
-    lifetime: 'call',
+    lifetime: 'turn',
   },
   evidence: { toolNote: toolNoteOf, editedFile: editedFileOf },
   turnEnd: {
@@ -52,6 +51,6 @@ export default defineProfile({
   commands: { entry: 'intercept' },
   // beforeSubmitPrompt also answers the /evolver-* commands, which may run the evolver CLI for ten minutes.
   budgets: { prompt: 660_000 },
-  owner: { ancestor: /cursor/i },
-  model: { kind: 'cli', command: () => 'cursor-agent', args: cursorAgentArguments, parse: completionOf },
+  owner: { ancestorPath: /cursor/i },
+  model: { kind: 'cli', command: { names: ['cursor-agent', 'agent'], dirs: (env) => (env.HOME ? [`${env.HOME}/.local/bin`] : []) }, args: cursorAgentArguments, parse: completionOf },
 });

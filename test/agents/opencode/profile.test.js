@@ -18,10 +18,10 @@ test('the prompt is what the person typed, without the synthetic text OpenCode a
 });
 
 test('only the person\'s own sessions count: a task tool\'s child and the distillation helper are skipped', () => {
-  assert.equal(profile.payload.isSubagent({ session: sessions.person }), false);
-  assert.equal(profile.payload.isSubagent({ session: null }), false);
-  assert.equal(profile.payload.isSubagent({ session: sessions.subagent }), true);
-  assert.equal(profile.payload.isSubagent({ session: sessions.helper }), true);
+  assert.equal(profile.payload.isIgnored({ session: sessions.person }), false);
+  assert.equal(profile.payload.isIgnored({ session: null }), false);
+  assert.equal(profile.payload.isIgnored({ session: sessions.subagent }), true);
+  assert.equal(profile.payload.isIgnored({ session: sessions.helper }), true);
 });
 
 test('a bash check passes or fails on its exit code, and on failure output a `| tail` hid from it', () => {
