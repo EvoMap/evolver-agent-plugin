@@ -1,0 +1,10 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    ".codebuddy-plugin/plugin.json": "hosts/workbuddy/dist/.codebuddy-plugin/plugin.json",
+    "hooks/hooks.json": "hosts/workbuddy/dist/hooks/hooks.json",
+    "commands": "hosts/workbuddy/dist/commands",
+    "package.json": "hosts/workbuddy/dist/package.json",
+    "LICENSE": "LICENSE"
+  }
+}

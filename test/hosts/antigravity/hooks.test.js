@@ -4,11 +4,12 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { EDIT_TOOLS } from '../../../hosts/antigravity/evidence.js';
 import profile from '../../../hosts/antigravity/profile.js';
+import { pack } from '../../../scripts/pack.mjs';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
@@ -34,9 +35,20 @@ function scratchHome(t) {
   return home;
 }
 
+let packedRoot = null;
+after(() => packedRoot && rmSync(packedRoot, { recursive: true, force: true }));
+
+function packedPlugin() {
+  if (!packedRoot) {
+    packedRoot = mkdtempSync(join(tmpdir(), 'evolver-antigravity-packed-'));
+    pack('antigravity', packedRoot);
+  }
+  return packedRoot;
+}
+
 function install(home, folder) {
   mkdirSync(join(home, folder), { recursive: true });
-  symlinkSync(root, join(home, folder, NAME));
+  symlinkSync(packedPlugin(), join(home, folder, NAME));
   return join(home, folder, NAME);
 }
 
@@ -99,13 +111,13 @@ function conversation(host, home, id) {
 const reuseReports = (proxy) => proxy.requests.filter((request) => request.path === '/asset/reuse-result').map((request) => request.body);
 const stateFile = (home, name) => join(home, '.evolver', 'state', name);
 
-test('the repo root holds the dist registration and manifest, the two files Antigravity reads there', () => {
-  assert.equal(read('hooks.json'), read('hosts/antigravity/dist/hooks.json'));
-  assert.equal(read('plugin.json'), read('hosts/antigravity/dist/plugin.json'));
-  const manifest = JSON.parse(read('plugin.json'));
+test('the packed folder holds the registration and manifest at its root, and nothing of the Claude Code plugin', () => {
+  const packed = packedPlugin();
+  const manifest = JSON.parse(readFileSync(join(packed, 'plugin.json'), 'utf8'));
   assert.equal(manifest.name, NAME);
-  assert.deepEqual(Object.keys(JSON.parse(read('hooks.json'))), [NAME]);
-  assert.ok(existsSync(join(root, manifest.logo)));
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(packed, 'hooks.json'), 'utf8'))), [NAME]);
+  assert.ok(existsSync(join(packed, manifest.logo)));
+  for (const folder of ['skills', 'commands', 'agents', 'hooks', '.claude-plugin']) assert.equal(existsSync(join(packed, folder)), false, folder);
 });
 
 test('the registration names documented events the profile maps, edit tools only for PreToolUse, timeouts in seconds', () => {

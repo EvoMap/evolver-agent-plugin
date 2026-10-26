@@ -38,12 +38,12 @@ test('every plugin command ships as an inline script with the description and hi
   }
 });
 
-test('the marketplace at the repository root installs the plugin from hosts/workbuddy/dist', () => {
+test('the marketplace at the repository root installs the packed plugin, dist/workbuddy', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
   const manifest = json(`${DIST}/.codebuddy-plugin/plugin.json`);
   const [entry] = marketplace.plugins;
   assert.equal(marketplace.plugins.length, 1);
-  assert.equal(entry.source, `./${DIST}`);
+  assert.equal(entry.source, './dist/workbuddy');
   assert.equal(entry.name, manifest.name);
   assert.equal(entry.version, manifest.version);
   assert.equal(marketplace.metadata.version, manifest.version);

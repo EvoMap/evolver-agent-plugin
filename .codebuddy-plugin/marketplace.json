@@ -14,7 +14,7 @@
       "version": "0.4.0",
       "description": "Evolver for WorkBuddy: strategy recall behind the prompt, automatic reuse reports, and session-end distillation into draft Genes, all from hooks.",
       "description_en": "Evolver for WorkBuddy: strategy recall behind the prompt, automatic reuse reports, and session-end distillation into draft Genes, all from hooks.",
-      "source": "./hosts/workbuddy/dist",
+      "source": "./dist/workbuddy",
       "category": "productivity",
       "author": {
         "name": "EvoMap",

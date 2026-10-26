@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { pack } from '../../../scripts/pack.mjs';
 import { PROMPT } from '../../app/memory-ports.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
@@ -17,16 +18,10 @@ const PAYLOADS = JSON.parse(readFileSync(join(FIXTURES, 'hook-payloads.json'), '
 const ANSWER_LINE = `${JSON.stringify(PAYLOADS.assistantMessage)}\n`;
 const AGENT_GENE = JSON.stringify({ title: 'LRU cache', summary: 'An LRU cache over a Map.', strategy: ['Keep a Map.', 'Re-insert on read.'] });
 
-// What WorkBuddy's installer leaves in its plugin cache from hosts/workbuddy/dist, with bin, lib and the
-// profile placed beside it as the plugin needs them.
+// What WorkBuddy's installer leaves in its plugin cache: the packed folder, which it copies whole.
 function installedPlugin() {
   const root = mkdtempSync(join(tmpdir(), 'workbuddy-plugin-'));
-  cpSync(join(REPO, 'hosts', 'workbuddy', 'dist'), root, { recursive: true });
-  for (const dir of ['bin', 'lib']) cpSync(join(REPO, dir), join(root, dir), { recursive: true });
-  mkdirSync(join(root, 'hosts', 'workbuddy'), { recursive: true });
-  for (const file of readdirSync(join(REPO, 'hosts', 'workbuddy')).filter((name) => name.endsWith('.js'))) {
-    cpSync(join(REPO, 'hosts', 'workbuddy', file), join(root, 'hosts', 'workbuddy', file));
-  }
+  pack('workbuddy', root);
   return root;
 }
 

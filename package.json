@@ -11,7 +11,8 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "validate": "claude plugin validate .",
-    "dev:sync": "bash scripts/sync-dev-mod.sh"
+    "dev:sync": "bash scripts/sync-dev-mod.sh",
+    "pack": "node scripts/pack.mjs all dist"
   },
   "devDependencies": {
     "@evomap/evolver-core": "2.0.38"

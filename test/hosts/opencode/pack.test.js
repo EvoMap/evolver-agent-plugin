@@ -5,14 +5,17 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { filesOf, pack } from '../../../hosts/opencode/dist/pack.mjs';
+import { closureOf, pack, packSpecOf } from '../../../scripts/pack.mjs';
 
-test('the published folder holds the two OpenCode entries and what they load, and nothing of the MCP channel', (t) => {
+function packed(t) {
   const out = mkdtempSync(join(tmpdir(), 'evolver-opencode-pack-'));
   t.after(() => rmSync(out, { recursive: true, force: true }));
-  const files = pack(out);
-  const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'));
+  return { out, files: pack('opencode', out) };
+}
 
+test('the published folder holds the two OpenCode entries and what they load, and nothing of the MCP channel', (t) => {
+  const { out, files } = packed(t);
+  const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@evomap/evolver-opencode');
   assert.equal(manifest.license, 'MIT');
   assert.equal(manifest.type, 'module');
@@ -26,9 +29,7 @@ test('the published folder holds the two OpenCode entries and what they load, an
 });
 
 test('the packed entries load as OpenCode plugin modules', async (t) => {
-  const out = mkdtempSync(join(tmpdir(), 'evolver-opencode-load-'));
-  t.after(() => rmSync(out, { recursive: true, force: true }));
-  pack(out);
+  const { out } = packed(t);
   const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'));
   const server = (await import(pathToFileURL(join(out, manifest.exports['./server'])).href)).default;
   const tui = (await import(pathToFileURL(join(out, manifest.exports['./tui'])).href)).default;
@@ -39,5 +40,5 @@ test('the packed entries load as OpenCode plugin modules', async (t) => {
 test('a checkout loads as a path plugin from hosts/opencode/dist, whose exports stay inside it', () => {
   const manifest = JSON.parse(readFileSync(new URL('../../../hosts/opencode/dist/package.json', import.meta.url), 'utf8'));
   assert.deepEqual([manifest.exports['./server'], manifest.exports['./tui']], ['./server.mjs', './tui.mjs']);
-  assert.ok(filesOf().every((file) => !file.startsWith('..')));
+  assert.ok(closureOf(packSpecOf('opencode').entries).every((file) => !file.startsWith('..')));
 });

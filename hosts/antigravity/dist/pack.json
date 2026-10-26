@@ -1,0 +1,9 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    "plugin.json": "hosts/antigravity/dist/plugin.json",
+    "hooks.json": "hosts/antigravity/dist/hooks.json",
+    "assets/logo.png": "assets/logo.png",
+    "LICENSE": "LICENSE"
+  }
+}
