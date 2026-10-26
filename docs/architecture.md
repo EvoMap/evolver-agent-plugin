@@ -13,8 +13,74 @@ calls, speaking `lib/`'s vocabulary: a turn ends as `answer`, `aborted`, `refusa
 `error`, and a check is `{ command, failed }`. Claude Code's adapter is
 `hooks/register.ts`, with the parsing of its own tool calls (which calls edit files,
 what they wrote, which shell runs are checks) in `lib/claude-code/`; the sections below
-that name events describe it. Other hosts are added as further adapters over the same `lib/`, not as
-separate plugins.
+that name events describe it. Other agents run through the stack described next, not as separate plugins.
+
+## Agents beyond Claude Code
+
+Every other agent goes through one stack, so a turn is recalled for, reported and distilled the same way
+whichever agent runs it. Agents differ in three ways, and each kind of difference has exactly one owner:
+
+| Difference | What varies | Owner |
+|---|---|---|
+| Channel | How an event arrives and its answer leaves: a hook process per event, a plugin inside the host's process, or an MCP tool call | `lib/channels/{hook,plugin,mcp}/` |
+| Agent | Within a channel: payload fields, how context is injected, where evidence comes from, how a turn ends, how a command is typed | `agents/<agent>/profile.js` |
+| Execution | Process lifetime, locking, background work, time budgets, how a headless model and the CLI run, where state lives | `lib/runtime/`, assembled once per channel |
+
+```
+host ─▶ lib/channels/*  ─▶ lib/agent/driver.js ─▶ lib/app/*  (use cases over ports)
+                 agents/<agent>/profile.js ┘          ▲
+                                       lib/runtime/environment.js builds the ports
+                                                      lib/*.js, lib/turn, lib/distill, lib/session: pure rules
+```
+
+Layer rules, checked by `test/architecture.test.js`: the pure rules import nothing else; `lib/app/` imports only
+pure rules and never Node; `lib/runtime/` implements the ports and is the only shared code that spawns, locks,
+reads files or branches on the platform; `agents/<agent>/` holds data and pure functions, no IO; no shared layer
+names an agent.
+
+**Profiles.** `defineProfile` completes an agent's profile with its channel's defaults and fails on load if a
+difference point is missing. The points are the channel; the event map onto eight canonical events
+(`sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene`); how to
+read a payload; how a session starts (`event`, `owner-change`, `connection`); how to answer (the injection's shape,
+an empty answer per event, whether an injection lasts the turn or one model call); where evidence comes from (tool
+hooks, or a transcript read from the turn's start); how a turn ends (its reason, `'unknown'` to wait, and how long
+to wait for a late end); how commands are typed (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The
+runtime executes what the profile declares: time budgets per event, the owner process (`self`, `parent`, or a named
+ancestor), the headless model (a CLI, an SDK call, the agent's own model in the session, or none) and the state
+directory. `agents/README.md` holds the matrix of every agent against these points.
+
+**Use cases** (`lib/app/`), each `(ports, input)`:
+
+| Event | Use case | What it does |
+|---|---|---|
+| Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
+| Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
+| Tool result | `toolFinished`, `beforeEdit` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. |
+| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
+| Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
+
+**State** lives in one directory per agent (`~/.evolver/state` unless the profile says otherwise), every file named
+`<agent>-<kind>`. Writes go through an exclusive lock with dead-owner takeover; hooks only append reports to a
+queue, and one process at a time owns the outbox.
+
+**Distillation** happens once a session, after it ends, outside the conversation: the agent's headless model gets a
+digest of the candidate turn, may answer `{"skip": …}`, and the Gene goes to `POST /conversation/distill` with
+`trigger: session_end`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
+and answers the Gene and Capsule as a draft; it is kept in `<agent>-distill-drafts.json` until the person publishes
+or discards it with `evolver-drafts`, as on Claude Code. A correction while the model answers stops the post; a
+candidate is retried at the next session start and given up after three failed tries. The headless run carries
+`EVOLVER_HEADLESS=1`, which turns this plugin's hooks off inside it. An agent with no headless model writes the
+Gene itself when asked.
+
+**MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <agent>`, an stdio server with six
+tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
+(the Gene the report asked for), `evolver_status`, `evolver_search`, `evolver_drafts`. The connection is the
+session. It shares every use case with the hook agents, except that the evidence is the agent's own report. An agent
+with hooks never uses it, so its model's context holds no Evolver tool. The engine's `@evomap/evolver-mcp` is a
+separate, general tool server.
+
+**Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
+`<state>/<agent>-engine/` in the background and starts its Proxy, without the self-update service.
 
 ## Commands
 
