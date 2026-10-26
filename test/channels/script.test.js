@@ -24,12 +24,12 @@ let proxy;
 before(async () => { proxy = await fakeProxy(); });
 after(() => proxy.close());
 
-function run(name, { input = '', argv = [], env = {} } = {}) {
+function run(name, { input = '', argv = [], env = {}, stdin = Readable.from([input]), host = profile } = {}) {
   return new Promise((resolve) => {
     let written = '';
     runCommandScript('testscript', name, {
-      argv, stdin: Readable.from([input]), env: { ...proxy.env, ...env },
-      stdout: { write: (text, done) => { written += text; done(); } }, exit: () => resolve(written), profileOf: async () => profile,
+      argv, stdin, env: { ...proxy.env, ...env },
+      stdout: { write: (text, done) => { written += text; done(); } }, exit: () => resolve(written), profileOf: async () => host,
     });
   });
 }
@@ -55,4 +55,11 @@ test('a search from a terminal books its strategy on no session, so the same sea
 
 test('a Gene posted for no candidate says there is nothing to distill', async () => {
   assert.match(await run('evolver-distill', { input: '{"summary":"s"}', argv: ['--post', '123'] }), /^Nothing to distill yet/);
+});
+
+test('a host whose commands run only from a terminal never waits on a stdin held open', async () => {
+  const terminalOnly = defineProfile({ ...profile, commands: { entry: 'cli-only' } });
+  const heldOpen = () => new Readable({ read() {} });
+  assert.equal(await run('evolver-drafts', { stdin: heldOpen(), host: terminalOnly }), 'No distilled drafts are waiting.');
+  assert.match(await run('evolver-nope', { stdin: heldOpen(), host: terminalOnly }), /^Unknown command evolver-nope\. Usage: /);
 });
