@@ -4,6 +4,8 @@ import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { hasComputedImport, importsOf as importsIn } from '../scripts/imports.mjs';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 const SOURCE = /\.m?js$/;
@@ -18,9 +20,8 @@ function filesUnder(dir) {
   });
 }
 
-// Static imports and re-exports, a bare `import 'x'`, and a dynamic `import('x')` of a literal.
-const IMPORT = /^\s*(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|^\s*import\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/gm;
-const importsOf = (file) => [...readFileSync(join(root, file), 'utf8').matchAll(IMPORT)].map((match) => match[1] ?? match[2] ?? match[3]);
+const sourceOf = (file) => readFileSync(join(root, file), 'utf8');
+const importsOf = (file) => importsIn(sourceOf(file)).map(({ specifier }) => specifier);
 const hostOf = (path) => /^hosts\/([^/]+)\//.exec(path)?.[1] ?? null;
 const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)) : specifier);
 
@@ -58,6 +59,10 @@ const PURE_NODE = new Set(['node:path', 'node:url', 'node:os']);
 const NODE_FREE = new Set(['domain', 'app']);
 // Packages are IO: only the runtime (evolver-core) and the channels (the MCP SDK) take them.
 const MAY_IMPORT_PACKAGES = new Set(['runtime', 'channels']);
+// An import whose target only the running code knows escapes this check: the runtime's optional packages, and the
+// registry, which finds a host's profile by its folder name.
+const MAY_COMPUTE_IMPORTS = new Set(['runtime', 'channels']);
+const COMPUTED_IMPORT_FILES = new Set(['lib/agent/registry.js']);
 const SHARED_LAYERS = new Set(['domain', 'app', 'runtime', 'agent', 'channels']);
 
 test('each layer imports only the layers below it, and domain and app never touch Node', () => {
@@ -65,6 +70,7 @@ test('each layer imports only the layers below it, and domain and app never touc
   for (const file of [...filesUnder('lib'), ...filesUnder('hosts'), ...filesUnder('bin')]) {
     const layer = layerOf(file);
     if (!MAY_IMPORT[layer]) continue;
+    if (hasComputedImport(sourceOf(file)) && !MAY_COMPUTE_IMPORTS.has(layer) && !COMPUTED_IMPORT_FILES.has(file)) problems.push(`${file} (${layer}) imports a computed module`);
     for (const specifier of importsOf(file)) {
       if (specifier.startsWith('node:')) {
         if (NODE_FREE.has(layer) || (layer === 'hosts' && !PURE_NODE.has(specifier))) problems.push(`${file} (${layer}) imports ${specifier}`);

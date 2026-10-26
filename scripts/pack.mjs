@@ -6,6 +6,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { importsOf } from './imports.mjs';
+
 // Builds the folder one host installs. A host that copies only its plugin folder (WorkBuddy), or loads every
 // component folder at a plugin's root (WorkBuddy, Antigravity), or loads an npm package (OpenCode) cannot install
 // this repo as it is: it would miss lib/ or load the Claude Code plugin's skill, commands and hooks. The folder holds
@@ -15,12 +17,10 @@ import { fileURLToPath } from 'node:url';
 //     "patch": { "a JSON file in root": { fields to set } } }
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-const STATIC_IMPORT = /^(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|^import\s*['"]([^'"]+)['"]/gm;
 const MODULE_PACKAGE = { private: true, type: 'module' };
 // Written into every packed folder, so a later pack knows the folder is its own to replace.
 const PACKED_MARK = '.evolver-packed';
 
-const specifiersOf = (file) => [...readFileSync(path.join(ROOT, file), 'utf8').matchAll(STATIC_IMPORT)].map((match) => match[1] ?? match[2]);
 
 /** The host's readers beside its profile, which the registry imports by name rather than by a static import. */
 function profileFilesOf(host) {
@@ -28,7 +28,10 @@ function profileFilesOf(host) {
   return readdirSync(dir).filter((name) => /\.m?js$/.test(name) && statSync(path.join(dir, name)).isFile()).map((name) => `hosts/${host}/${name}`);
 }
 
-/** Every repo file the entries load, followed through static relative imports; a package import is refused. */
+/**
+ * Every repo file the entries load, followed through relative imports. A static package import is refused; a dynamic
+ * one is the code's own fallback for a package that may be missing, so it is left out.
+ */
 export function closureOf(entries) {
   const seen = new Set();
   const queue = [...entries];
@@ -36,8 +39,8 @@ export function closureOf(entries) {
     const file = path.posix.normalize(queue.pop());
     if (seen.has(file)) continue;
     seen.add(file);
-    for (const specifier of specifiersOf(file)) {
-      if (specifier.startsWith('node:')) continue;
+    for (const { specifier, isDynamic } of importsOf(readFileSync(path.join(ROOT, file), 'utf8'))) {
+      if (specifier.startsWith('node:') || (isDynamic && !specifier.startsWith('.'))) continue;
       if (!specifier.startsWith('.')) throw new Error(`${file} imports the package ${specifier}, which a packed host does not ship`);
       queue.push(path.posix.join(path.posix.dirname(file), specifier));
     }
@@ -100,8 +103,13 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     process.exit(2);
   }
   const targets = host === 'all' ? packedHosts().map((name) => [name, path.resolve(out, name)]) : [[host, path.resolve(out)]];
-  for (const [name, folder] of targets) {
-    pack(name, folder);
-    console.log(`Packed ${name} into ${folder}.`);
+  try {
+    for (const [name, folder] of targets) {
+      pack(name, folder);
+      console.log(`Packed ${name} into ${folder}.`);
+    }
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
   }
 }

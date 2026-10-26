@@ -69,6 +69,21 @@ test('a malformed call is refused by the schema, and a search with no hit is no 
   assert.notEqual(none.isError, true);
 });
 
+test('a closing client ends the session at once, even while a call still waits on the Proxy', async (t) => {
+  const slow = await fakeProxy({ delays: { '/asset/fetch': 30_000 } });
+  t.after(() => slow.close());
+  const client = await connected(t, slow.env);
+  const recall = call(client, 'evolver_recall', { task: PROMPT }).catch(() => null);
+  for (let tries = 0; tries < 100 && !slow.requests.some((request) => request.path === '/asset/fetch'); tries += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  const closing = Date.now();
+  await client.close();
+  assert.ok(Date.now() - closing < 1_500, `closed in ${Date.now() - closing} ms`);
+  const state = join(slow.env.HOME, '.evolver', 'state');
+  const [session] = readdirSync(state).filter((name) => /^mcp-generic-session-.*\.json$/.test(name));
+  assert.equal(JSON.parse(readFileSync(join(state, session), 'utf8')).open, false);
+  await recall;
+});
+
 test('closing the connection ends the session: what it left is written for the next start', async (t) => {
   const client = await connected(t);
   await call(client, 'evolver_recall', { task: PROMPT });

@@ -39,12 +39,18 @@ test('a command script answers whatever the host\'s own readers would make of it
 });
 
 test('from a terminal, with no session, a command still answers', async () => {
-  assert.equal(await run('evolver-drafts'), 'No distilled drafts are waiting.\n[terminal script true nonce 16]');
+  assert.equal(await run('evolver-drafts'), 'No distilled drafts are waiting.\n[null script true nonce 16]');
 });
 
 test('arguments come from the command line, else from stdin', async () => {
   assert.match(await run('evolver-drafts', { argv: ['publish', '3'] }), /^No draft matches "3"/);
   assert.match(await run('evolver-drafts', { input: 'discard 2\n' }), /^No draft matches "2"/);
+});
+
+test('a search from a terminal books its strategy on no session, so the same search finds it again', async () => {
+  const first = await run('evolver-search', { argv: ['flaky', 'redis', 'connection', 'retries'] });
+  assert.match(first, /Fix flaky Redis connection retries/);
+  assert.equal(await run('evolver-search', { argv: ['flaky', 'redis', 'connection', 'retries'] }), first);
 });
 
 test('a Gene posted for no candidate says there is nothing to distill', async () => {

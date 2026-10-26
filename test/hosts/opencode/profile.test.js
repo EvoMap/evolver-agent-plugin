@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/opencode/profile.js';
+import { pluginEnv } from '../../../hosts/opencode/dist/options.js';
 import { createTurnTracker } from '../../../hosts/opencode/dist/turns.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
 
@@ -86,4 +87,11 @@ test('the strategy answers as a synthetic text part, a notice as a toast, a sear
   const searched = { ok: true, text: '1. Retry.', strategy: { assetId: 'sha256:a', text: '1. Retry.' } };
   assert.equal(profile.reply.command(searched, 'tui.command', { command: 'evolver-search' }).part.synthetic, true);
   assert.equal(profile.reply.command({ ok: false, text: 'none' }, 'tui.command', { command: 'evolver-search' }).part, undefined);
+});
+
+test('a wrong plugin option fails the load rather than being ignored', () => {
+  assert.throws(() => pluginEnv({ proxyPort: 'x' }, {}), /proxyPort/);
+  assert.throws(() => pluginEnv({ assetPrimeEnabled: 'no' }, {}), /assetPrimeEnabled/);
+  assert.equal(pluginEnv({ assetPrimeEnabled: false }, {}).EVOLVER_RECALL, 'off');
+  assert.equal(pluginEnv({ assetPrimeEnabled: true }, {}).EVOLVER_RECALL, undefined);
 });

@@ -51,17 +51,21 @@ async function EvolverServer(input, options) {
   const evolving = new Set();
   const lateParts = new Map();
 
-  // A recall slower than the prompt's wait keeps going; when it lands while its turn still runs, it is booked and
-  // joins the prompt it was found for from the turn's next model step, through the message transform.
-  const joinWhenLanded = (sessionID, messageID, late) => late.then(async (landed) => {
-    if (!landed || turns.openTurnOf(sessionID) !== messageID || !(await landed.join())) return;
-    lateParts.set(messageID, { sessionID, part: placedPart(sessionID, messageID, { type: 'text', text: landed.text, synthetic: true }) });
+  // A recall slower than the prompt's wait keeps going. When it lands while its turn still runs, it waits for the
+  // turn's next model step: the message transform joins it to the prompt it was found for, and books it then, since
+  // a strategy no model step saw was not used.
+  const joinWhenLanded = (sessionID, messageID, late) => late.then((landed) => {
+    if (!landed || turns.openTurnOf(sessionID) !== messageID) return;
+    lateParts.set(messageID, { sessionID, landed, booked: null, part: placedPart(sessionID, messageID, { type: 'text', text: landed.text, synthetic: true }) });
   }).catch(() => {});
 
-  const joinLate = (messages) => {
+  const joinLate = async (messages) => {
     for (const { info, parts } of messages ?? []) {
       const late = lateParts.get(info?.id);
-      if (late && !parts.some((part) => part.id === late.part.id)) parts.push(late.part);
+      if (!late || parts.some((part) => part.id === late.part.id)) continue;
+      late.booked ??= late.landed.join().catch(() => false);
+      if (await late.booked) parts.push(late.part);
+      else lateParts.delete(info.id);
     }
   };
 
@@ -77,6 +81,7 @@ async function EvolverServer(input, options) {
     channel.handle(hostEvent, { sessionID, directory, session: await infos.of(sessionID), ...fields }));
 
   const endTurn = async (sessionID) => {
+    forgetLate(sessionID);
     const ended = turns.close(sessionID);
     if (ended) await raise('session.idle', sessionID, ended);
   };

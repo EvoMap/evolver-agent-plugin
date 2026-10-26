@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -32,7 +32,7 @@ function fakeTuiClient() {
   };
 }
 
-function fakeApi({ route = { name: 'home' }, directory = projectDirectory() } = {}) {
+function fakeApi({ route = { name: 'home' }, directory = projectDirectory(), lifecycle = new AbortController() } = {}) {
   const shown = [];
   const layers = [];
   return {
@@ -41,7 +41,7 @@ function fakeApi({ route = { name: 'home' }, directory = projectDirectory() } = 
     client: fakeTuiClient(),
     route: { current: route },
     state: { path: { directory } },
-    lifecycle: { signal: new AbortController().signal },
+    lifecycle: { signal: lifecycle.signal },
     keymap: { registerLayer: (layer) => { layers.push(layer); return () => {}; } },
     ui: {
       toast: () => {},
@@ -146,4 +146,25 @@ test('the engine commands run the evolver CLI in the project, with quoted argume
   await until(() => lastAlert(api), 'the CLI result');
   assert.equal(lastAlert(api).message, 'solidified');
   assert.equal(readFileSync(log, 'utf8'), `${directory}|solidify|--dry-run|--summary=two words|`);
+});
+
+test('an engine command still running when OpenCode exits is stopped with it', async (t) => {
+  await startProxy(t);
+  const bin = mkdtempSync(join(tmpdir(), 'evolver-opencode-bin-'));
+  const pidFile = join(bin, 'pid');
+  writeFileSync(join(bin, 'evolver'), `#!/bin/sh\necho $$ > "${pidFile}"\nexec sleep 30\n`);
+  chmodSync(join(bin, 'evolver'), 0o755);
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${path}`;
+  t.after(() => { process.env.PATH = path; });
+
+  const lifecycle = new AbortController();
+  const api = fakeApi({ lifecycle });
+  (await loadTui(api))['evolver-solidify'].run();
+  api.shown.at(-1).onConfirm('');
+  await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').trim(), 'the CLI to start');
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  lifecycle.abort();
+  await until(() => lastAlert(api), 'the stopped run\'s answer', 5_000);
+  await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the CLI to be gone', 5_000);
 });

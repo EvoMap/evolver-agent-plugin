@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { runBackgroundTasks } from '../../lib/app/background.js';
 import { runCommand } from '../../lib/app/commands/index.js';
 import { distillLeftovers, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
+import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
+import { UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -50,6 +53,16 @@ test('a live session keeps its candidate; only an ended one is a leftover', asyn
   const { ports } = await withCandidate({ model: modelAnswering(GENE) });
   assert.deepEqual(await distillLeftovers(ports), []);
   assert.ok((await ports.candidates.read()).s1);
+});
+
+test('with no model outside the conversation, a leftover waits a day for an agent\'s Gene, then is dropped', async () => {
+  const { ports } = await withCandidate();
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.ok((await ports.candidates.read()).s1);
+  await ports.clock.sleep(UNDISTILLED_LEFTOVER_TTL_MS + 1);
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
 test('the model may decline, which settles the candidate without calling the Proxy', async () => {

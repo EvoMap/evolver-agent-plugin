@@ -39,7 +39,7 @@ const shellQuoted = (text) => `'${String(text).replaceAll("'", `'\\''`)}'`;
 function agentGeneRequest({ text, agentGene }, payload) {
   const end = `EVOLVER_GENE_${payload.nonce}`;
   const env = [
-    `CODEBUDDY_SESSION_ID=${shellQuoted(payload.session_id)}`,
+    ...(payload.session_id ? [`CODEBUDDY_SESSION_ID=${shellQuoted(payload.session_id)}`] : []),
     ...(payload.state_dir ? [`CODEBUDDY_PLUGIN_DATA=${shellQuoted(payload.state_dir)}`] : []),
   ];
   return [

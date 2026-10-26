@@ -7,9 +7,10 @@ import { ASSET } from '../app/memory-ports.js';
 
 /**
  * A loopback Proxy that answers recall with one asset and records every request, plus a scratch HOME whose
- * settings name it as a current Proxy, so no test ever starts setting the engine up.
+ * settings name it as a current Proxy, so no test ever starts setting the engine up. `delays` holds a path's answer
+ * back for that many milliseconds.
  */
-export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' } } = {}) {
+export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {} } = {}) {
   const requests = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -20,7 +21,9 @@ export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false,
         : request.url === '/proxy/status' ? { running: true, status: 'running', node_id: 'node_test' }
           : request.url === '/conversation/distill' ? distillAnswer
             : { recorded: true };
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
+      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
+      if (delays[request.url]) setTimeout(reply, delays[request.url]).unref();
+      else reply();
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -33,6 +36,7 @@ export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false,
     env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
     close: () => {
       server.close();
+      server.closeAllConnections();
       rmSync(home, { recursive: true, force: true });
     },
   };

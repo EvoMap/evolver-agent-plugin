@@ -11,10 +11,12 @@ const isPort = (value) => Number.isInteger(value) && value >= 1 && value <= 65_5
  */
 export function pluginEnv(options, env) {
   const port = options?.proxyPort;
+  const recall = options?.assetPrimeEnabled;
   if (port !== undefined && !isPort(port)) throw new Error(`Invalid Evolver option proxyPort: ${JSON.stringify(port)}`);
+  if (recall !== undefined && typeof recall !== 'boolean') throw new Error(`Invalid Evolver option assetPrimeEnabled: ${JSON.stringify(recall)}`);
   return {
     ...env,
     ...(port !== undefined && { EVOMAP_PROXY_PORT: String(port) }),
-    ...(options?.assetPrimeEnabled === false && { EVOLVER_RECALL: 'off' }),
+    ...(recall === false && { EVOLVER_RECALL: 'off' }),
   };
 }

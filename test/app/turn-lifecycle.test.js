@@ -6,6 +6,7 @@ import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
+import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 
 const WAIT = { waitMs: 5_000 };
@@ -206,6 +207,18 @@ test('an injection adopted from a standalone plugin is reported aborted at the n
   assert.deepEqual([report.task_id, report.outcome, report.evidence.aborted, report.evidence.tier], ['testagent:old:3', 'failed', true, 'none']);
 });
 
+test('reporting a running session\'s adopted injection leaves its open turn to its own end', async () => {
+  const { ports, queued } = memoryPorts();
+  await ports.sessions.update('running', () => ({ turn: 3, pid: 4242, injected: { 'sha256:adopted': { turn: 3, injectedAt: 1, strategyText: '1. a.', adopted: true } } }));
+  await promptSubmitted(ports, { sessionId: 'running', prompt: PROMPT, ...WAIT });
+  await sessionStarted(ports, { sessionId: 'other', projectDir: '/proj' });
+  await toolFinished(ports, { sessionId: 'running', note: { kind: 'edit', paths: ['/proj/a.js'] } });
+  await toolFinished(ports, { sessionId: 'running', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
+  const ended = await end(ports, 'running');
+  assert.deepEqual(ended.reports.map((report) => [report.asset_id, report.task_id]), [[ASSET.asset_id, 'testagent:running:4']]);
+  assert.equal(queued.filter(({ report }) => report.asset_id === 'sha256:adopted').length, 1);
+});
+
 test('a session end that names an earlier turn is stale even once the later turn has ended', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 'g1', ...WAIT });
@@ -223,4 +236,47 @@ test('a note that raced past the open-turn check is still kept out of the next t
   await toolFinished(ports, { sessionId: 's1', turnId: 'g2', note: { kind: 'shell', command: 'npm run lint', exit: 0 } });
   const { record } = await end(ports, 's1', { turnId: 'g2' });
   assert.deepEqual(record.checks, [{ command: 'npm run lint', failed: false }]);
+});
+
+test('a session end naming a turn id the session never opened (an intercepted command) still ends it', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 'g1', ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/a.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
+  await end(ports, 's1', { turnId: 'g1' });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj', turnId: 'g2' });
+  assert.equal((await ports.candidates.read()).s1.closed, true);
+});
+
+test('a turn judged again keeps its candidate\'s stamp and claim; an agent\'s repeated report changes nothing', async () => {
+  const { ports } = memoryPorts();
+  const record = (failed) => () => ({ checks: [{ command: 'npm test', failed }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' });
+  await promptSubmitted(ports, { sessionId: 'host', prompt: PROMPT, turnId: 't1', ...WAIT });
+  await end(ports, 'host', { turnId: 't1', recordOf: record(false) });
+  await ports.candidates.update((pending) => ({ ...pending, host: { ...pending.host, claimedBy: 99 } }));
+  const { at } = (await ports.candidates.read()).host;
+  await ports.clock.sleep(5);
+  await end(ports, 'host', { turnId: 't1', recordOf: record(false) });
+  assert.deepEqual([(await ports.candidates.read()).host.at, (await ports.candidates.read()).host.claimedBy], [at, 99]);
+
+  await promptSubmitted(ports, { sessionId: 'agent', prompt: PROMPT, turnId: 'r1', ...WAIT });
+  await end(ports, 'agent', { turnId: 'r1', recordOf: record(false), source: AGENT_REPORTED });
+  const first = (await ports.candidates.read()).agent;
+  assert.equal(await end(ports, 'agent', { turnId: 'r1', recordOf: record(true), source: AGENT_REPORTED }), null);
+  assert.deepEqual((await ports.candidates.read()).agent, first);
+});
+
+test('a correction that slips in while a re-judge reads its record still drops the candidate', async () => {
+  const { ports } = memoryPorts();
+  const verified = { checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' };
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: 't1', ...WAIT });
+  await end(ports, 's1', { turnId: 't1', recordOf: () => verified });
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const rejudged = end(ports, 's1', { turnId: 't1', recordOf: async () => { await held; return verified; } });
+  await new Promise((resolve) => setImmediate(resolve));
+  await promptSubmitted(ports, { sessionId: 's1', prompt: '还是报错', turnId: 't2', ...WAIT });
+  release();
+  await rejudged;
+  assert.equal((await ports.candidates.read()).s1, undefined);
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -221,6 +221,34 @@ test('a recall slower than the prompt\'s wait joins the prompt from the turn\'s 
   await oc.answer('ses_late', 'Done.');
   await oc.idle('ses_late');
   await until(() => reportsOf(proxy).some((report) => report.task_id === 'opencode:ses_late:1'), 'the late strategy\'s report');
+});
+
+test('a late recall that lands after the turn\'s last model step is neither joined nor reported', async (t) => {
+  const { hooks, oc, proxy } = await harness(t, { recallDelayMs: 7_000 });
+  const output = await oc.prompt('ses_one_step', PROMPT);
+  await hooks['experimental.chat.messages.transform']({}, { messages: [{ info: { id: output.message.id }, parts: [...output.parts] }] });
+  await until(() => requestsTo(proxy, '/asset/fetch').length > 0, 'the recall');
+  await new Promise((resolve) => setTimeout(resolve, 7_500));
+  await oc.answer('ses_one_step', 'Done.');
+  await oc.idle('ses_one_step');
+  const later = [{ info: { id: output.message.id }, parts: [...output.parts] }];
+  await hooks['experimental.chat.messages.transform']({}, { messages: later });
+  assert.equal(later[0].parts.length, 1);
+  const sessionFiles = readdirSync(proxy.stateDir).filter((name) => /^opencode-session-.*\.json$/.test(name));
+  assert.equal(sessionFiles.length, 1);
+  assert.doesNotMatch(readFileSync(join(proxy.stateDir, sessionFiles[0]), 'utf8'), new RegExp(ASSET.asset_id));
+});
+
+test('shutdown does not wait behind a recall still in flight: the session end is written at once', async (t) => {
+  const { hooks, proxy } = await harness(t, { recallDelayMs: 7_000 });
+  const prompt = hooks['chat.message']({ sessionID: 'ses_bye' }, { message: { id: 'msg_bye' }, parts: [{ type: 'text', text: PROMPT }] });
+  await until(() => requestsTo(proxy, '/asset/fetch').length > 0, 'the recall');
+  const disposing = Date.now();
+  await hooks.dispose();
+  assert.ok(Date.now() - disposing < 1_000, `disposed in ${Date.now() - disposing} ms`);
+  const [session] = readdirSync(proxy.stateDir).filter((name) => /^opencode-session-.*\.json$/.test(name));
+  assert.equal(JSON.parse(readFileSync(join(proxy.stateDir, session), 'utf8')).open, false);
+  await prompt;
 });
 
 test('a person who turned recall off gets no recall', async (t) => {
