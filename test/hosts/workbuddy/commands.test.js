@@ -3,16 +3,14 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/workbuddy/profile.js';
-import { SCRIPT_EVENTS } from '../../../lib/channels/script/runner.js';
 
 const PAYLOADS = JSON.parse(readFileSync(new URL('../../fixtures/workbuddy/hook-payloads.json', import.meta.url), 'utf8'));
 const parse = (prompt, hostEvent = 'UserPromptSubmit') => profile.commands.parse({}, hostEvent, { prompt });
 const RESULT = { type: 'result', subtype: 'success', is_error: false, result: '{"summary":"s"}', usage: { input_tokens: 900, output_tokens: 120 } };
 
-test('commands are inline scripts: the command script raises the two events the profile maps', () => {
+test('commands are inline scripts whose answer reaches the model', () => {
   assert.equal(profile.commands.entry, 'inline-script');
-  assert.equal(profile.events[SCRIPT_EVENTS.COMMAND], 'command');
-  assert.equal(profile.events[SCRIPT_EVENTS.AGENT_GENE], 'agentGene');
+  assert.equal(profile.commands.answerReachesModel, true);
 });
 
 test('a command turn is told apart typed, namespaced or as the host renders it', () => {
@@ -24,8 +22,9 @@ test('a command turn is told apart typed, namespaced or as the host renders it',
 });
 
 test('an argument the host left unsubstituted is no argument', () => {
-  assert.deepEqual(parse('/evolver-search $ARGUMENTS', SCRIPT_EVENTS.COMMAND), { name: 'evolver-search', args: '' });
-  assert.deepEqual(parse('/evolver-distill the eviction order', SCRIPT_EVENTS.COMMAND), { name: 'evolver-distill', args: 'the eviction order' });
+  assert.deepEqual(parse('/evolver-search $ARGUMENTS'), { name: 'evolver-search', args: '' });
+  assert.equal(profile.commands.scriptArgs('$ARGUMENTS'), '');
+  assert.equal(profile.commands.scriptArgs('the eviction order'), 'the eviction order');
 });
 
 test('a command script finds its session in the shell the host runs it in', () => {
@@ -39,16 +38,15 @@ test('state lives in the plugin data folder the host hands over, else in ~/.evol
   assert.match(profile.stateDir({ HOME: '/h' }), /^[\\/]h[\\/]\.evolver[\\/]workbuddy-hooks$/);
 });
 
-test('a command answers its text; a hook answers {} and a command script a sentence when there is nothing to say', () => {
-  assert.equal(profile.reply.command({ ok: true, text: 'No distilled drafts are waiting.' }, SCRIPT_EVENTS.COMMAND, {}), 'No distilled drafts are waiting.');
+test('a command script prints the answer\'s text; a hook with nothing to say answers {}', () => {
+  assert.equal(profile.commands.scriptAnswer({ ok: true, text: 'No distilled drafts are waiting.' }, {}), 'No distilled drafts are waiting.');
   assert.deepEqual(profile.reply.empty('FinalStop'), {});
-  assert.match(profile.reply.empty(SCRIPT_EVENTS.COMMAND), /outside a WorkBuddy session/);
 });
 
 test('a Gene the headless model could not write is handed to the agent with a command whose heredoc ends on the nonce', () => {
   const payload = { session_id: "s'1", script: '/plugin/bin/command.mjs', nonce: '0123456789abcdef', state_dir: '/data/evolver' };
   const result = { ok: false, text: 'Distillation model_failed: spawn codebuddy ENOENT.', agentGene: { writtenFor: 1700, prompt: 'Below is the record…' } };
-  const lines = profile.reply.command(result, SCRIPT_EVENTS.COMMAND, payload).split('\n');
+  const lines = profile.commands.scriptAnswer(result, payload).split('\n');
   assert.equal(lines[0], 'EVOLVER: WRITE THE GENE YOURSELF');
   assert.match(lines[1], /\(Distillation model_failed: spawn codebuddy ENOENT\)\.$/);
   assert.equal(lines[5], "CODEBUDDY_SESSION_ID='s'\\''1' CODEBUDDY_PLUGIN_DATA='/data/evolver' node '/plugin/bin/command.mjs' workbuddy evolver-distill --post 1700 <<'EVOLVER_GENE_0123456789abcdef'");

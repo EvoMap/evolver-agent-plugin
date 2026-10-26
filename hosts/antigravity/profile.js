@@ -14,7 +14,6 @@ import { latestTurnOf, stepsOf, turnActivityOf } from './transcript.js';
 // before each later call.
 
 const PROMPT_EVENT = 'PreInvocation';
-const TERMINAL_SESSION = 'terminal';
 
 const COMPLETED = /^(?:no_tool_call|model_stop)$/i;
 const CUT_SHORT = /max_steps/i;
@@ -57,14 +56,14 @@ function latestTurn(context) {
 
 // PreToolUse and Stop must name a decision: `allow` hands a tool call on to the next hook or the default policy
 // unchanged (`{}` makes Antigravity deny the call), and any decision but `continue` lets the turn stop.
-const EMPTY_ANSWERS = Object.freeze({ PreToolUse: { decision: 'allow' }, Stop: { decision: 'stop' }, Command: '' });
+const EMPTY_ANSWERS = Object.freeze({ PreToolUse: { decision: 'allow' }, Stop: { decision: 'stop' } });
 const emptyOf = (hostEvent) => EMPTY_ANSWERS[hostEvent] ?? {};
 const injected = (message, hostEvent) => (message && hostEvent === PROMPT_EVENT ? { injectSteps: [{ ephemeralMessage: message }] } : emptyOf(hostEvent));
 
 export default defineProfile({
   name: 'antigravity',
   label: 'Antigravity',
-  events: { [PROMPT_EVENT]: 'prompt', PreToolUse: 'beforeEdit', Stop: 'turnEnd', Command: 'command' },
+  events: { [PROMPT_EVENT]: 'prompt', PreToolUse: 'beforeEdit', Stop: 'turnEnd' },
   payload: {
     sessionId: (payload) => text(payload.conversationId) || null,
     turnId: (payload, context) => latestTurn(context)?.turnId ?? null,
@@ -79,7 +78,7 @@ export default defineProfile({
     context: injected,
     notice: injected,
     empty: emptyOf,
-    command: (result, hostEvent) => (hostEvent === 'Command' ? result.text : emptyOf(hostEvent)),
+    command: (result, hostEvent) => emptyOf(hostEvent),
     turnEnd: (ended, hostEvent) => emptyOf(hostEvent),
     lifetime: 'call',
   },
@@ -93,7 +92,7 @@ export default defineProfile({
     reason: endReasonOf,
     answer: (payload, context) => turnActivityOf(latestTurn(context)?.steps ?? []).answer,
   },
-  commands: { sessionOf: (env) => env.EVOLVER_SESSION_ID || env.ANTIGRAVITY_CONVERSATION_ID || TERMINAL_SESSION },
+  commands: { sessionOf: (env) => env.ANTIGRAVITY_CONVERSATION_ID || null },
   budgets: { prompt: 10_000 },
   owner: { ancestor: /^(?:agy|language_server)/i },
   model: agyModel,

@@ -44,9 +44,9 @@ test('the hook payloads WorkBuddy sends read as one session; at session start th
   assert.equal(profile.payload.isIgnored({ ...PAYLOADS.FinalStop, agent_id: 'agent-1' }), true);
 });
 
-test('every hook event and both command-script events map onto a canonical event', () => {
+test('every hook event maps onto a canonical event', () => {
   assert.deepEqual(profile.events, {
-    SessionStart: 'sessionStart', UserPromptSubmit: 'prompt', PreToolUse: 'beforeEdit', FinalStop: 'turnEnd', SessionEnd: 'sessionEnd', Command: 'command', AgentGene: 'agentGene',
+    SessionStart: 'sessionStart', UserPromptSubmit: 'prompt', PreToolUse: 'beforeEdit', FinalStop: 'turnEnd', SessionEnd: 'sessionEnd',
   });
 });
 

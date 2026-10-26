@@ -8,7 +8,7 @@ import { COMMANDS } from '../../../lib/app/commands/index.js';
 const at = (path) => new URL(`../../../${path}`, import.meta.url);
 const json = (path) => JSON.parse(readFileSync(at(path), 'utf8'));
 const DIST = 'hosts/workbuddy/dist';
-const HOOK_EVENTS = Object.keys(profile.events).filter((event) => !['Command', 'AgentGene'].includes(event));
+const HOOK_EVENTS = Object.keys(profile.events);
 
 function frontMatterOf(text) {
   const [, block] = /^---\n([\s\S]*?)\n---\n/.exec(text);

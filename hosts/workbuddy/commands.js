@@ -12,10 +12,8 @@ const TYPED = /^\/(?:[\w-]+:)?(evolver-[\w-]+)(?:[ \t]+([\s\S]*))?$/;
 const RENDERED = /<command-name>\/(?:[\w-]+:)?(evolver-[\w-]+)<\/command-name>/;
 // The host leaves `$ARGUMENTS` in place when a command is given no argument.
 const UNSUBSTITUTED = '$ARGUMENTS';
-const SCRIPT_EVENTS = new Set(['Command', 'AgentGene']);
-const NO_ANSWER = 'Evolver gave no answer: the command ran outside a WorkBuddy session (no CODEBUDDY_SESSION_ID), or it failed.';
 
-function argumentsText(text) {
+export function argumentsText(text) {
   const trimmed = String(text ?? '').trim();
   return trimmed === UNSUBSTITUTED ? '' : trimmed;
 }
@@ -58,7 +56,5 @@ function agentGeneRequest({ text, agentGene }, payload) {
   ].join('\n');
 }
 
-/** A command's answer is the text its script prints, for the agent to show or, for a Gene request, to act on. */
-export const commandAnswer = (result, hostEvent, payload) => (result.agentGene ? agentGeneRequest(result, payload) : result.text);
-
-export const emptyAnswer = (hostEvent) => (SCRIPT_EVENTS.has(hostEvent) ? NO_ANSWER : {});
+/** What a command script prints: the answer for the agent to show or, for a Gene request, to act on. */
+export const scriptAnswer = (result, script) => (result.agentGene ? agentGeneRequest(result, script) : result.text);

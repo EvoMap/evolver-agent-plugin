@@ -63,7 +63,6 @@ export default defineProfile({
   },
   commands: {
     entry: 'prompt',
-    answerReachesModel: true,
     parse: (payload) => (payload.command ? { name: payload.command, args: text(payload.arguments).trim() } : null),
   },
   model: { kind: 'sdk' },

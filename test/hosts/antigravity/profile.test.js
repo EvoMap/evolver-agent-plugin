@@ -23,14 +23,11 @@ test('PreToolUse and Stop always answer the decision they require, never an empt
   assert.deepEqual(profile.reply.empty('PreInvocation'), {});
 });
 
-test('commands are typed in a terminal: the command script prints the text and needs no conversation', () => {
+test('commands are typed in a terminal: the command script prints the text, in a conversation when one is named', () => {
   assert.equal(profile.commands.entry, 'cli-only');
-  assert.equal(profile.events.Command, 'command');
-  assert.equal(profile.reply.command({ ok: true, text: 'Proxy running.' }, 'Command'), 'Proxy running.');
-  assert.equal(profile.reply.empty('Command'), '');
-  assert.equal(profile.commands.sessionOf({}), 'terminal');
+  assert.equal(profile.commands.scriptAnswer({ ok: true, text: 'Proxy running.' }, {}), 'Proxy running.');
+  assert.equal(profile.commands.sessionOf({}), null);
   assert.equal(profile.commands.sessionOf({ ANTIGRAVITY_CONVERSATION_ID: 'c1' }), 'c1');
-  assert.equal(profile.commands.sessionOf({ EVOLVER_SESSION_ID: 'c2', ANTIGRAVITY_CONVERSATION_ID: 'c1' }), 'c2');
 });
 
 test('the session belongs to the nearest agy or language_server above the hook, past its shell', () => {
