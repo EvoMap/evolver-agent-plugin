@@ -147,3 +147,18 @@ test('by default the strategy rides the prompt, and a tool result answers nothin
   assert.deepEqual(await driver.handle('PostToolUse', { ...base, tool_name: 'Read', tool_input: {} }), {});
   assert.throws(() => hookProfile({ reply: { strategyAt: 'step' } }), /reply\.strategyAt must be one of prompt, tool-result/);
 });
+
+test('a host whose prompt answer reaches no model may not rely on it for a session-start notice or a late recall', () => {
+  const late = (answer) => answer;
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'tool-result' }, sessionStart: 'owner-change' }), /'tool-result' takes neither sessionStart 'owner-change' nor reply\.late/);
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'tool-result', late } }), /'tool-result' takes neither/);
+  assert.doesNotThrow(() => hookProfile({ reply: { late }, sessionStart: 'owner-change' }));
+});
+
+test('a tool result of another turn than the open one is handed no strategy', async () => {
+  const profile = hookProfile({ reply: { strategyAt: 'tool-result' }, payload: { turnId: (payload) => payload.turn ?? null } });
+  const { driver } = driverOf(profile);
+  await driver.handle('UserPromptSubmit', { ...base, turn: 't2', prompt: PROMPT });
+  assert.deepEqual(await driver.handle('PostToolUse', { ...base, turn: 't1', tool_name: 'Read', tool_input: {} }), {});
+  assert.ok((await driver.handle('PostToolUse', { ...base, turn: 't2', tool_name: 'Read', tool_input: {} })).hookSpecificOutput);
+});

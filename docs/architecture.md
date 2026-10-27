@@ -92,8 +92,8 @@ and ledger cycles say which agent a report came from.
 difference point is missing. The points are the channel; the event map onto eight canonical events
 (`sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene`); how to
 read a payload; how a session starts (`event`, `owner-change`, `connection`); how to answer (the injection's shape,
-an empty answer per event, whether an injection lasts the turn or one model call, and how a recall slower than the
-wait joins a running turn); where evidence comes from (tool hooks, or a transcript read from the turn's start); how
+an empty answer per event, whether an injection lasts the turn or one model call, how a recall slower than the
+wait joins a running turn, and whether the strategy rides the prompt or waits for the turn's first tool result); where evidence comes from (tool hooks, or a transcript read from the turn's start); how
 a turn ends (its reason, `'unknown'` to wait, and how long to wait for a late end); how commands are typed
 (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The runtime executes what the profile declares: time
 budgets per event, the owner process (`self`, `spawner`, `parent`, or a named ancestor), the headless model (a CLI, an SDK
@@ -107,7 +107,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
-| Tool result | `toolFinished`, `beforeEdit` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. |
+| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. |
 | Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
