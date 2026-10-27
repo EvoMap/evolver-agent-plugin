@@ -13,7 +13,8 @@ them is in `hosts/README.md`):
 
 | Command | Purpose |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, the session's distillation candidate and waiting drafts. |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts. |
+| `/evolver-login` | Sign in to the EvoMap Hub: set Evolver up when its Proxy does not answer, start `evolver login` in the background and answer its link and code; once approved, the node the Proxy registered. |
 | `/evolver-search <task or error text>` | Find the best matching strategy or Recipe. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
@@ -123,9 +124,9 @@ the next session start and given up after three failed tries, and one no model h
 agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
 inside it. An agent with no model outside the conversation writes the Gene itself when asked.
 
-**MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <host>`, an stdio server with six
+**MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <host>`, an stdio server with seven
 tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
-(the Gene the report asked for), `evolver_status`, `evolver_search`, `evolver_drafts`. The connection is the
+(the Gene the report asked for), `evolver_status`, `evolver_search`, `evolver_drafts`, `evolver_login`. The connection is the
 session. It shares every use case with the hook hosts, except that the evidence is the agent's own report, and that
 there is no retention follow-up: the server never sees a file before the agent edits it. A session start's engine
 notice leads the first recall's answer. An agent with hooks never uses it, so its model's context holds no Evolver
