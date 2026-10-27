@@ -92,8 +92,8 @@ and ledger cycles say which agent a report came from.
 difference point is missing. The points are the channel; the event map onto eight canonical events
 (`sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene`); how to
 read a payload; how a session starts (`event`, `owner-change`, `connection`); how to answer (the injection's shape,
-an empty answer per event, whether an injection lasts the turn or one model call, and how a recall slower than the
-wait joins a running turn); where evidence comes from (tool hooks, or a transcript read from the turn's start); how
+an empty answer per event, whether an injection lasts the turn or one model call, how a recall slower than the
+wait joins a running turn, and whether the strategy rides the prompt or waits for the turn's first tool result); where evidence comes from (tool hooks, or a transcript read from the turn's start); how
 a turn ends (its reason, `'unknown'` to wait, and how long to wait for a late end); how commands are typed
 (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The runtime executes what the profile declares: time
 budgets per event, the owner process (`self`, `spawner`, `parent`, or a named ancestor), the headless model (a CLI, an SDK
@@ -107,7 +107,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe's chain of them, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
-| Tool result | `toolFinished`, `beforeEdit` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. |
+| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. |
 | Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
@@ -150,14 +150,14 @@ within 15 s is ended, and the next start waits longer after each failure.
 
 **Packing and publishing.** WorkBuddy copies only its plugin folder and loads every component folder at that
 folder's root, Antigravity installs a whole repo and loads its skills, commands and agents, OpenCode and DeepSeek
-Harness load an npm package, and Claude Code and Codex install a plugin folder: installed from this repo as it is, they would miss
+Harness load an npm package, and Claude Code, Codex and Grok install a plugin folder: installed from this repo as it is, they would miss
 `lib/` or load another host's files. `npm run pack` builds each of them its own folder under `dist/<host>`
 (`scripts/pack.mjs`, from `hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its
 manifests at the root. Cursor installs the repo root: its manifest names its commands and hooks, which turns off its
 folder discovery. `dist/` is not committed to `main`. CI (`.github/workflows/release.yml`) tests and packs every push
 to `main`, and `scripts/publish-release-branch.sh` commits `main` plus `dist/` to the `release` branch: one commit per
 build, only for `main`'s current tip, never a force-push. The repo root keeps only the marketplace manifests the
-hosts read at fixed paths. Claude Code's and WorkBuddy's install `dist/<host>` from `release` through a
+hosts read at fixed paths. Claude Code's, WorkBuddy's and Grok's install `dist/<host>` from `release` through a
 `git-subdir` source, since a marketplace itself cannot be added at a branch; Codex adds the marketplace at
 `--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
@@ -167,7 +167,7 @@ hosts read at fixed paths. Claude Code's and WorkBuddy's install `dist/<host>` f
 ## Layout
 
 ```
-.claude-plugin/ .codebuddy-plugin/ .cursor-plugin/ .agents/plugins/
+.claude-plugin/ .codebuddy-plugin/ .cursor-plugin/ .agents/plugins/ .grok-plugin/
                        marketplace manifests, where each host reads them
 bin/                   entries: hook.mjs, worker.mjs, command.mjs, mcp.mjs, relay.mjs <host>
 hosts/<host>/          profile.js and its pure readers; dist/ holds what the host installs
@@ -211,6 +211,13 @@ scripts/               pack.mjs, publish-release-branch.sh
   next step and a turn answered in one step never sees it. Attaching it as `prompt.submit` context would reach the
   first request but holds the person's message off screen until recall returns (3.6–5.7 s measured); that trade was
   declined.
+- **Strategy timing on Grok.** grok 1.0.70 discards what an allowing `UserPromptSubmit` hook prints, so the
+  strategy waits for the turn's first tool hook. A `PreToolUse` and a `PostToolUse` context both land right after
+  that tool's result, as a `<system-reminder>` user message kept in later requests (measured on a fake model), but a
+  `PreToolUse` one is dropped when any hook denies the call or the person rejects it, so `PostToolUse` (and
+  `PostToolUseFailure`) carries it. A turn answered without a tool call never sees it. grok names no turn on a tool
+  result, so a late result of an interrupted turn could carry the next turn's strategy; no payload field tells them
+  apart.
 - **Reuse reports.** Every injection is reported, through the Proxy's `POST /asset/reuse-result`, as
   `{asset_id, outcome, task_id, reason, evidence}`; the field names are shared with the Hub and Evolver. `reason`
   names the turn and the check kind, never the prompt, a command, code or a diff, and the prompt loses keys and

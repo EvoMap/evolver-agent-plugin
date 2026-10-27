@@ -1,0 +1,21 @@
+{
+  "name": "evolver-plugin",
+  "version": "0.4.0",
+  "description": "Evolver for Grok, from hooks with no tools: recalls one EvoMap strategy per prompt and hands it to the model at the turn's first tool result, reports each reuse with the checks the turn ran, and distills verified work into drafts you publish or discard.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolver",
+    "evomap",
+    "gep",
+    "agent-evolution",
+    "agent-memory",
+    "grok"
+  ]
+}

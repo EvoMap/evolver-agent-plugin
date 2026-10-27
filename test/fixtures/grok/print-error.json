@@ -1,0 +1,1 @@
+{"type":"error","message":"Internal error: {\n  \"message\": \"API error (status 400 Bad Request): invalid_request_error: model not found: fake-model\",\n  \"http_status\": 400\n}","cwd":"/private/tmp/evolver-model-x"}
