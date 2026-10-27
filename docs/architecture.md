@@ -88,6 +88,10 @@ installed from this repo as it is, they would miss `lib/` or load the Claude Cod
 `npm run pack` builds each of them its own folder under `dist/<host>` (`scripts/pack.mjs`, from
 `hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its manifests at the root.
 Cursor installs the repo root: its manifest names its commands and hooks, which turns off its folder discovery.
+`dist/` is not committed to `main`. CI (`.github/workflows/release.yml`) tests and packs every push to `main` and
+`scripts/publish-release-branch.sh` commits `main` plus `dist/` to the `release` branch, one commit per build and
+never a force-push. WorkBuddy's marketplace installs `dist/workbuddy` from there (a `git-subdir` source, since a
+marketplace itself cannot be added at a branch); Antigravity and OpenCode install from a clone of it.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<agent>-engine/` in the background and starts its Proxy, without the self-update service.

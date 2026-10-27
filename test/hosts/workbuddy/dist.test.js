@@ -38,18 +38,28 @@ test('every plugin command ships as an inline script with the description and hi
   }
 });
 
-test('the marketplace at the repository root installs the packed plugin, dist/workbuddy', () => {
+test('the marketplace at the repository root installs the packed plugin, dist/workbuddy, from the release branch CI publishes', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
   const manifest = json(`${DIST}/.codebuddy-plugin/plugin.json`);
   const [entry] = marketplace.plugins;
+  const published = /publish-release-branch\.sh (\S+)/.exec(readFileSync(at('.github/workflows/release.yml'), 'utf8'))[1];
   assert.equal(marketplace.plugins.length, 1);
-  assert.equal(entry.source, './dist/workbuddy');
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/workbuddy', ref: published });
   assert.equal(entry.name, manifest.name);
   assert.equal(entry.version, manifest.version);
   assert.equal(marketplace.metadata.version, manifest.version);
   assert.equal(manifest.hooks, './hooks/hooks.json');
   assert.equal(manifest.commands, './commands');
   assert.equal(json(`${DIST}/package.json`).type, 'module');
+});
+
+test('the packed folder is a marketplace of its own, for trying a local build: the same entry, installed from itself', () => {
+  const { plugins: [rootEntry], ...root } = json('.codebuddy-plugin/marketplace.json');
+  const { plugins: [packedEntry], ...packed } = json(`${DIST}/.codebuddy-plugin/marketplace.json`);
+  assert.deepEqual(packed, root);
+  assert.deepEqual({ ...packedEntry, source: rootEntry.source }, rootEntry);
+  assert.equal(packedEntry.source, './');
+  assert.equal(json(`${DIST}/pack.json`).root['.codebuddy-plugin/marketplace.json'], `${DIST}/.codebuddy-plugin/marketplace.json`);
 });
 
 test('the plugin keeps the identity of the WorkBuddy plugin it replaces, so its data folder and install carry over', () => {

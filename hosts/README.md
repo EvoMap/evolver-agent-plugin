@@ -44,7 +44,7 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/`** |
 | Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |
 | State | **plugin data folder** | default | default | default | default | default |
-| Installed from | **`dist/workbuddy`, packed** | the repo root (`.cursor-plugin`) | **`dist/antigravity`, packed** | **npm, packed** | **its MCP config** | `.codex-plugin` |
+| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **npm, or `dist/opencode` on the `release` branch** | **its MCP config** | `.codex-plugin` |
 
 ## Adding a host
 
@@ -53,7 +53,8 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 2. `hosts/<name>/dist/`: the host's hook registration calling `node bin/hook.mjs <name> <hostEvent>` (or its MCP
    config calling `node bin/mcp.mjs <name>`), its commands and manifests, and `pack.json` when the host cannot install
    this repo as it is (it copies one folder, loads every component folder at a plugin's root, or wants a package).
-3. The host's manifest at its fixed place in the repo root when it installs the repo itself, pointing into `dist/`.
+3. The host's manifest at its fixed place in the repo root: the plugin itself when the host installs the repo, or a
+   marketplace pointing at `dist/<host>` on the `release` branch, which CI builds from every push to `main`.
 4. `test/hosts/<name>/`: every reader against payloads from the real host, and the hooks end to end, from a packed
    folder where the host installs one.
 

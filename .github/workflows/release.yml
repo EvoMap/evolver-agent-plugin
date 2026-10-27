@@ -1,0 +1,47 @@
+name: Test and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run pack
+
+  # The release branch is main plus the packed dist/, which WorkBuddy's marketplace installs from and Antigravity
+  # and OpenCode are installed from. Only a tested push to main moves it.
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-branch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm run pack
+      - run: scripts/publish-release-branch.sh release
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com

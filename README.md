@@ -61,17 +61,24 @@ claude plugin disable evolver-mods@evolver-mods
 
 ## Install (other hosts)
 
-The folders WorkBuddy, Antigravity and OpenCode install are built from a checkout with `npm ci && npm run pack`,
-into `dist/`:
+WorkBuddy, Antigravity and OpenCode install a folder packed for them (`npm run pack`, into `dist/<host>`). CI packs
+every tested push to `main` and commits the result to the `release` branch: `main` plus `dist/`.
 
-- **WorkBuddy / CodeBuddy:** add the checkout as a marketplace, then install `evolver@evomap-workbuddy`; it replaces
-  the standalone plugin of that name and keeps its data folder.
-- **Cursor:** add this repository as a plugin marketplace and install `evolver`.
-- **Antigravity:** `agy plugin install <checkout>/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
+- **WorkBuddy / CodeBuddy:** `/plugin marketplace add EvoMap/evolver-agent-plugin`, then
+  `/plugin install evolver@evomap-workbuddy`; the marketplace installs `dist/workbuddy` from the `release` branch. It
+  replaces the standalone plugin of that name and keeps its data folder. WorkBuddy updates an installed plugin only
+  when its version changes, so a release meant to reach installs bumps the version in
+  `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
+  build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a
+  marketplace of its own.
+- **Cursor:** add this repository as a plugin marketplace and install `evolver`; it installs the repo itself.
+- **Antigravity:** from the `release` branch,
+  `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git`, then
+  `agy plugin install evolver-agent-plugin/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
   Its commands run from a terminal: `node <installed plugin>/bin/command.mjs antigravity evolver-status` (or
   `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
-- **OpenCode:** `opencode plugin <checkout>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove the
-  old `evolver-opencode-plugin` first, or every reuse is reported twice.
+- **OpenCode:** `opencode plugin <release clone>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove
+  the old `evolver-opencode-plugin` first, or every reuse is reported twice.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 
