@@ -1,0 +1,43 @@
+{
+  "_source": "OpenCode v1.19.4 (anomalyco/opencode 148842e) shapes, as the merged evolver-opencode-plugin's tests drive them: tool/shell.ts result, tool/edit.ts, write.ts and apply_patch.ts args, session/prompt.ts chat.message output, schema v1/session.ts messages. Not captured from a live OpenCode.",
+  "chatMessage": {
+    "input": { "sessionID": "ses_a", "agent": "build", "model": { "providerID": "anthropic", "modelID": "claude-sonnet" } },
+    "output": {
+      "message": { "id": "msg_0001", "role": "user", "sessionID": "ses_a", "model": { "providerID": "anthropic", "modelID": "claude-sonnet" } },
+      "parts": [
+        { "id": "prt_0", "type": "text", "text": "add a retry to the uploader" },
+        { "id": "prt_1", "type": "file", "mime": "text/plain", "filename": "upload.js", "url": "file:///proj/src/upload.js" },
+        { "id": "prt_2", "type": "text", "synthetic": true, "text": "Called the Read tool with the following input: {\"filePath\":\"/proj/src/upload.js\"}" }
+      ]
+    }
+  },
+  "bash": {
+    "passed": { "title": "npm test 2>&1 | tail -5", "output": "ℹ pass 4\nℹ fail 0", "metadata": { "output": "ℹ pass 4\nℹ fail 0", "exit": 0, "truncated": false } },
+    "failed": { "title": "npm run build", "output": "error TS2304: Cannot find name 'x'.", "metadata": { "output": "error TS2304: Cannot find name 'x'.", "exit": 2, "truncated": false } },
+    "failedThroughTail": { "title": "npm test | tail -3", "output": "AssertionError: expected 1 to equal 2\n1 test failed", "metadata": { "output": "1 test failed", "exit": 0, "truncated": false } },
+    "interrupted": { "title": "npm test", "output": "ℹ pass 2\n\n<shell_metadata>\nUser aborted the command\n</shell_metadata>", "metadata": { "output": "ℹ pass 2", "exit": null, "truncated": false } },
+    "timedOut": { "title": "npm test", "output": "(no output)\n\n<shell_metadata>\nshell tool terminated command after exceeding timeout 120000 ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.\n</shell_metadata>", "metadata": { "output": "(no output)", "exit": null, "truncated": false } },
+    "listing": { "title": "ls", "output": "README.md\nsrc", "metadata": { "output": "README.md\nsrc", "exit": 0, "truncated": false } }
+  },
+  "args": {
+    "edit": { "filePath": "src/upload.js", "oldString": "upload()", "newString": "withRetry(upload)()" },
+    "write": { "filePath": "/proj/src/retry.js", "content": "export const withRetry = (fn) => fn;\n" },
+    "applyPatch": { "patchText": "*** Begin Patch\n*** Update File: src/upload.js\n@@\n-upload()\n+withRetry(upload)()\n*** Add File: src/retry.js\n+export const withRetry = (fn) => fn;\n*** End Patch" },
+    "read": { "filePath": "/proj/README.md" }
+  },
+  "assistant": {
+    "completed": { "id": "msg_a1", "sessionID": "ses_a", "role": "assistant", "providerID": "anthropic", "modelID": "claude-sonnet", "finish": "stop" },
+    "toolCalls": { "id": "msg_a1", "sessionID": "ses_a", "role": "assistant", "providerID": "anthropic", "modelID": "claude-sonnet", "finish": "tool-calls" },
+    "length": { "id": "msg_a1", "sessionID": "ses_a", "role": "assistant", "providerID": "anthropic", "modelID": "claude-sonnet", "finish": "length" },
+    "aborted": { "id": "msg_a1", "sessionID": "ses_a", "role": "assistant", "providerID": "anthropic", "modelID": "claude-sonnet", "error": { "name": "MessageAbortedError", "data": { "message": "Aborted" } } }
+  },
+  "errors": {
+    "aborted": { "name": "MessageAbortedError", "data": { "message": "Aborted" } },
+    "api": { "name": "APIError", "data": { "message": "overloaded", "isRetryable": false } }
+  },
+  "sessions": {
+    "person": { "id": "ses_a", "title": "Retry uploads", "directory": "/proj" },
+    "subagent": { "id": "ses_child", "parentID": "ses_a", "title": "Find the upload client" },
+    "helper": { "id": "ses_helper", "title": "Evolver distillation", "metadata": { "evolver": "distill" }, "time": { "archived": 1 } }
+  }
+}

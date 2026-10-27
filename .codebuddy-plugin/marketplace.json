@@ -1,0 +1,42 @@
+{
+  "name": "evomap-workbuddy",
+  "description": "EvoMap plugin marketplace for WorkBuddy and CodeBuddy.",
+  "owner": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "metadata": {
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "evolver-plugin",
+      "version": "0.4.0",
+      "description": "Evolver for WorkBuddy: strategy recall behind the prompt, automatic reuse reports, and session-end distillation into draft Genes, all from hooks.",
+      "description_en": "Evolver for WorkBuddy: strategy recall behind the prompt, automatic reuse reports, and session-end distillation into draft Genes, all from hooks.",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
+        "path": "dist/workbuddy",
+        "ref": "release"
+      },
+      "category": "productivity",
+      "author": {
+        "name": "EvoMap",
+        "email": "team@evomap.ai",
+        "url": "https://evomap.ai"
+      },
+      "homepage": "https://evomap.ai",
+      "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+      "license": "MIT",
+      "keywords": [
+        "evolver",
+        "evomap",
+        "gep",
+        "workbuddy",
+        "codebuddy",
+        "agent-evolution"
+      ]
+    }
+  ]
+}

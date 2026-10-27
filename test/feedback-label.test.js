@@ -15,6 +15,14 @@ test('a correction wins over politeness', () => {
   assert.equal(feedbackLabelOf("thanks, but it still doesn't work"), 'correction');
 });
 
+test('a question asking whether it is wrong is not a correction', () => {
+  for (const text of ['不行吗？', '这样不对吧', '不对吧。', '这样不行吗', '这样不对吧？']) assert.equal(feedbackLabelOf(text), null, text);
+});
+
+test('a plain statement that it is wrong still is', () => {
+  for (const text of ['这样不对', '不行，还是报错', '不对吧，你再看看', '这样不行！']) assert.equal(feedbackLabelOf(text), 'correction', text);
+});
+
 test('a new request carries no label', () => {
   for (const text of ['now add a logout button', '这个行不行？', '', undefined]) assert.equal(feedbackLabelOf(text), null, String(text));
 });

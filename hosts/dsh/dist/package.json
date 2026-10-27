@@ -1,0 +1,43 @@
+{
+  "name": "@evomap/dsh-evolver",
+  "version": "0.4.0",
+  "description": "Evolver for DeepSeek Harness, by EvoMap: recalls a proven strategy behind each prompt, reports its reuse at turn end, and distills verified work outside the conversation.",
+  "type": "module",
+  "main": "./plugin.mjs",
+  "exports": {
+    ".": "./plugin.mjs",
+    "./locale/*": "./locale/*",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "evomap",
+    "evolver",
+    "gep",
+    "agent-memory"
+  ],
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EvoMap/evolver-agent-plugin.git",
+    "directory": "hosts/dsh/dist"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0",
+    "dsh": ">=0.1.5-0 || >=0.2.0-0 || >=0.2.1-0"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,2 +1,4 @@
 node_modules/
 .claude/types/
+/dist/
+/.claude/worktrees/

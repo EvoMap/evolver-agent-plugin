@@ -1,0 +1,30 @@
+{
+  "evolver-plugin": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "for d in \"$HOME/.gemini/antigravity-cli/plugins/evolver-plugin\" \"$HOME/.gemini/config/plugins/evolver-plugin\"; do [ -f \"$d/bin/hook.mjs\" ] && command -v node >/dev/null && exec node \"$d/bin/hook.mjs\" antigravity PreInvocation; done; echo '{}'",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(write_to_file|replace_file_content|multi_replace_file_content)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "for d in \"$HOME/.gemini/antigravity-cli/plugins/evolver-plugin\" \"$HOME/.gemini/config/plugins/evolver-plugin\"; do [ -f \"$d/bin/hook.mjs\" ] && command -v node >/dev/null && exec node \"$d/bin/hook.mjs\" antigravity PreToolUse; done; echo '{\"decision\":\"allow\"}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "for d in \"$HOME/.gemini/antigravity-cli/plugins/evolver-plugin\" \"$HOME/.gemini/config/plugins/evolver-plugin\"; do [ -f \"$d/bin/hook.mjs\" ] && command -v node >/dev/null && exec node \"$d/bin/hook.mjs\" antigravity Stop; done; echo '{\"decision\":\"stop\"}'",
+        "timeout": 10
+      }
+    ]
+  }
+}

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { changedLinesOf } from '../lib/claude-code/tool-calls.js';
 import { referenceReuseSavings } from '../lib/savings.js';
 import { turnSummaryOf } from '../lib/turn-summary.js';
 
@@ -11,12 +10,6 @@ test('savings follow evolver-core savingsCore 0.3.0 for a reference reuse', () =
   assert.deepEqual(referenceReuseSavings(30), { tokens: 57_600, usd: 0.52, basis: 'estimated_blast_radius' });
   assert.deepEqual(referenceReuseSavings(0), { tokens: 72_000, usd: 0.65, basis: 'estimated_default' });
   assert.equal(referenceReuseSavings(10_000).tokens, 240_000);
-});
-
-test('changed lines count what an edit removed and wrote', () => {
-  assert.equal(changedLinesOf({ old_string: 'a\nb', new_string: 'c\nd\ne' }), 5);
-  assert.equal(changedLinesOf({ content: 'one\ntwo' }), 2);
-  assert.equal(changedLinesOf({ edits: [{ old_string: 'x', new_string: 'y' }, { old_string: 'p', new_string: 'q\nr' }] }), 5);
 });
 
 test('a turn that reused nothing shows nothing', () => {
@@ -38,28 +31,44 @@ test('a saving under the turn\'s own spend is the estimator\'s figure', () => {
   );
 });
 
-test('a failed check counts no saving', () => {
+test('a failed check counts no saving, and the summary leaves the saving out', () => {
   assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: true }, changedLines: 30, usage: USAGE }),
-    '✗ Goal not reached (last check failed: npm test) · reused EvoMap strategy "Redis pool" · no saving counted · this turn used 6k fresh tokens',
+    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: true }, turnReason: 'answer', changedLines: 30, usage: USAGE }),
+    '✗ Goal not reached (last check failed: npm test) · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
   );
 });
 
-test('a turn no check vouched for counts no saving', () => {
+test('a turn that ran no check and ended normally reached its goal, with no saving claimed', () => {
   assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], changedLines: 0, usage: USAGE }),
-    '○ Unverified (no check ran) · reused EvoMap strategy "Redis pool" · no saving counted · this turn used 6k fresh tokens',
+    turnSummaryOf({ reusedNames: ['Redis pool'], turnReason: 'answer', changedLines: 0, usage: USAGE }),
+    '✓ Goal reached · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
   );
+});
+
+test('a turn that ran no check and did not end normally says nothing about the goal', () => {
+  for (const turnReason of ['aborted', 'error', 'refusal', undefined]) {
+    assert.equal(
+      turnSummaryOf({ reusedNames: ['Redis pool'], turnReason, usage: USAGE }),
+      'reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
+      String(turnReason),
+    );
+  }
 });
 
 test('a turn whose usage is unknown counts no saving and states no usage', () => {
   assert.equal(
     turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, changedLines: 10 }),
-    '✓ Goal reached (last check passed: npm test) · reused EvoMap strategy "Redis pool" · no saving counted',
+    '✓ Goal reached (last check passed: npm test) · reused EvoMap strategy "Redis pool"',
   );
 });
 
 test('the summary is one line, since the desktop notice renders no line breaks', () => {
   const summary = turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, usage: USAGE });
   assert.equal(summary.includes('\n'), false);
+});
+
+test('the goal names the check by its label, so a multi-line script never reaches the one-line notice', () => {
+  const summary = turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: "python3 - <<'EOF'\nassert ok\nEOF", label: 'Check the README edits', failed: false }, changedLines: 10 });
+  assert.match(summary, /^✓ Goal reached \(last check passed: Check the README edits\) · /);
+  assert.doesNotMatch(summary, /\n/);
 });

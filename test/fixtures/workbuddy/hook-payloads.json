@@ -1,0 +1,62 @@
+{
+  "SessionStart": {
+    "session_id": "01a12002-706d-79c9-a210-fbc680bb6d83",
+    "transcript_path": "/Users/me/.workbuddy/projects/Users-me-project/01a12002-706d-79c9-a210-fbc680bb6d83.jsonl",
+    "hook_event_name": "SessionStart",
+    "source": "startup",
+    "permission_mode": "default",
+    "client": "CLI",
+    "version": "2.156.0",
+    "generation_id": "01a1200270d970369a3823290c901477",
+    "model": "auto"
+  },
+  "UserPromptSubmit": {
+    "session_id": "01a12002-706d-79c9-a210-fbc680bb6d83",
+    "transcript_path": "/Users/me/.workbuddy/projects/Users-me-project/01a12002-706d-79c9-a210-fbc680bb6d83.jsonl",
+    "cwd": "/Users/me/project",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "用 Node 写一个 LRU 缓存，带测试",
+    "is_internal_continuation": false,
+    "permission_mode": "default",
+    "model": "auto"
+  },
+  "PreToolUse": {
+    "session_id": "01a12002-706d-79c9-a210-fbc680bb6d83",
+    "transcript_path": "/Users/me/.workbuddy/projects/Users-me-project/01a12002-706d-79c9-a210-fbc680bb6d83.jsonl",
+    "cwd": "/Users/me/project",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": { "file_path": "lru-cache.js", "content": "export class LruCache {}\n" },
+    "call_id": "call_00_a2",
+    "tool_use_id": "call_00_a2",
+    "permission_mode": "default"
+  },
+  "FinalStop": {
+    "session_id": "01a12002-706d-79c9-a210-fbc680bb6d83",
+    "transcript_path": "/Users/me/.workbuddy/projects/Users-me-project/01a12002-706d-79c9-a210-fbc680bb6d83.jsonl",
+    "cwd": "/Users/me/project",
+    "hook_event_name": "FinalStop",
+    "final_stop_reason": "completed",
+    "is_truncation_recovery": false,
+    "permission_mode": "default"
+  },
+  "SessionEnd": {
+    "session_id": "01a12002-706d-79c9-a210-fbc680bb6d83",
+    "transcript_path": "/Users/me/.workbuddy/projects/Users-me-project/01a12002-706d-79c9-a210-fbc680bb6d83.jsonl",
+    "cwd": "/Users/me/project",
+    "hook_event_name": "SessionEnd",
+    "reason": "clear",
+    "permission_mode": "default"
+  },
+  "assistantMessage": {
+    "id": "01a1-0015",
+    "parentId": "01a1-0014",
+    "timestamp": 1791625323570,
+    "type": "message",
+    "role": "assistant",
+    "status": "completed",
+    "providerData": { "model": "deepseek-v4.1-flash", "requestModelId": "fast-model", "requestModelName": "快速" },
+    "content": [{ "type": "output_text", "text": "LRU 缓存写好了：Map 加双向链表，10 个测试全部通过。" }]
+  },
+  "renderedCommand": "Executing slash command: /evolver:evolver-distill\n<command-message>evolver:evolver-distill</command-message> <command-name>/evolver:evolver-distill</command-name>\nDistillation failed: 不对"
+}

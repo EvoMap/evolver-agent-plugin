@@ -1,6 +1,6 @@
 {
   "name": "evolver-agent-plugin",
-  "description": "EvoMap marketplace for Evolver on Claude Code function hooks — per-prompt EvoMap strategy recall, edit signals, and evidence-backed reuse feedback, powered by the Genome Evolution Protocol (GEP).",
+  "description": "EvoMap marketplace for Evolver on Claude Code — per-prompt strategy recall, evidence-backed reuse reports and session-end distillation, powered by the Genome Evolution Protocol (GEP).",
   "owner": {
     "name": "EvoMap",
     "email": "team@evomap.ai",
@@ -8,15 +8,28 @@
   },
   "plugins": [
     {
-      "name": "evolver-agent-plugin",
-      "source": "./",
-      "description": "Evolver for AI agents as one plugin, with no tools: recalls one EvoMap strategy per prompt, tags edits with improvement signals, reports each reuse with the evidence the turn produced, and distills verified turns into drafts you publish or discard. Claude Code is the first supported host.",
-      "author": { "name": "EvoMap" },
+      "name": "evolver-plugin",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
+        "path": "dist/claude-code",
+        "ref": "release"
+      },
+      "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard.",
+      "author": {
+        "name": "EvoMap"
+      },
       "homepage": "https://evomap.ai",
       "repository": "https://github.com/EvoMap/evolver-agent-plugin",
       "license": "MIT",
       "category": "ai",
-      "keywords": ["evolution", "agent-memory", "gep", "evomap", "agent-plugin"]
+      "keywords": [
+        "evolution",
+        "agent-memory",
+        "gep",
+        "evomap",
+        "agent-plugin"
+      ]
     }
   ]
 }

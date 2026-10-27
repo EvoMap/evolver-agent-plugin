@@ -1,0 +1,46 @@
+[
+  {
+    "name": "evolver-status",
+    "description": "Evolver health: the Proxy, engine setup, distillation candidate and drafts."
+  },
+  {
+    "name": "evolver-search",
+    "description": "Find the EvoMap strategy that best fits a task; where the agent sees the answer, its reuse is reported.",
+    "hint": "<task description or error text>"
+  },
+  {
+    "name": "evolver-distill",
+    "description": "Distill this session's latest verified turn into a draft Gene now, instead of at session end.",
+    "hint": "[focus]"
+  },
+  {
+    "name": "evolver-drafts",
+    "description": "List distilled drafts; publish one to the EvoMap Hub for review, or discard it.",
+    "hint": "[publish|discard <number>]"
+  },
+  {
+    "name": "evolver-evolve",
+    "description": "Run an evolution checkpoint: recall past outcomes, reflect on the current task, record the lesson.",
+    "hint": "[focus]"
+  },
+  {
+    "name": "evolver-sync",
+    "description": "Sync assets between the local store and the EvoMap Hub (evolver sync).",
+    "hint": "[--scope=…] [--type=…] [--dry-run]"
+  },
+  {
+    "name": "evolver-review",
+    "description": "Review Evolver's pending evolved changes, then approve or reject them (evolver review).",
+    "hint": "[--approve | --reject]"
+  },
+  {
+    "name": "evolver-run",
+    "description": "Run one Evolver self-evolution cycle on this repository (evolver run).",
+    "hint": "[--loop] [--dry-run] [--strategy=…]"
+  },
+  {
+    "name": "evolver-solidify",
+    "description": "Solidify the working changes into a durable Gene or Capsule (evolver solidify).",
+    "hint": "[--dry-run] [--intent=…] [--summary=…]"
+  }
+]

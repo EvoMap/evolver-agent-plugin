@@ -1,0 +1,46 @@
+{
+  "name": "evolver-plugin",
+  "displayName": "Evolver — Self-Evolving Agent Memory",
+  "version": "0.2.0",
+  "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard. Nothing but the recalled steps enters the model's context.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolution",
+    "agent-memory",
+    "gep",
+    "evomap",
+    "agent-plugin"
+  ],
+  "userConfig": {
+    "proxy_port": {
+      "type": "string",
+      "title": "Proxy port",
+      "description": "Loopback Proxy fallback port when ~/.evolver/settings.json names none. Blank uses $EVOMAP_PROXY_PORT, then 19820.",
+      "default": ""
+    },
+    "recall_enabled": {
+      "type": "boolean",
+      "title": "Recall a strategy per prompt",
+      "description": "Look one reusable EvoMap strategy up per turn and add it behind that turn's prompt.",
+      "default": true
+    },
+    "auto_distill": {
+      "type": "boolean",
+      "title": "Distill verified work",
+      "description": "Distill the session's last verified turn into a draft after the session ends, with one completion on your plan. /evolver-distill works either way.",
+      "default": true
+    },
+    "node_path": {
+      "type": "string",
+      "title": "Node executable",
+      "description": "Node.js 22.13+ that runs the plugin's relay process.",
+      "default": "node"
+    }
+  }
+}

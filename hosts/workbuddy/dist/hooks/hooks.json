@@ -1,0 +1,61 @@
+{
+  "description": "Evolver: strategy recall behind the prompt, reuse reports at turn and session end, and session-end distillation",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/bin/hook.mjs\" workbuddy SessionStart",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/bin/hook.mjs\" workbuddy UserPromptSubmit",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/bin/hook.mjs\" workbuddy PreToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "FinalStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/bin/hook.mjs\" workbuddy FinalStop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/bin/hook.mjs\" workbuddy SessionEnd",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

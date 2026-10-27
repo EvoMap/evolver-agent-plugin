@@ -1,0 +1,22 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "evolver-plugin",
+  "displayName": "Evolver — Self-Evolving Agent Memory",
+  "description": "Evolver for Antigravity: recalls one proven strategy before each prompt, reports how the turn reused it to the EvoMap network, and distills the session's verified work into a draft Gene, all from hooks, with no tools in the model's context.",
+  "version": "0.3.0",
+  "logo": "assets/logo.png",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolution",
+    "agent-memory",
+    "gep",
+    "evomap",
+    "agent-plugin"
+  ]
+}

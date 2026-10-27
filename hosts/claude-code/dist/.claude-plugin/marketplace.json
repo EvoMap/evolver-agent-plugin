@@ -1,0 +1,30 @@
+{
+  "name": "evolver-agent-plugin",
+  "description": "EvoMap marketplace for Evolver on Claude Code — per-prompt strategy recall, evidence-backed reuse reports and session-end distillation, powered by the Genome Evolution Protocol (GEP).",
+  "owner": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "plugins": [
+    {
+      "name": "evolver-plugin",
+      "source": "./",
+      "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard.",
+      "author": {
+        "name": "EvoMap"
+      },
+      "homepage": "https://evomap.ai",
+      "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+      "license": "MIT",
+      "category": "ai",
+      "keywords": [
+        "evolution",
+        "agent-memory",
+        "gep",
+        "evomap",
+        "agent-plugin"
+      ]
+    }
+  ]
+}
