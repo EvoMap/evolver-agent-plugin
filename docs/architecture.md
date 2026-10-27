@@ -50,7 +50,7 @@ State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every fi
   than 4000 characters is passed over.
 - **Every reuse is reported twice.** A host's earlier Evolver plugin is enabled too: `evolver-mods` or
   `evolver-agent-plugin` on Claude Code, `evolver@evomap` on Codex, `evolver@evomap-workbuddy` on WorkBuddy,
-  `evolver-antigravity-plugin`, `evolver-opencode-plugin`. The earlier `evolver-agent-plugin` 0.1.0 on Claude Code
+  `evolver-antigravity-plugin`, `evolver-opencode-plugin`, or the npm `@evomap/dsh-evolver` in a dsh profile. The earlier `evolver-agent-plugin` 0.1.0 on Claude Code
   kept its state in Claude Code's plugin store, which `evolver-plugin` does not read.
 - **A reuse report seems lost.** Reports wait in `<host>-reports-outbox.json` until the Proxy accepts them, retried
   at every turn end and session start for 8 days.
@@ -149,8 +149,8 @@ started it (`spawner`), Claude Code itself, and the relay exits once that is gon
 within 15 s is ended, and the next start waits longer after each failure.
 
 **Packing and publishing.** WorkBuddy copies only its plugin folder and loads every component folder at that
-folder's root, Antigravity installs a whole repo and loads its skills, commands and agents, OpenCode loads an npm
-package, and Claude Code and Codex install a plugin folder: installed from this repo as it is, they would miss
+folder's root, Antigravity installs a whole repo and loads its skills, commands and agents, OpenCode and DeepSeek
+Harness load an npm package, and Claude Code and Codex install a plugin folder: installed from this repo as it is, they would miss
 `lib/` or load another host's files. `npm run pack` builds each of them its own folder under `dist/<host>`
 (`scripts/pack.mjs`, from `hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its
 manifests at the root. Cursor installs the repo root: its manifest names its commands and hooks, which turns off its
@@ -159,7 +159,7 @@ to `main`, and `scripts/publish-release-branch.sh` commits `main` plus `dist/` t
 build, only for `main`'s current tip, never a force-push. The repo root keeps only the marketplace manifests the
 hosts read at fixed paths. Claude Code's and WorkBuddy's install `dist/<host>` from `release` through a
 `git-subdir` source, since a marketplace itself cannot be added at a branch; Codex adds the marketplace at
-`--ref release`; Antigravity and OpenCode install from a clone of it.
+`--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.

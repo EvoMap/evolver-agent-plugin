@@ -37,6 +37,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | OpenCode 1.19.4+ | Supported | `hosts/opencode`, an in-process plugin; installs `dist/opencode` |
 | Any MCP client without hooks (Kiro, openclaw, …) | Supported | `hosts/mcp-generic`, `node bin/mcp.mjs mcp-generic` over stdio |
 | Codex | Supported | `hosts/codex`, command hooks; installs `dist/codex` |
+| DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -75,8 +76,8 @@ claude plugin disable evolver-mods@evolver-mods
 
 ## Install (other hosts)
 
-Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Antigravity and OpenCode install a folder
-packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
+Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Antigravity, OpenCode and DeepSeek Harness
+install a folder packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
 plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
 injections, undelivered reports), so nothing is lost on the way over.
 
@@ -114,6 +115,17 @@ injections, undelivered reports), so nothing is lost on the way over.
 - **OpenCode:** `opencode plugin <release clone>/dist/opencode` (the folder is the `@evomap/evolver-opencode`
   package, not published to npm yet); remove the old `evolver-opencode-plugin` first, or every reuse is reported
   twice.
+- **DeepSeek Harness:** each dsh profile loads its own plugins; for every profile you use (`dsh-tui`, `web`,
+  `headless`), remove the standalone `@evomap/dsh-evolver` first, then add the packed folder from a clone of the
+  `release` branch, and restart dsh:
+
+  ```bash
+  git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
+  dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
+  dsh plugin --profile dsh-tui add -w "$PWD/evolver-agent-plugin/dist/dsh"
+  ```
+
+  The folder is the `@evomap/dsh-evolver` package (shown in dsh as `evolver-plugin`), not on npm yet.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 
