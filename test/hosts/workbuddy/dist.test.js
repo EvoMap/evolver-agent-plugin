@@ -38,15 +38,14 @@ test('every plugin command ships as an inline script with the description and hi
   }
 });
 
-test('the marketplace at the repository root installs the packed plugin, dist/workbuddy, from the release tag', () => {
+test('the marketplace at the repository root installs the packed plugin, dist/workbuddy, from the release branch a release tag moves', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
   const manifest = json(`${DIST}/.codebuddy-plugin/plugin.json`);
   const [entry] = marketplace.plugins;
   assert.equal(marketplace.plugins.length, 1);
-  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/workbuddy', ref: `v${manifest.version}` });
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/workbuddy', ref: 'release' });
   assert.equal(entry.name, manifest.name);
-  assert.equal(entry.version, manifest.version);
-  assert.equal(marketplace.metadata.version, manifest.version);
+  assert.equal('version' in entry, false, 'the packed manifest carries the release tag\'s version');
   assert.equal(manifest.hooks, './hooks/hooks.json');
   assert.equal(manifest.commands, './commands');
   assert.equal(json(`${DIST}/package.json`).type, 'module');
@@ -56,7 +55,9 @@ test('the packed folder is a marketplace of its own, for trying a local build: t
   const { plugins: [rootEntry], ...root } = json('.codebuddy-plugin/marketplace.json');
   const { plugins: [packedEntry], ...packed } = json(`${DIST}/.codebuddy-plugin/marketplace.json`);
   assert.deepEqual(packed, root);
-  assert.deepEqual({ ...packedEntry, source: rootEntry.source }, rootEntry);
+  const { version, ...packedWithoutVersion } = packedEntry;
+  assert.deepEqual({ ...packedWithoutVersion, source: rootEntry.source }, rootEntry, 'the root entry names no version; the packed one is stamped');
+  assert.equal(version, json(`${DIST}/.codebuddy-plugin/plugin.json`).version);
   assert.equal(packedEntry.source, './');
   assert.equal(json(`${DIST}/pack.json`).root['.codebuddy-plugin/marketplace.json'], `${DIST}/.codebuddy-plugin/marketplace.json`);
 });

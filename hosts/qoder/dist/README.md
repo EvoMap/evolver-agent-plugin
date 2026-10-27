@@ -17,7 +17,7 @@ qodercli plugins install evolver-plugin@evomap
 
 Then start a new session, or run `/plugins reload` in a running one. `qodercli plugins list` shows
 `evolver-plugin@evomap` enabled. The marketplace lives on the repository's `main` branch and installs this folder
-from its release tag.
+from its `release` branch.
 
 ### Requirements
 

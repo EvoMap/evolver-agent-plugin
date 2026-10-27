@@ -9,13 +9,12 @@
   "plugins": [
     {
       "name": "evolver-plugin",
-      "version": "1.0.0",
       "description": "Evolver for Qoder: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work at session end, all from hooks, with no tools in the model's context.",
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
         "path": "dist/qoder",
-        "ref": "v1.0.0"
+        "ref": "release"
       },
       "author": {
         "name": "EvoMap",

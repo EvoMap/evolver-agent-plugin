@@ -156,13 +156,15 @@ Harness load an npm package, and Claude Code, Codex, Grok and Qoder install a pl
 (`scripts/pack.mjs`, from `hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its
 manifests at the root. Cursor installs the repo root: its manifest names its commands and hooks, which turns off its
 folder discovery. `dist/` is not committed to `main`. CI (`.github/workflows/release.yml`) tests and packs every push
-to `main`. A release is a tag: `scripts/release-version.mjs set X.Y.Z` names one version in every manifest and its
-tag `vX.Y.Z` in every marketplace and install step; once that is on `main`, a maintainer pushes the tag, and CI checks
-the names agree, tests, packs, and `scripts/publish-tag.sh` re-points the tag at one commit more, the tagged source
-plus `dist/`, then opens a GitHub Release. Only a commit on `main` is released, and a re-run changes nothing. The repo root keeps only the marketplace manifests the
-hosts read at fixed paths. Claude Code's, WorkBuddy's, Grok's and Qoder's install `dist/<host>` from the tag through a
-`git-subdir` source, since a marketplace itself is read from `main`; Codex adds the marketplace at
-`--ref v1.0.0`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
+to `main`. A release is a tag `vX.Y.Z` a maintainer pushes on `main`, and nothing on `main` names a version: CI
+packs with the tag's version stamped into every host's manifest (`scripts/pack.mjs --version`), and
+`scripts/publish-tag.sh` moves the `release` branch one commit on, the tagged source plus `dist/`, and re-points the
+tag at it, in one atomic push. A tag off `main`, or older than what `release` holds, is refused; a re-run changes
+nothing. The repo root keeps only the marketplace manifests the
+hosts read at fixed paths. Claude Code's, WorkBuddy's, Grok's and Qoder's install `dist/<host>` from `release` through a
+`git-subdir` source, since a marketplace itself is read from `main`; the marketplace entries name no version, so each host reads the
+stamped one from the packed manifest; Codex adds the marketplace at
+`--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.
@@ -182,7 +184,7 @@ lib/*.js, lib/turn/, lib/distill/, lib/session/
                        host-neutral pure rules: recall ranking, Recipe expansion, relevance and redaction, reuse
                        reports and their evidence, outbox, injection ledger, follow-up labels, retention,
                        verification, savings, turn summary, distillation and drafts
-scripts/               pack.mjs, release-version.mjs, publish-tag.sh
+scripts/               pack.mjs, publish-tag.sh
 ```
 
 ## Design decisions

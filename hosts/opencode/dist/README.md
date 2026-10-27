@@ -6,11 +6,11 @@ enters the model's context: no tools, no skill, no instructions.
 
 ## Install
 
-Requires OpenCode 1.19.4 or newer. The package is not on npm yet; install the packed folder from a release
-tag of `EvoMap/evolver-agent-plugin` (or a local `npm run pack`), by its absolute path:
+Requires OpenCode 1.19.4 or newer. The package is not on npm yet; install the packed folder from the `release`
+branch of `EvoMap/evolver-agent-plugin` (or a local `npm run pack`), by its absolute path:
 
 ```bash
-git clone --depth 1 --branch v1.0.0 https://github.com/EvoMap/evolver-agent-plugin.git
+git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
 opencode plugin "$PWD/evolver-agent-plugin/dist/opencode"        # add -g for every project
 ```
 

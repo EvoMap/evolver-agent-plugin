@@ -70,16 +70,16 @@ test('each shared command has a Qoder command file for the slash menu, described
   }
 });
 
-test('the marketplace Qoder reads first at the repository root installs dist/qoder from the release tag', () => {
+test('the marketplace Qoder reads first at the repository root installs dist/qoder from the release branch', () => {
   const marketplace = json('.qoder-plugin/marketplace.json');
   const manifest = json(`${DIST}/.qoder-plugin/plugin.json`);
   const [entry, ...rest] = marketplace.plugins;
   assert.deepEqual(rest, []);
-  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/qoder', ref: `v${manifest.version}` });
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/qoder', ref: 'release' });
   assert.equal(json('package.json').scripts.pack, 'node scripts/pack.mjs all dist');
   assert.ok(packedHosts().includes('qoder'));
   assert.equal(entry.name, manifest.name);
-  assert.equal(entry.version, manifest.version);
+  assert.equal('version' in entry, false, 'the packed manifest carries the release tag\'s version');
   assert.equal(`${entry.name}@${marketplace.name}`, 'evolver-plugin@evomap');
 });
 

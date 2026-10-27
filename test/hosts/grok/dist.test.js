@@ -49,16 +49,16 @@ test('PreToolUse fires for the edit tools only; every tool result reaches PostTo
   }
 });
 
-test('the marketplace grok reads at the repository root installs dist/grok from the release tag', () => {
+test('the marketplace grok reads at the repository root installs dist/grok from the release branch', () => {
   const marketplace = json('.grok-plugin/marketplace.json');
   const manifest = json(`${DIST}/.grok-plugin/plugin.json`);
   const [entry, ...rest] = marketplace.plugins;
   assert.deepEqual(rest, []);
-  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/grok', ref: `v${manifest.version}` });
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/grok', ref: 'release' });
   assert.ok(packedHosts().includes('grok'));
   assert.equal(entry.name, manifest.name);
   assert.equal(entry.name, 'evolver-plugin');
-  assert.equal(entry.version, manifest.version);
+  assert.equal('version' in entry, false, 'the packed manifest carries the release tag\'s version');
   assert.equal(marketplace.name, 'evomap');
 });
 
@@ -93,7 +93,7 @@ test('the README installs from the marketplace and names the commands as they ar
   const readme = readFileSync(at(`${DIST}/README.md`), 'utf8');
   assert.match(readme, /^grok plugin marketplace add EvoMap\/evolver-agent-plugin$/m);
   assert.match(readme, /^grok plugin install evolver-plugin --trust$/m);
-  assert.match(readme, /installed-plugins\/<folder>\/dist\/grok\/bin\/command\.mjs grok evolver-status/, 'the marketplace installs the release tag whole');
+  assert.match(readme, /installed-plugins\/<folder>\/dist\/grok\/bin\/command\.mjs grok evolver-status/, 'the marketplace installs the release branch whole');
   assert.match(readme, /`grok inspect` lists it as enabled/);
   assert.doesNotMatch(readme, /`grok plugin list` shows it enabled/, 'grok plugin list shows no status');
   assert.match(readme, /`grok plugin install EvoMap\/evolver-agent-plugin`, a form Grok also\naccepts, installs the repository's root instead/);

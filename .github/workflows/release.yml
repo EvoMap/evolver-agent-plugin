@@ -29,10 +29,10 @@ jobs:
       - run: npm test
       - run: npm run pack
 
-  # A release is a tag vX.Y.Z a maintainer pushes on main, once scripts/release-version.mjs has set that version in every
-  # manifest. The tag is re-pointed at the tagged source plus the packed dist/, which the hosts install from (Claude
-  # Code, WorkBuddy, Grok and Qoder through their marketplaces, Codex at --ref, Antigravity, OpenCode and DeepSeek
-  # Harness from a clone). A tag pushed with this workflow's token starts no further run.
+  # A release is a tag vX.Y.Z a maintainer pushes on main; nothing on main names a version. The tag's version is
+  # stamped into every packed manifest, and the release branch, which the hosts install from (Claude Code, WorkBuddy,
+  # Grok and Qoder through their marketplaces, Codex at --ref, Antigravity, OpenCode and DeepSeek Harness from a
+  # clone), moves one commit on, with the tag re-pointed there. A push made with this workflow's token starts no run.
   publish:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
@@ -41,7 +41,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: publish-${{ github.ref }}
+      group: publish
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,9 +50,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - run: node scripts/release-version.mjs check "$GITHUB_REF_NAME"
-      - run: npm run pack
-      - run: scripts/publish-tag.sh "$GITHUB_REF_NAME"
+      - run: node scripts/pack.mjs all dist "--version=$GITHUB_REF_NAME"
+      - run: scripts/publish-tag.sh "$GITHUB_REF_NAME" release
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com

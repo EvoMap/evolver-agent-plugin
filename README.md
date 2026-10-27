@@ -56,8 +56,8 @@ In Claude Code:
 /plugin install evolver-plugin@evolver-agent-plugin
 ```
 
-The marketplace installs `dist/claude-code` from the latest release tag (`vX.Y.Z`), which CI
-packs when a maintainer tags `main`; Node.js 22.13+ must be on the `PATH` (or set `node_path` in
+The marketplace installs `dist/claude-code` from the `release` branch, which CI moves only when a
+release tag is pushed; Node.js 22.13+ must be on the `PATH` (or set `node_path` in
 `/config`). Restart Claude Code afterwards. To update, refresh the marketplace first, then the
 plugin, and restart:
 
@@ -65,10 +65,10 @@ plugin, and restart:
 claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-plugin@evolver-agent-plugin
 ```
 
-Claude Code updates an installed plugin only when its version changes. A release runs
-`node scripts/release-version.mjs set X.Y.Z` (every host's version and every install's tag at once),
-merges that to `main`, then pushes the tag `vX.Y.Z` there; CI tests, packs `dist/`, re-points the tag at the
-packed commit and opens a GitHub Release. To
+Claude Code updates an installed plugin only when its version changes. A release is one tag on `main`,
+`git tag vX.Y.Z && git push origin vX.Y.Z`, with no file to edit: CI tests, packs with that version stamped into
+every host's manifest, moves `release` one commit on, points the tag there and opens a GitHub Release. A failed
+release changes nothing; delete the tag, fix, and push it again. To
 try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
 
 Run one Evolver plugin, not several: if `evolver-mods@evolver-mods`, `evolver@evolver` or the earlier
@@ -82,7 +82,7 @@ claude plugin disable evolver-mods@evolver-mods
 ## Install (other hosts)
 
 Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Grok, Qoder, Antigravity, OpenCode and DeepSeek Harness
-install a folder packed for them (`npm run pack`, into `dist/<host>`), from the release tag. Remove the host's standalone Evolver
+install a folder packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
 plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
 injections, undelivered reports), so nothing is lost on the way over.
 
@@ -96,10 +96,9 @@ injections, undelivered reports), so nothing is lost on the way over.
   /plugin install evolver-plugin@evomap-workbuddy
   ```
 
-  The marketplace installs `dist/workbuddy` from the release tag, and the first session moves the old data
+  The marketplace installs `dist/workbuddy` from the `release` branch, and the first session moves the old data
   folder's files (`evolver-evomap-workbuddy`) into the new one. WorkBuddy updates an installed plugin only
-  when its version changes, so a release meant to reach installs bumps the version in
-  `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
+  when its version changes, which the release tag stamps into the packed folder. To try a local
   build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a
   marketplace of its own.
 - **Qoder CLI:** add this repository as a marketplace and install the plugin:
@@ -109,13 +108,13 @@ injections, undelivered reports), so nothing is lost on the way over.
   qodercli plugins install evolver-plugin@evomap
   ```
 
-  The marketplace (`.qoder-plugin/marketplace.json`) installs `dist/qoder` from the release tag; start a new
+  The marketplace (`.qoder-plugin/marketplace.json`) installs `dist/qoder` from the `release` branch; start a new
   session or run `/plugins reload`. Commands are typed as `/evolver-status` and answered as a blocked prompt.
-- **Codex:** remove the standalone plugin and its marketplace, then add this one at the release tag:
+- **Codex:** remove the standalone plugin and its marketplace, then add this one at the `release` branch:
 
   ```bash
   codex plugin remove evolver@evomap && codex plugin marketplace remove evomap
-  codex plugin marketplace add EvoMap/evolver-agent-plugin --ref v1.0.0
+  codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
   codex plugin add evolver-plugin@evomap
   ```
 
@@ -127,15 +126,14 @@ injections, undelivered reports), so nothing is lost on the way over.
   grok plugin install evolver-plugin --trust
   ```
 
-  The marketplace (`.grok-plugin/marketplace.json`) installs `dist/grok` from the release tag; start a new
+  The marketplace (`.grok-plugin/marketplace.json`) installs `dist/grok` from the `release` branch; start a new
   session afterwards. Grok's prompt hooks cannot add context, so the recalled strategy reaches the model at the
   turn's first tool result, and a turn answered without any tool call does without it. Commands are typed into the
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
-  Grok command. A release bumps `version` in `hosts/grok/dist/.grok-plugin/plugin.json` and
-  `.grok-plugin/marketplace.json` together; `grok plugin update evolver-plugin` fetches it.
+  Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
-- **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the release tag,
-  `git clone --depth 1 --branch v1.0.0 https://github.com/EvoMap/evolver-agent-plugin.git` and
+- **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
+  `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
   Its commands run from a terminal: `node <installed plugin>/bin/command.mjs antigravity evolver-status` (or
   `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
@@ -144,10 +142,10 @@ injections, undelivered reports), so nothing is lost on the way over.
   twice.
 - **DeepSeek Harness:** each dsh profile loads its own plugins; for every profile you use (`dsh-tui`, `web`,
   `headless`), remove the standalone `@evomap/dsh-evolver` first, then add the packed folder from a clone of the
-  release tag, and restart dsh:
+  `release` branch, and restart dsh:
 
   ```bash
-  git clone --depth 1 --branch v1.0.0 https://github.com/EvoMap/evolver-agent-plugin.git
+  git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
   dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
   dsh plugin --profile dsh-tui add -w "$PWD/evolver-agent-plugin/dist/dsh"
   ```

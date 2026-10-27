@@ -81,7 +81,7 @@ Only a prompt that is exactly a command counts; `evolver-status` followed by mor
 prompt box waits while a command runs: up to two minutes for `evolver-distill`, ten for the engine commands.
 
 The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest candidate.
-The marketplace installs the repository at its release tag, so the plugin is its `dist/grok` folder:
+The marketplace installs the repository's `release` branch, so the plugin is its `dist/grok` folder:
 
 ```bash
 node ~/.grok/installed-plugins/<folder>/dist/grok/bin/command.mjs grok evolver-status
