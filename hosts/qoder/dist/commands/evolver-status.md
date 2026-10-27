@@ -1,5 +1,5 @@
 ---
-description: "Evolver health: the Proxy, engine setup, distillation candidate and drafts."
+description: "Evolver health: the Proxy, engine setup, Hub sign-in, distillation candidate and drafts."
 ---
 
 The Evolver plugin answers `/evolver-status` itself, from its UserPromptSubmit hook, before this prompt reaches you.
