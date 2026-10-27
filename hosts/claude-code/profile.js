@@ -4,8 +4,8 @@
 import { EVENTS, REASONS } from '../../lib/agent/events.js';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { isPersonPrompt } from '../../lib/recall.js';
+import { endedTurnSummaryOf } from '../../lib/turn-summary.js';
 import { editedFilesOf, toolNoteOf } from './tool-calls.js';
-import { summaryLineOf } from './turn-summary.js';
 
 // Claude Code runs the plugin as a hooks module (`dist/hooks/register.ts`), where there is no Node. The module
 // starts `bin/relay.mjs claude-code` for the session and sends it these host events, each a Claude Code event with
@@ -50,7 +50,7 @@ export default defineProfile({
       ? { submit: result.text }
       : { text: result.text, ...(result.ok === false && { exitCode: 1 }), ...(result.strategy && { context: [result.strategy.text] }) }),
     turnEnd: (ended, hostEvent, payload) => {
-      const line = summaryLineOf(ended, payload);
+      const line = endedTurnSummaryOf(ended, payload);
       return line ? { text: line } : {};
     },
     late: (answer, late) => ({ ...answer, late }),

@@ -5,6 +5,7 @@ import { EVENTS } from '../../lib/agent/events.js';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { promptCommandOf } from './commands.js';
 import { editedFilesOf, toolNoteOf } from './evidence.js';
+import { endedTurnSummaryOf } from '../../lib/turn-summary.js';
 import { headlessCodex } from './headless.js';
 
 // A turn that ended on an error runs neither Stop nor Interrupt, so the next prompt closes it. Codex runs each hook
@@ -33,6 +34,11 @@ export default defineProfile({
   reply: {
     // A blocked prompt reaches no model and opens no turn; Codex shows the reason to the person.
     command: (result) => ({ decision: 'block', reason: result.text }),
+    // Codex shows a Stop hook's systemMessage to the person only.
+    turnEnd: (ended, hostEvent) => {
+      const line = hostEvent === INTERRUPT ? null : endedTurnSummaryOf(ended, { reason: 'answer' });
+      return line ? { systemMessage: line } : {};
+    },
   },
   evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },
   turnEnd: {

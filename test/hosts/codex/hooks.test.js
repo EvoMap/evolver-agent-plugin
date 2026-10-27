@@ -128,7 +128,9 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   assert.deepEqual(await s.patch(), {});
   assert.deepEqual(await s.bash('npm test', FAILED_RUN), {});
   assert.deepEqual(await s.bash('npm test 2>&1 | tail -5', PASSED_RUN), {});
-  assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {});
+  assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {
+    systemMessage: `✓ Goal reached (last check passed: npm test 2>&1 | tail -5) · reused EvoMap strategy "${ASSET.short_title}"`,
+  });
 
   assert.deepEqual(await waitFor(() => reportOf('codex:s-turn:1')), {
     asset_id: ASSET.asset_id,

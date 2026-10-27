@@ -28,8 +28,8 @@ jobs:
       - run: npm test
       - run: npm run pack
 
-  # The release branch is main plus the packed dist/, which WorkBuddy's marketplace installs from and Antigravity
-  # and OpenCode are installed from. Only a tested push to main moves it.
+  # The release branch is main plus the packed dist/, which the hosts' marketplaces install from (Claude Code,
+  # WorkBuddy and Codex) and Antigravity and OpenCode are installed from. Only a tested push to main moves it.
   release:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

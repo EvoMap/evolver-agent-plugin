@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/claude-code/profile.js';
-import { summaryLineOf } from '../../../hosts/claude-code/turn-summary.js';
+import { endedTurnSummaryOf as summaryLineOf } from '../../../lib/turn-summary.js';
 
 const { captured, typed } = JSON.parse(readFileSync(new URL('../../fixtures/claude-code/events.json', import.meta.url), 'utf8'));
 const SESSION = { session_id: captured.session.id, cwd: captured.session.cwd };
