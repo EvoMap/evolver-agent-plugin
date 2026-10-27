@@ -1,0 +1,41 @@
+{
+  "name": "@evomap/evolver-opencode",
+  "version": "1.0.0",
+  "description": "Evolver for OpenCode: recalls a proven strategy behind each prompt, reports its reuse at turn end, and distills verified work outside the conversation.",
+  "type": "module",
+  "exports": {
+    "./server": "./hosts/opencode/dist/server.mjs",
+    "./tui": "./hosts/opencode/dist/tui.mjs",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "evomap",
+    "evolver",
+    "gep",
+    "agent-memory"
+  ],
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EvoMap/evolver-agent-plugin.git",
+    "directory": "hosts/opencode/dist"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0",
+    "opencode": ">=1.19.4"
+  },
+  "files": [
+    "hosts/",
+    "lib/",
+    "LICENSE",
+    "README.md"
+  ]
+}

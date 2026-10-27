@@ -1,0 +1,1069 @@
+{
+  "SessionStart": {
+    "hookEventName": "session_start",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.113378+00:00",
+    "permissionMode": "bypassPermissions",
+    "source": "new",
+    "hook_event_name": "SessionStart",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "permission_mode": "bypassPermissions"
+  },
+  "UserPromptSubmit": {
+    "hookEventName": "user_prompt_submit",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.141245+00:00",
+    "promptId": "fa63e6f7-3b05-40a0-9e67-a50e2a22ab25",
+    "permissionMode": "bypassPermissions",
+    "prompt": "fix the readme so the checks pass",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "permission_mode": "bypassPermissions"
+  },
+  "PreToolUse.run_terminal_command": {
+    "hookEventName": "pre_tool_use",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.284354+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    },
+    "toolInputTruncated": false,
+    "hook_event_name": "PreToolUse",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    },
+    "tool_use_id": "call_3"
+  },
+  "PostToolUse.run_terminal_command.failed": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.419978+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    },
+    "toolResult": {
+      "type": "Bash",
+      "output": [
+        49,
+        32,
+        102,
+        97,
+        105,
+        108,
+        105,
+        110,
+        103,
+        58,
+        32,
+        82,
+        69,
+        65,
+        68,
+        77,
+        69,
+        32,
+        110,
+        111,
+        116,
+        32,
+        102,
+        105,
+        120,
+        101,
+        100,
+        10
+      ],
+      "output_for_prompt": "exit: 1\n1 failing: README not fixed\n",
+      "exit_code": 1,
+      "command": "sh check.sh",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Run the checks",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/terminal/call_3.log",
+      "total_bytes": 28
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 55,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    },
+    "tool_response": {
+      "type": "Bash",
+      "output": [
+        49,
+        32,
+        102,
+        97,
+        105,
+        108,
+        105,
+        110,
+        103,
+        58,
+        32,
+        82,
+        69,
+        65,
+        68,
+        77,
+        69,
+        32,
+        110,
+        111,
+        116,
+        32,
+        102,
+        105,
+        120,
+        101,
+        100,
+        10
+      ],
+      "output_for_prompt": "exit: 1\n1 failing: README not fixed\n",
+      "exit_code": 1,
+      "command": "sh check.sh",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Run the checks",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/terminal/call_3.log",
+      "total_bytes": 28
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 55
+  },
+  "PreToolUse.search_replace": {
+    "hookEventName": "pre_tool_use",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.558940+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "search_replace",
+    "toolUseId": "call_4",
+    "toolInput": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    },
+    "toolInputTruncated": false,
+    "hook_event_name": "PreToolUse",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "search_replace",
+    "tool_input": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    },
+    "tool_use_id": "call_4"
+  },
+  "PostToolUse.search_replace": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.648853+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "search_replace",
+    "toolUseId": "call_4",
+    "toolInput": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    },
+    "toolResult": {
+      "type": "SearchReplace",
+      "EditsApplied": {
+        "old_string": "hello",
+        "new_string": "hello fixed",
+        "tool_output_for_prompt": "The file /Users/you/project/README.md has been updated successfully.",
+        "tool_output_for_prompt_concise": "The file /Users/you/project/README.md has been updated.",
+        "absolute_path": "/Users/you/project/README.md",
+        "edits": {
+          "details": [
+            {
+              "old_string": "hello",
+              "old_line": 1,
+              "new_string": "hello fixed",
+              "new_line": 1,
+              "context_before": "",
+              "context_after": "",
+              "line_prefix": ""
+            }
+          ]
+        }
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 11,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "search_replace",
+    "tool_input": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    },
+    "tool_response": {
+      "type": "SearchReplace",
+      "EditsApplied": {
+        "old_string": "hello",
+        "new_string": "hello fixed",
+        "tool_output_for_prompt": "The file /Users/you/project/README.md has been updated successfully.",
+        "tool_output_for_prompt_concise": "The file /Users/you/project/README.md has been updated.",
+        "absolute_path": "/Users/you/project/README.md",
+        "edits": {
+          "details": [
+            {
+              "old_string": "hello",
+              "old_line": 1,
+              "new_string": "hello fixed",
+              "new_line": 1,
+              "context_before": "",
+              "context_after": "",
+              "line_prefix": ""
+            }
+          ]
+        }
+      }
+    },
+    "tool_use_id": "call_4",
+    "duration_ms": 11
+  },
+  "PostToolUse.run_terminal_command.passed": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:50.900869+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_5",
+    "toolInput": {
+      "command": "sh check.sh",
+      "description": "Run the checks again"
+    },
+    "toolResult": {
+      "type": "Bash",
+      "output": [
+        49,
+        32,
+        112,
+        97,
+        115,
+        115,
+        105,
+        110,
+        103,
+        10
+      ],
+      "output_for_prompt": "exit: 0\n1 passing\n",
+      "exit_code": 0,
+      "command": "sh check.sh",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Run the checks again",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/terminal/call_5.log",
+      "total_bytes": 10
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 50,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sh check.sh",
+      "description": "Run the checks again"
+    },
+    "tool_response": {
+      "type": "Bash",
+      "output": [
+        49,
+        32,
+        112,
+        97,
+        115,
+        115,
+        105,
+        110,
+        103,
+        10
+      ],
+      "output_for_prompt": "exit: 0\n1 passing\n",
+      "exit_code": 0,
+      "command": "sh check.sh",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Run the checks again",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/terminal/call_5.log",
+      "total_bytes": 10
+    },
+    "tool_use_id": "call_5",
+    "duration_ms": 50
+  },
+  "Stop": {
+    "hookEventName": "stop",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:51.033110+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "promptId": "fa63e6f7-3b05-40a0-9e67-a50e2a22ab25",
+    "permissionMode": "bypassPermissions",
+    "reason": "end_turn",
+    "stopHookActive": false,
+    "lastAssistantMessage": "Fixed README; checks pass.",
+    "backgroundTasks": [],
+    "sessionCrons": [],
+    "hook_event_name": "Stop",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "Fixed README; checks pass."
+  },
+  "Stop.shutdown": {
+    "hookEventName": "stop",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:51.250305+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "reason": "shutdown",
+    "stopHookActive": false,
+    "hook_event_name": "Stop",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false
+  },
+  "SessionEnd": {
+    "hookEventName": "session_end",
+    "sessionId": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:44:51.246352+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "reason": "shutdown",
+    "hook_event_name": "SessionEnd",
+    "session_id": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17be3-d00d-7890-880c-3ef662ccbfb1/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "PostToolUse.read_file": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:33.796487+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "read_file",
+    "toolUseId": "call_15",
+    "toolInput": {
+      "target_file": "README.md"
+    },
+    "toolResult": {
+      "type": "ReadFile",
+      "FileContent": {
+        "content": "1→hello fixed fixed\n",
+        "content_concise": "1→hello fixed fixed\n",
+        "absolute_path": "/Users/you/project/README.md",
+        "offset": null,
+        "raw_output": "hello fixed fixed\n",
+        "total_lines": 1
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 3,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "read_file",
+    "tool_input": {
+      "target_file": "README.md"
+    },
+    "tool_response": {
+      "type": "ReadFile",
+      "FileContent": {
+        "content": "1→hello fixed fixed\n",
+        "content_concise": "1→hello fixed fixed\n",
+        "absolute_path": "/Users/you/project/README.md",
+        "offset": null,
+        "raw_output": "hello fixed fixed\n",
+        "total_lines": 1
+      }
+    },
+    "tool_use_id": "call_15",
+    "duration_ms": 3
+  },
+  "PreToolUse.write": {
+    "hookEventName": "pre_tool_use",
+    "sessionId": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:33.896398+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "write",
+    "toolUseId": "call_16",
+    "toolInput": {
+      "file_path": "notes.md",
+      "content": "draft\n"
+    },
+    "toolInputTruncated": false,
+    "hook_event_name": "PreToolUse",
+    "session_id": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "write",
+    "tool_input": {
+      "file_path": "notes.md",
+      "content": "draft\n"
+    },
+    "tool_use_id": "call_16"
+  },
+  "PostToolUse.write": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:33.951429+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "write",
+    "toolUseId": "call_16",
+    "toolInput": {
+      "file_path": "notes.md",
+      "content": "draft\n"
+    },
+    "toolResult": {
+      "type": "SearchReplace",
+      "EditsApplied": {
+        "old_string": "draft\n",
+        "new_string": "draft\n",
+        "tool_output_for_prompt": "Wrote file successfully to /Users/you/project/notes.md.",
+        "tool_output_for_prompt_concise": "Wrote file successfully to /Users/you/project/notes.md.",
+        "absolute_path": "/Users/you/project/notes.md",
+        "edits": {
+          "details": [
+            {
+              "old_string": "draft\n",
+              "old_line": 1,
+              "new_string": "draft\n",
+              "new_line": 1,
+              "context_before": "",
+              "context_after": "",
+              "line_prefix": ""
+            }
+          ]
+        }
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 10,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "write",
+    "tool_input": {
+      "file_path": "notes.md",
+      "content": "draft\n"
+    },
+    "tool_response": {
+      "type": "SearchReplace",
+      "EditsApplied": {
+        "old_string": "draft\n",
+        "new_string": "draft\n",
+        "tool_output_for_prompt": "Wrote file successfully to /Users/you/project/notes.md.",
+        "tool_output_for_prompt_concise": "Wrote file successfully to /Users/you/project/notes.md.",
+        "absolute_path": "/Users/you/project/notes.md",
+        "edits": {
+          "details": [
+            {
+              "old_string": "draft\n",
+              "old_line": 1,
+              "new_string": "draft\n",
+              "new_line": 1,
+              "context_before": "",
+              "context_after": "",
+              "line_prefix": ""
+            }
+          ]
+        }
+      }
+    },
+    "tool_use_id": "call_16",
+    "duration_ms": 10
+  },
+  "PostToolUse.search_replace.noMatch": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:34.092403+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "search_replace",
+    "toolUseId": "call_17",
+    "toolInput": {
+      "file_path": "README.md",
+      "old_string": "absent text",
+      "new_string": "x"
+    },
+    "toolResult": {
+      "type": "SearchReplace",
+      "NoMatchesFound": {
+        "message": "The string to replace was not found in the file, use the read_file tool to see the correct string. The user may have changed the file since you last read it.",
+        "file_path": "/Users/you/project/README.md"
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 0,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "search_replace",
+    "tool_input": {
+      "file_path": "README.md",
+      "old_string": "absent text",
+      "new_string": "x"
+    },
+    "tool_response": {
+      "type": "SearchReplace",
+      "NoMatchesFound": {
+        "message": "The string to replace was not found in the file, use the read_file tool to see the correct string. The user may have changed the file since you last read it.",
+        "file_path": "/Users/you/project/README.md"
+      }
+    },
+    "tool_use_id": "call_17",
+    "duration_ms": 0
+  },
+  "PostToolUse.run_terminal_command.exit3": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:35.247392+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_18",
+    "toolInput": {
+      "command": "sleep 1; exit 3",
+      "description": "Exit three"
+    },
+    "toolResult": {
+      "type": "Bash",
+      "output": [],
+      "output_for_prompt": "exit: 3\n",
+      "exit_code": 3,
+      "command": "sleep 1; exit 3",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Exit three",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/terminal/call_18.log",
+      "total_bytes": 0
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 1020,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sleep 1; exit 3",
+      "description": "Exit three"
+    },
+    "tool_response": {
+      "type": "Bash",
+      "output": [],
+      "output_for_prompt": "exit: 3\n",
+      "exit_code": 3,
+      "command": "sleep 1; exit 3",
+      "truncated": false,
+      "signal": null,
+      "timed_out": false,
+      "description": "Exit three",
+      "current_dir": "/Users/you/project",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-4b0d-7423-9bdb-5e2d67e3f3bc/terminal/call_18.log",
+      "total_bytes": 0
+    },
+    "tool_use_id": "call_18",
+    "duration_ms": 1020
+  },
+  "StopCancelled.max_turns": {
+    "hookEventName": "stop_cancelled",
+    "sessionId": "01a17bf0-dfdf-75e3-98b4-7d7f2804bfb7",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:06.508328+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf0-dfdf-75e3-98b4-7d7f2804bfb7/updates.jsonl",
+    "promptId": "a83ed5f5-666f-47f3-b2b8-499ccc56d33b",
+    "permissionMode": "bypassPermissions",
+    "reason": "max_turns",
+    "cancelledBy": "runtime",
+    "hook_event_name": "StopCancelled",
+    "session_id": "01a17bf0-dfdf-75e3-98b4-7d7f2804bfb7",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf0-dfdf-75e3-98b4-7d7f2804bfb7/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "StopFailure": {
+    "hookEventName": "stop_failure",
+    "sessionId": "01a17bf1-0e60-72f3-bc0c-8b306e8e0d47",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:59:18.217730+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-0e60-72f3-bc0c-8b306e8e0d47/updates.jsonl",
+    "promptId": "0329753f-85ae-4573-a1db-84305ff44e72",
+    "permissionMode": "default",
+    "error": "invalid_request",
+    "errorDetails": "API error (status 400 Bad Request): invalid_request_error: model not found: fake-model",
+    "lastAssistantMessage": "Turn failed: API error (status 400 Bad Request): invalid_request_error: model not found: fake-model",
+    "hook_event_name": "StopFailure",
+    "session_id": "01a17bf1-0e60-72f3-bc0c-8b306e8e0d47",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17bf1-0e60-72f3-bc0c-8b306e8e0d47/updates.jsonl",
+    "permission_mode": "default",
+    "last_assistant_message": "Turn failed: API error (status 400 Bad Request): invalid_request_error: model not found: fake-model",
+    "error_details": "API error (status 400 Bad Request): invalid_request_error: model not found: fake-model"
+  },
+  "UserPromptSubmit.command": {
+    "hookEventName": "user_prompt_submit",
+    "sessionId": "01a17beb-2b34-7982-9924-b1bb4e9175e0",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T05:52:52.216918+00:00",
+    "promptId": "bcb5bc3f-5ec2-44ce-a5d8-fa09dee12579",
+    "permissionMode": "bypassPermissions",
+    "prompt": "/evolver-status",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "01a17beb-2b34-7982-9924-b1bb4e9175e0",
+    "permission_mode": "bypassPermissions"
+  },
+  "PostToolUse.run_terminal_command.background": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:47.697750+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "toolResult": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 1396
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 597,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "tool_response": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 1396
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 597
+  },
+  "Stop.backgroundRunning": {
+    "hookEventName": "stop",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:47.785751+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "09cd7820-7ffc-45f2-9c5f-5c13ba440a04",
+    "permissionMode": "bypassPermissions",
+    "reason": "end_turn",
+    "stopHookActive": false,
+    "lastAssistantMessage": "The tests are running in the background.",
+    "backgroundTasks": [
+      {
+        "id": "call_3",
+        "type": "shell",
+        "status": "running",
+        "command": "sleep 2; npm test"
+      }
+    ],
+    "sessionCrons": [],
+    "hook_event_name": "Stop",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "The tests are running in the background."
+  },
+  "UserPromptSubmit.taskCompleted": {
+    "hookEventName": "user_prompt_submit",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.296896+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "task-completed-call_3",
+    "permissionMode": "bypassPermissions",
+    "prompt": "<system-reminder>\nBackground task \"call_3\" completed (exit code: 1).\nDescription: Run the tests | Duration: 2.2s\nUse get_command_or_subagent_output(\"call_3\") to see the full output.\n</system-reminder>",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "Stop.taskCompleted": {
+    "hookEventName": "stop",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.376894+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "task-completed-call_3",
+    "permissionMode": "bypassPermissions",
+    "reason": "end_turn",
+    "stopHookActive": false,
+    "lastAssistantMessage": "The tests are running in the background.",
+    "backgroundTasks": [],
+    "sessionCrons": [],
+    "hook_event_name": "Stop",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "The tests are running in the background."
+  },
+  "SessionStart.load": {
+    "hookEventName": "session_start",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.927919+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "source": "load",
+    "hook_event_name": "SessionStart",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "PostToolUse.run_terminal_command.backgroundForTaskOutput": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:51:29.973940+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "toolResult": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 78676
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 551,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "tool_response": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 78676
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 551
+  },
+  "PostToolUse.get_command_or_subagent_output": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:51:31.804901+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "get_command_or_subagent_output",
+    "toolUseId": "call_4",
+    "toolInput": {
+      "task_ids": [
+        "call_3"
+      ],
+      "timeout_ms": 10000
+    },
+    "toolResult": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_3",
+        "command": "sleep 2; npm test",
+        "status": "failed",
+        "exit_code": 1,
+        "started": "2026-10-27T06:51:29Z",
+        "ended": "2026-10-27T06:51:31Z",
+        "duration_secs": 2.388686,
+        "output": "\n> test\n> sh check.sh\n\n1 failing\n",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 33
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 1525,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "get_command_or_subagent_output",
+    "tool_input": {
+      "task_ids": [
+        "call_3"
+      ],
+      "timeout_ms": 10000
+    },
+    "tool_response": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_3",
+        "command": "sleep 2; npm test",
+        "status": "failed",
+        "exit_code": 1,
+        "started": "2026-10-27T06:51:29Z",
+        "ended": "2026-10-27T06:51:31Z",
+        "duration_secs": 2.388686,
+        "output": "\n> test\n> sh check.sh\n\n1 failing\n",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 33
+      }
+    },
+    "tool_use_id": "call_4",
+    "duration_ms": 1525
+  },
+  "PostToolUse.get_command_or_subagent_output.cancelled": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c41-c087-7af2-9ed0-1327b1fea0e0",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T07:27:28.614037+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "get_command_or_subagent_output",
+    "toolUseId": "call_6",
+    "toolInput": {
+      "task_ids": [
+        "call_4"
+      ]
+    },
+    "toolResult": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_4",
+        "command": "sleep 30; npm test",
+        "status": "cancelled",
+        "exit_code": null,
+        "started": "2026-10-27T07:27:27Z",
+        "ended": "2026-10-27T07:27:28Z",
+        "duration_secs": 0.907858,
+        "output": "",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/terminal/call_4.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 0
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 0,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c41-c087-7af2-9ed0-1327b1fea0e0",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "get_command_or_subagent_output",
+    "tool_input": {
+      "task_ids": [
+        "call_4"
+      ]
+    },
+    "tool_response": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_4",
+        "command": "sleep 30; npm test",
+        "status": "cancelled",
+        "exit_code": null,
+        "started": "2026-10-27T07:27:27Z",
+        "ended": "2026-10-27T07:27:28Z",
+        "duration_secs": 0.907858,
+        "output": "",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/terminal/call_4.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 0
+      }
+    },
+    "tool_use_id": "call_6",
+    "duration_ms": 0
+  },
+  "PostToolUseFailure.mcp": {
+    "hookEventName": "post_tool_use_failure",
+    "sessionId": "01a17c2a-8550-7e71-b330-fe3c551471b8",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T07:02:04.398168+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c2a-8550-7e71-b330-fe3c551471b8/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "probe__fail",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "tool_name": "probe__fail",
+      "tool_input": {}
+    },
+    "toolInputTruncated": false,
+    "error": "Failed to call fail: boom: the probe tool failed",
+    "durationMs": 8,
+    "isInterrupt": false,
+    "hook_event_name": "PostToolUseFailure",
+    "session_id": "01a17c2a-8550-7e71-b330-fe3c551471b8",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c2a-8550-7e71-b330-fe3c551471b8/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "probe__fail",
+    "tool_input": {
+      "tool_name": "probe__fail",
+      "tool_input": {}
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 8,
+    "is_interrupt": false
+  },
+  "env.PostToolUse": {
+    "GROK_WORKSPACE_ROOT": "/Users/you/project",
+    "CLAUDE_PLUGIN_ROOT": "/Users/you/.grok/installed-plugins/plugin-4d4de0a5",
+    "GROK_SESSION_ID": "01a17be3-d00d-7890-880c-3ef662ccbfb1",
+    "GROK_PLUGIN_DATA": "/Users/you/.grok/plugin-data/user/53aaa884/capture-probe",
+    "GROK_HOOK_EVENT": "post_tool_use",
+    "GROK_PLUGIN_ROOT": "/Users/you/.grok/installed-plugins/plugin-4d4de0a5"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "sessionStart": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "", "model": "claude-4.5-sonnet", "hook_event_name": "sessionStart",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "is_background_agent": false, "composer_mode": "agent"
+  },
+  "beforeSubmitPrompt": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "beforeSubmitPrompt",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "composer_mode": "agent", "prompt": "  fix the flaky redis connection retries in our tests  ", "attachments": []
+  },
+  "beforeSubmitPrompt.inlineEdit": {
+    "conversation_id": "c-2", "generation_id": "g-9", "model": "claude-4.5-sonnet", "hook_event_name": "beforeSubmitPrompt",
+    "prompt": "rename this variable", "attachments": []
+  },
+  "preToolUse.write": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "preToolUse",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "tool_name": "Write", "tool_input": { "file_path": "/work/app/lib/redis.js", "content": "export {};\n" }, "tool_use_id": "call-1", "cwd": "/work/app"
+  },
+  "preToolUse.relative": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "preToolUse", "workspace_roots": ["/work/app"],
+    "tool_name": "Delete", "tool_input": { "file_path": "lib/old.js" }, "tool_use_id": "call-2"
+  },
+  "postToolUse.shellPassed": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "postToolUse",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "tool_output": "{\"output\":\"ℹ tests 2\\nℹ pass 2\\nℹ fail 0\\n\",\"exitCode\":0}", "tool_use_id": "call-3", "cwd": "/work/app", "duration": 812
+  },
+  "postToolUse.shellFailed": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUse", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "tool_output": "{\"output\":\"done\",\"exitCode\":1}", "tool_use_id": "call-4", "cwd": "/work/app", "duration": 12
+  },
+  "postToolUse.write": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUse", "workspace_roots": ["/work/app"],
+    "tool_name": "Write", "tool_input": { "file_path": "/work/app/lib/redis.js", "content": "export {};\n" },
+    "tool_output": "{\"file_path\":\"/work/app/lib/redis.js\",\"success\":true}", "tool_use_id": "call-5", "cwd": "/work/app", "duration": 3
+  },
+  "postToolUse.delete": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUse", "workspace_roots": ["/work/app"],
+    "tool_name": "Delete", "tool_input": { "file_path": "/work/app/lib/old.js" }, "tool_output": "{}", "tool_use_id": "call-6", "cwd": "/work/app", "duration": 2
+  },
+  "postToolUseFailure.exit": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUseFailure", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "error_message": "not ok 1 - retries\nAssertionError: expected 1 to equal 2", "failure_type": "error", "is_interrupt": false, "tool_use_id": "call-7", "duration": 40
+  },
+  "postToolUseFailure.timeout": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUseFailure", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "error_message": "Command timed out after 30000ms", "failure_type": "timeout", "is_interrupt": false, "tool_use_id": "call-8", "duration": 30000
+  },
+  "postToolUseFailure.interrupted": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUseFailure", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "error_message": "Command was aborted", "failure_type": "error", "is_interrupt": true, "tool_use_id": "call-9", "duration": 5
+  },
+  "postToolUseFailure.denied": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUseFailure", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "error_message": "denied", "failure_type": "permission_denied", "is_interrupt": false, "tool_use_id": "call-10", "duration": 0
+  },
+  "postToolUseFailure.backgrounded": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "hook_event_name": "postToolUseFailure", "workspace_roots": ["/work/app"],
+    "tool_name": "Shell", "tool_input": { "command": "npm test", "cwd": "/work/app" },
+    "error_message": "Unknown error", "failure_type": "error", "is_interrupt": false, "tool_use_id": "call-11", "duration": 9
+  },
+  "afterFileEdit": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "afterFileEdit",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "file_path": "/work/app/lib/redis.js", "edits": [{ "old_string": "", "new_string": "export {};\n" }]
+  },
+  "afterAgentResponse": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "afterAgentResponse",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "text": "Retries fixed; npm test passes.\n"
+  },
+  "stop.completed": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "stop",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "status": "completed", "loop_count": 0, "input_tokens": 30000, "output_tokens": 2000, "cache_read_tokens": 50000, "cache_write_tokens": 1000
+  },
+  "stop.defaultModel": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "", "hook_event_name": "stop", "workspace_roots": ["/work/app"],
+    "status": "completed", "loop_count": 0
+  },
+  "sessionEnd": {
+    "conversation_id": "c-1", "session_id": "c-1", "generation_id": "g-1", "model": "claude-4.5-sonnet", "hook_event_name": "sessionEnd",
+    "cursor_version": "3.27.6", "workspace_roots": ["/work/app"], "user_email": null, "transcript_path": null,
+    "reason": "user_close", "duration_ms": 1000, "is_background_agent": false, "final_status": "completed"
+  }
+}

@@ -1,0 +1,291 @@
+{
+  "SessionStart.startup": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "SessionStart",
+    "permission_mode": "yolo",
+    "source": "startup"
+  },
+  "UserPromptSubmit": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "UserPromptSubmit",
+    "permission_mode": "yolo",
+    "prompt": "fix the readme so the checks pass",
+    "request_set_id": "6f42f352-d775-4e4b-9d5a-c2dbd3e4828b"
+  },
+  "PreToolUse.Bash": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PreToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_51256881-0f44-4c31-bc14-2b6db98eded8",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    }
+  },
+  "PostToolUseFailure.Bash.exit1": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUseFailure",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_51256881-0f44-4c31-bc14-2b6db98eded8",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sh check.sh",
+      "description": "Run the checks"
+    },
+    "error": "Exit code 1\nnot ok 1 - readme\n# tests 1\n# pass 0\n# fail 1"
+  },
+  "PreToolUse.Edit": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PreToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_2949e787-6c1a-4f78-b75e-db044d9a4b9b",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    }
+  },
+  "PostToolUse.Edit": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_2949e787-6c1a-4f78-b75e-db044d9a4b9b",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/you/project/README.md",
+      "old_string": "hello",
+      "new_string": "hello fixed"
+    },
+    "tool_response": {
+      "filePath": "/Users/you/project/README.md",
+      "oldString": "hello",
+      "newString": "hello fixed",
+      "originalFile": "hello\n",
+      "structuredPatch": [
+        {
+          "oldStart": 1,
+          "oldLines": 1,
+          "newStart": 1,
+          "newLines": 1,
+          "lines": [
+            "-hello",
+            "+hello fixed"
+          ]
+        }
+      ],
+      "userModified": false,
+      "replaceAll": false
+    }
+  },
+  "PreToolUse.Write": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PreToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_5412b692-3070-4f56-9c94-55a76616f424",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/you/project/NOTES.md",
+      "content": "notes\n"
+    }
+  },
+  "PostToolUse.Write": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_5412b692-3070-4f56-9c94-55a76616f424",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/you/project/NOTES.md",
+      "content": "notes\n"
+    },
+    "tool_response": {
+      "type": "create",
+      "filePath": "/Users/you/project/NOTES.md",
+      "content": "notes\n",
+      "structuredPatch": [],
+      "originalFile": null
+    }
+  },
+  "PostToolUse.Bash.passed": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_a616e746-ebe3-4375-ac77-9eaf4ac6ae81",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sh check.sh 2>&1 | tail -5",
+      "description": "Run the checks again"
+    },
+    "tool_response": {
+      "kind": "completed",
+      "telemetryExecutionId": "47634e6d-ff5d-4662-a82d-a2abd859556e",
+      "stdout": "# tests 1\n# pass 1\n# fail 0",
+      "stderr": "",
+      "exitCode": 0,
+      "signal": null,
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false,
+      "processStarted": true
+    }
+  },
+  "Stop": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "Stop",
+    "permission_mode": "yolo",
+    "stop_hook_active": false,
+    "last_assistant_message": "Fixed README; checks pass.",
+    "parent_request_set_id": "6f42f352-d775-4e4b-9d5a-c2dbd3e4828b",
+    "parent_business_info": {
+      "product": "cli",
+      "version": "1.1.79",
+      "type": "agent",
+      "id": "6f42f352-d775-4e4b-9d5a-c2dbd3e4828b",
+      "name": "fix the re",
+      "begin_at": 1793085849740,
+      "stage": "processing"
+    }
+  },
+  "SessionEnd": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "SessionEnd",
+    "permission_mode": "yolo",
+    "reason": "other"
+  },
+  "PostToolUseFailure.Bash.timeout": {
+    "session_id": "c2decd49-3a12-4fd2-bb1a-870f28f7651e",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUseFailure",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_78c5395b-dbde-4fc0-a473-d0946967fc54",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sleep 5",
+      "description": "Wait too long",
+      "timeout": 1000
+    },
+    "error": "Exit code 143\nSignal: 15"
+  },
+  "PostToolUse.Bash.backgrounded": {
+    "session_id": "c2decd49-3a12-4fd2-bb1a-870f28f7651e",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUse",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_03c6c167-2ec7-4c0e-995e-6b21968fad7b",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sleep 1; echo bg done",
+      "description": "Run in background",
+      "run_in_background": true
+    },
+    "tool_response": {
+      "kind": "backgrounded",
+      "telemetryExecutionId": "66be5b47-6fa7-443c-a001-6aa508d1f2d3",
+      "taskId": "b2jq2aq11",
+      "outputFile": "/private/tmp/qoder-cli-501/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e/tasks/b2jq2aq11.output",
+      "command": "sleep 1; echo bg done",
+      "stdout": "Background process started with ID b2jq2aq11.",
+      "initialOutput": "",
+      "pid": 18280,
+      "backgroundReason": "model"
+    }
+  },
+  "PostToolUseFailure.Bash.exit127": {
+    "session_id": "c2decd49-3a12-4fd2-bb1a-870f28f7651e",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "PostToolUseFailure",
+    "permission_mode": "yolo",
+    "tool_use_id": "toolu_a7bef5a5-46db-4a73-8b2b-27c5864533bc",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm test",
+      "description": "Run a missing test script"
+    },
+    "error": "Exit code 127\n(eval):1: command not found: npm"
+  },
+  "UserPromptSubmit.taskNotification": {
+    "session_id": "c2decd49-3a12-4fd2-bb1a-870f28f7651e",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "UserPromptSubmit",
+    "permission_mode": "yolo",
+    "prompt": "<task-notification>\n<task-id>b2jq2aq11</task-id>\n<tool-use-id>toolu_03c6c167-2ec7-4c0e-995e-6b21968fad7b</tool-use-id>\n<output-file>/private/tmp/qoder-cli-501/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e/tasks/b2jq2aq11.output</output-file>\n<status>completed</status>\n<summary>Background command \"Run in background\" completed (exit code 0)</summary>\n</task-notification>",
+    "request_set_id": "b54236f7-aa00-4a11-913e-47eb1bef16bc"
+  },
+  "StopFailure": {
+    "session_id": "c2decd49-3a12-4fd2-bb1a-870f28f7651e",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/c2decd49-3a12-4fd2-bb1a-870f28f7651e.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "StopFailure",
+    "permission_mode": "yolo",
+    "error": "authentication_failed",
+    "error_details": "Error: No more mock responses for generateContentStream, got request: …",
+    "last_assistant_message": "Done with failures."
+  },
+  "SessionStart.resume": {
+    "session_id": "7dc320f0-1891-4390-9b5c-599bd4779c48",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/7dc320f0-1891-4390-9b5c-599bd4779c48.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "SessionStart",
+    "permission_mode": "default",
+    "source": "resume"
+  },
+  "UserPromptSubmit.command": {
+    "session_id": "2b924e4c-c18f-4c9e-8706-499b1ba9cd82",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/2b924e4c-c18f-4c9e-8706-499b1ba9cd82.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "UserPromptSubmit",
+    "permission_mode": "default",
+    "prompt": "/evolver-plugin:evolver-search flaky redis retries",
+    "request_set_id": "0261cd4e-8e2d-4b84-94c4-c46ccdb15fc6"
+  },
+  "QueryEnd.abort": {
+    "session_id": "4a69c20e-6c81-4d97-8c88-2a97ae3df79b",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/4a69c20e-6c81-4d97-8c88-2a97ae3df79b.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "QueryEnd",
+    "permission_mode": "yolo",
+    "request_set_id": "437085a0-3027-48c5-bc65-d7fd4b210f74",
+    "business_id": "437085a0-3027-48c5-bc65-d7fd4b210f74",
+    "model": "",
+    "reason": "abort"
+  },
+  "QueryEnd.end_turn": {
+    "session_id": "4a69c20e-6c81-4d97-8c88-2a97ae3df79b",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/4a69c20e-6c81-4d97-8c88-2a97ae3df79b.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "QueryEnd",
+    "permission_mode": "yolo",
+    "request_set_id": "c087e7cd-11b9-448a-b22f-ab6dfde6934f",
+    "business_id": "c087e7cd-11b9-448a-b22f-ab6dfde6934f",
+    "model": "",
+    "reason": "end_turn"
+  }
+}

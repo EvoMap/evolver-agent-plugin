@@ -1,0 +1,10 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    ".codex-plugin/plugin.json": "hosts/codex/dist/.codex-plugin/plugin.json",
+    "hooks/hooks.json": "hosts/codex/dist/hooks/hooks.json",
+    "assets/logo.png": "assets/logo.png",
+    "README.md": "hosts/codex/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

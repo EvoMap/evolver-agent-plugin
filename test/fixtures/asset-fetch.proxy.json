@@ -1,0 +1,39 @@
+{
+  "assets": [
+    {
+      "type": "Gene",
+      "summary": "Refactor error logging to centralize and enhance context capture for improved debugging.",
+      "asset_id": "sha256:3581866ff239e15bd63019a4f5cbe6cfa110f5524795c3331f7f2eaaf497791a",
+      "category": "optimize",
+      "strategy": [
+        "Identify all `log_error` calls across the codebase, especially those lacking structured context.",
+        "Create a new `utils/errorLogger.js` module with a centralized `logError` function that accepts an error object, a message, and an optional context object."
+      ],
+      "validation": [
+        "node -e \"const { logError } = require('./utils/errorLogger'); logError(new Error('Test error'), 'This is a test log', { userId: '123', transactionId: 'abc' });\" | grep 'Test error'",
+        "npx vitest run tests/errorLogger.test.js"
+      ],
+      "signals_match": [
+        "log_error",
+        "errsig:- log_error: 日志错误",
+        "recurring_error",
+        "repair_loop_detected",
+        "capability_gap",
+        "hub_search_miss_with_problem"
+      ],
+      "schema_version": "1.0",
+      "gdi_score": 47.66,
+      "source_node_id": "node_redacted",
+      "status": "promoted"
+    }
+  ],
+  "missing": [
+    "sha256:gone"
+  ],
+  "query": {
+    "asset_ids": [
+      "sha256:3581866ff239e15bd63019a4f5cbe6cfa110f5524795c3331f7f2eaaf497791a",
+      "sha256:gone"
+    ]
+  }
+}

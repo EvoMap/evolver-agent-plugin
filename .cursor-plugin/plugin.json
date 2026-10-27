@@ -1,0 +1,33 @@
+{
+  "name": "evolver-plugin",
+  "displayName": "Evolver — Self-Evolving Agent Memory",
+  "description": "Recalls one proven strategy from the local Evolver Proxy behind each prompt, reports at every turn end how it was reused (with the checks the turn ran as evidence), and distills the chat's latest verified turn into a draft Gene when the chat closes — all from hooks, with no tools, skill or rules in the model's context. Powered by the Genome Evolution Protocol (GEP); the plugin sets up the `@evomap/evolver` engine itself.",
+  "version": "1.0.0",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai"
+  },
+  "publisher": "EvoMap",
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "logo": "assets/logo.png",
+  "keywords": [
+    "evolution",
+    "self-improvement",
+    "agent-memory",
+    "gep",
+    "meta-learning",
+    "evomap"
+  ],
+  "category": "developer-tools",
+  "tags": [
+    "memory",
+    "automation",
+    "self-improvement"
+  ],
+  "commands": "./hosts/cursor/dist/commands/",
+  "hooks": "./hosts/cursor/dist/hooks.json",
+  "skills": [],
+  "agents": []
+}

@@ -1,0 +1,396 @@
+{
+ "还有多少没有对齐？": [
+  {
+   "asset_id": "sha256:3dc8277a00f1e6daa195bc31d79dbaeccc3328577c0f4b7036890a432fa93dd1",
+   "summary": "针对 naming_inconsistency_detected 信号,落地 NamingRegistry + audit-naming.js 扫描器 + CI 门禁 + codemod 自动修复四件套。落地前代码库存在 312 处命名违规(usr_id/component 混用),CI 无命名门禁,合并后运行时 KeyError 率 4.7%。落地后违规降至 0,CI 门禁阻断 18 次违规提交,运行时 KeyError 率 4.7%→0.02%,扫描 5000 文件耗时 8s,单次 codemod 修复 50+ 处,回滚成功率 100%。",
+   "signals_match": [
+    "naming_inconsistency_detected_cycle_43",
+    "naming_consistency_enforcement",
+    "cors_policy_hardening",
+    "redis_cluster_failover_configuration",
+    "distributed_tracing_correlation"
+   ],
+   "strategy": [
+    "在 component 实现 NamingRegistry 类,用 Map<string,string> 存储 canonicalName→alias 映射,loadManifest() 从 naming-manifest.json 加载,resolve(name) 返回规范名,验证命令 node -e \"const r=require('./component');r.loadManifest();console.log(r.resolve('usr_id'))\" 应输出 component 条目数>=200",
+    "编写 component 扫描器,用 @babel/parser 解析 component,提取所有 identifier 与 property 名,正则 /^[a-z]+([A-Z][a-z0-9])+$/ 判定 camelCase,违规项写入 naming-violations.json,验证命令 node component --dir src 退出码非0表示有违规,扫描 5000 文件耗时<8s,违规检出率>=99%",
+    "在 CI 流水线 .githubcomponent 加命名门禁步骤,checkout 后执行 npm run audit:naming,违规数>0 则 exit 1 阻断合并,验证命令 node -e \"require('child_process').execSync('node component',{stdio:'inherit'})\" 通过则绿灯,门禁触发延迟<15s,阻断准确率100%",
+    "实现自动修复脚本 component,基于 violations.json 用 codemod 批量重命名,先备份到 .naming-backup/,支持 --dry-run 预览 diff,验证命令 node component --dry-run 输出变更行数,单次修复>=50 处,回滚命令 node component --rollback 恢复成功率100%",
+    "添加命名一致性单元测试 component,用 jest 断言 resolve() 幂等、alias 冲突抛 NamingConflictError、未知名抛 UnknownNameError,验证命令 npx jest component --coverage 覆盖率>=90%,用例数>=15,失败用例平均定位时间<3s"
+   ]
+  },
+  {
+   "asset_id": "sha256:f0080aa2e3a4128e730233134e90cfead37cc2159e712e003a97480c3c1a6843",
+   "summary": "After browser/app clipping, ingest stray Linkly clip folders into the clips library, archive confirmed duplicate folders outside the index, distill clip markdown into Notes via note-save using excerpt/opinion/relation layers, and inventory unprocessed clips without editing or deleting clip file contents.",
+   "signals_match": [
+    "收编剪藏",
+    "有没有落在外面的剪藏",
+    "剪重了吗",
+    "查重剪藏",
+    "蒸馏这篇",
+    "吸收这篇文章",
+    "把这篇做成笔记",
+    "划一下这篇的重点",
+    "剪藏什么情况",
+    "还有哪些没蒸"
+   ],
+   "strategy": [
+    "1. Route utterance: ingest stray, dedupe, distill named/latest clip, or inventory; on distill or inventory also scan stray folder.",
+    "2. Ingest: list first-level folders under ~/Downloads/Linkly/ ignoring .DS_Store; mv whole folders into ~/LinklyAI/Clips/ unless title same or highly similar, then report titles; similar titles go to dedupe.",
+    "3. Dedupe: candidates are -N suffix or identical titles after stripping -N; confirm by matching md byte size and first paragraph (or only URL param/timestamp diffs); keep earliest original, mv copies to ~/LinklyAI-归档/重复剪藏/, never rm.",
+    "4. Locate clip by fuzzy title under Clips or latest mtime; read full text; for YouTube skip duplicate full transcript after timeline; optionally strip timestamp links with sed before reading.",
+    "5. Write excerpt note via note-save: quotes for interviews, 3-7 points plus meaning for articles, conclusions plus actions for AI chats; first line **主题** —— 选自「Clip 标题»; tags 蒸馏 plus existing set.",
+    "6. Ask once for user opinion; if given, append —— 我的看法:<verbatim> via edit triple; never write opinion for the user. Optionally search notes for 2-3 concepts, attach up to 3 relations, write back to old notes only if user nods.",
+    "7. Inventory counts of stray, clip folders, distilled vs not using 蒸馏 notes matching 选自「标题」; list undigested with suggested order.",
+    "Safety boundary: Never edit clip .md contents; only whole-folder mv for ingest and duplicate archive",
+    "Safety boundary: Never rm clip folders or files; user deletes in app",
+    "Safety boundary: Agent never writes the opinion layer; never write relation notes without user nod",
+    "Safety boundary: Do not invent tags; use existing set from linkly-notes"
+   ]
+  },
+  {
+   "asset_id": "sha256:fccfcee7884d86bd4ae16fecf7d812a20e63a022827beda5464ccf6a212ec727",
+   "summary": "Framework implementation for resource alignment verification: establish input sources, compare against reference standards, document results."
+  },
+  {
+   "asset_id": "sha256:faa1dc2149a43a44bf655fee5136b33037f1765657e481340d7d4759a97f748e",
+   "summary": "Pipeline-generated simulation capsule for Align human-facing Markdown tables in place by padding cells so pipes line up, preserving separator alignment markers, escaped pipes, indentation, EOL, and UTF-8 without BOM; skip agent-only Markdown and pipe-leading fenced code. It packages the distilled capability into a deterministic, content-addressed artifact and records an asset-bound Node replay check for Hub validation. The replay reads the uploaded Capsule and fails when its generated artifact is removed.",
+   "strategy": [
+    "Resolution order: enforce explicit scope and safety boundaries first; for the same API, syntax, or config surface under matching applicability, follow the source-grounded canonical contract and its executable exemplar over a generalized procedure step; otherwise follow the generalized procedure.",
+    "1. Confirm both: human-facing Markdown and at least one table; skip agent-only artifacts and files with pipe-leading fenced code. Exact anchors: intended for a **human** to read | contains at least one Markdown table.",
+    "2. After writing, run Format-MarkdownTables.ps1 in place on the file(s), optionally via multiple -Path values or pipeline input. Exact anchors: Edits in place | Accepts multiple paths and pipeline input.",
+    "3. If PowerShell is unavailable, pad each cell to column max width, keep separator colons, and preserve escaped pipes by hand. Exact anchors: pad each cell to its column's max width | preserve escaped pipes.",
+    "4. Expect printed formatted: <path> per file and UTF-8 no-BOM output with original EOL. Exact anchors: Prints `formatted: <path>` per file.",
+    "Canonical syntax contract 1 (applies when: PowerShell is available and tables should be aligned in place via the bundled script.)\nSignature (verbatim):\n& \"$HOME\\.copilot\\skills\\prettify-markdown\\scripts\\Format-MarkdownTables.ps1\" -Path <file.md>\nKey arguments:\n- Path (required): Markdown file path(s) to format in place.\nReturn structure (verbatim):\n- Prints `formatted: <path>` per file.\nExecutable exemplar (verbatim):\n& \"$HOME\\.copilot\\skills\\prettify-markdown\\scripts\\Format-MarkdownTables.ps1\" -Path <file.md>",
+    "Safety boundary: Run only on human-facing Markdown.",
+    "Safety boundary: Do not run the script on files with pipe-leading lines inside fenced code blocks."
+   ]
+  },
+  {
+   "asset_id": "sha256:34eeb81cf16b14c3ace8dc3533c69ea2f34eb4a12c73df1e79b2db69bcc8a0f0",
+   "summary": "Pipeline-generated simulation capsule for Format Markdown tables to fixed-width columns by computing per-column max content width (min 3), padding cells with one space on each side, matching separator dashes to width, and preserving left/right/center colon alignment. It packages the distilled capability into a deterministic, content-addressed artifact and records an asset-bound Node replay check for Hub validation. The replay reads the uploaded Capsule and fails when its generated artifact is removed.",
+   "strategy": [
+    "1. Read the table and identify all rows and columns.",
+    "2. For each column, set width to max cell length including header, then max(width, 3).",
+    "3. Format the header with consistent width and single-space padding on each side of content.",
+    "4. Format the separator with dashes matching column width, keeping : for right or center alignment.",
+    "5. Format data rows with the same widths, preserving backticks in width, fully padding empty cells.",
+    "Safety boundary: Do not invent non-markdown table syntax",
+    "Safety boundary: Preserve cell text including backticks"
+   ]
+  }
+ ],
+ "先调阈值把": [
+  {
+   "asset_id": "sha256:8f9686e077ee0068214e4c900ca9c76efc265186aa80176eeb14b66d20026f63",
+   "summary": "Pipeline-generated simulation capsule for Display and adjust feed relevance alert and digest thresholds (and optionally max items) via distillery_configure, with validation, ordered writes to keep alert >= digest, confirmation, and a tuning-guide display. It packages the distilled capability into a deterministic, content-addressed artifact and records an asset-bound Node replay check for Hub validation. The replay reads the uploaded Capsule and fails when its generated artifact is removed.",
+   "strategy": [
+    "1. Confirm MCP per CONVENTIONS if not already confirmed this conversation.",
+    "2. Parse flags --alert N, --digest N, --max N, --reset. No flags means read-only. Validate floats in [0,1], alert>=digest, max positive integer; reset wins over alert/digest. On fail, show error and stop.",
+    "3. Read current config with distillery_configure section feeds.thresholds keys alert and digest omitting value; extract value. Read-only errors: show defaults 0.85/0.60 and note unconfirmed. Write requests with read error: show MCP error and STOP.",
+    "4. If flags: for --reset use defaults (max unchanged). Preview proposed changes, ask yes/no. Decline: No changes made. Apply via distillery_configure with value; order dual updates to keep alert>=digest. Skip --max with note not configurable at runtime. Stop on configure error.",
+    "5. Display read-only table or after-change table with previous_value/new_value; persist message or in-memory-only if disk_written false. Always append tuning guide.",
+    "Safety boundary: Do not apply writes against assumed defaults when reads fail",
+    "Safety boundary: Do not proceed remaining threshold writes after an earlier configure error",
+    "Safety boundary: Do not claim max_items_per_poll was changed at runtime"
+   ]
+  },
+  {
+   "asset_id": "sha256:7c806b27184ac73b8efb0de0f936cd6e6ea26792bbb187a432ac253614652b39",
+   "summary": "Pipeline-generated simulation capsule for Operate CCO's range-validated threshold configuration from the plugin root: show effective settings and validity markers, retrieve or set one key, reset one or all keys, explain each threshold's behavioral effect, and account for the stale-time environment override. It packages the distilled capability into a deterministic, content-addressed artifact and records an asset-bound Node replay check for Hub validation. The replay reads the uploaded Capsule and fails when its generated artifact is removed.",
+   "strategy": [
+    "Resolution order: enforce explicit scope and safety boundaries first; for the same API, syntax, or config surface under matching applicability, follow the source-grounded canonical contract and its executable exemplar over a generalized procedure step; otherwise follow the generalized procedure.",
+    "1. Locate the plugin root as the directory containing src/config.js and make it the working directory before invoking any configuration operation. Exact anchors: src/config.js | Run everything\nfrom there..",
+    "2. Parse the request into exactly one branch: show/no arguments, get with a key, set with a key and value, reset with a key, reset all, or threshold-tuning advice. Exact anchors: show | get <key> | set <key> <value> | reset [key].",
+    "3. For show or no arguments, run node src/config.js, preserve the displayed table, interpret * as user-set, and call attention to every ! row because its stored value is invalid and the default is effective. Exact anchors: node src/config.js | * | !.",
+    "4. For get, invoke node src/config.js get followed by the requested key and return the command's result without inventing an output format not established by the source. Exact anchors: node src/config.js get <key>.",
+    "5. For set, invoke node src/config.js set followed by the requested key and value. If it exits non-zero, relay the unknown-key or valid-range message without guessing. On success, explain the key's behavioral effect using the threshold mappings. Exact anchors: node src/config.js set <key> <value>.",
+    "6. For a key-specific reset, invoke node src/config.js reset followed by that key, then inspect the effective configuration with show. Exact anchors: node src/config.js reset <key>.",
+    "7. For reset all, first determine whether the user explicitly requested all settings or defaults. If not explicit, obtain confirmation; after confirmation, invoke node src/config.js reset and inspect the defaults with show. Exact anchors: node src/config.js reset | reset all | вернуть всё по умолчанию.",
+    "8. When recommending tuning, map the reported behavior to the documented direction: raise rereadWarnAt to 4–5 for excessive re-read warnings; lower staleTimeMs or staleTokenRatio for earlier cache staleness; raise them for longer freshness; raise promptTooLongWords for long prompts on a 1M-context model. Exact anchors: rereadWarnAt | staleTimeMs | staleTokenRatio | promptTooLongWords.",
+    "9. Before concluding that staleTimeMs tuning failed, account for CCO_STALE_TIME_MS, which overrides it for one-off experiments. Exact anchors: CCO_STALE_TIME_MS.",
+    "Canonical syntax contract 1 (applies when: The user requests the full CCO threshold table or supplies no arguments.)\nModule path (verbatim): src/config.js\nCallable (verbatim): node src/config.js\nSignature (verbatim):\nnode src/config.js\nExecutable exemplar (verbatim):\nnode src/config.js",
+    "Safety boundary: Use the range-validating src/config.js interface rather than directly editing threshold storage or former module-local constants.",
+    "Safety boundary: Do not guess a replacement when set rejects an unknown key or bad value; relay the emitted valid-range message.",
+    "Safety boundary: Do not execute an all-keys reset without confirmation unless the request explicitly says to reset everything or return everything to defaults.",
+    "Safety boundary: Treat a show-table ! marker as an active configuration problem because the stored value is ignored in favor of the default."
+   ]
+  },
+  {
+   "asset_id": "sha256:1df12ff44028c61e4d979c6072a1ee19634a69d02bfb8415e7e525429a7910d2",
+   "summary": "Gene: Python gc set_threshold 设置回收阈值",
+   "signals_match": [
+    "Python set_threshold",
+    "回收阈值设置",
+    "gc.set_threshold",
+    "阈值调整"
+   ],
+   "strategy": [
+    "识别问题：检测到 Python set_threshold,回收阈值设置,gc.set_threshold,阈值调整，模块文件不一致",
+    "恢复系统：清理冲突文件并重新同步模块",
+    "验证修复：确认服务恢复正常运行"
+   ]
+  },
+  {
+   "asset_id": "sha256:11e898a3984a8d9233517670cac141ac32d1164a36ab1c142279fcf7d7acdcfd",
+   "summary": "修复孤立森林异常检测中的阈值边界错误，防止正常数据被误判为异常，通过动态阈值调整提升检测精度",
+   "signals_match": [
+    "repair_signal_3730",
+    "resolve_trigger"
+   ],
+   "strategy": [
+    "实现异常分数边界检查函数，防止除零错误和无效阈值导致的误分类",
+    "添加输入验证层，确保特征向量维度与模型匹配，避免运行时崩溃"
+   ]
+  },
+  {
+   "asset_id": "sha256:de17cbfe3fa7aa94b73fc425dda88e87c49f39bda966613623b0c01a0f487d4e",
+   "summary": "Adaptive threshold pattern for anomaly detection: rolling z-score with 5m EWMA baseline, 3.5 sigma alert line, and 4h cooldown to suppress alert storms",
+   "signals_match": [
+    "anomaly_detection",
+    "alerting",
+    "threshold_tuning"
+   ],
+   "strategy": [
+    "Maintain a 5-minute EWMA baseline per metric with alpha 0.3 so short bursts shift the baseline gradually instead of triggering",
+    "Alert when the absolute z-score of the current window against the baseline crosses 3.5 and holds for 2 consecutive windows",
+    "Apply a 4h cooldown per metric after any alert; suppress repeats and log them as muted with counts for later audit"
+   ]
+  }
+ ],
+ "修复登录接口偶发 500 的问题，日志里是 redis 连接超时": [
+  {
+   "asset_id": "sha256:d75a6b74ebe380461fb537f17652a4178aa7a3ba31b0d9d2aa549469d045ab59",
+   "summary": "修复Redis连接被拒绝导致的缓存失效和请求超时，通过连接池管理和重试机制确保缓存服务可用",
+   "signals_match": [
+    "redis_connection_refused",
+    "connection refused",
+    "redis timeout",
+    "ECONNREFUSED",
+    "redis error",
+    "connection reset"
+   ],
+   "strategy": [
+    "实现Redis连接池自动重连和超时控制，防止连接被拒绝时级联失败",
+    "添加连接健康检查和fallback缓存策略，确保Redis不可用时降级为本地缓存",
+    "构建连接泄露检测和自动恢复机制，防止连接池耗尽导致所有请求失败",
+    "验证Redis连接池在高并发下稳定运行不抛出ECONNREFUSED",
+    "添加Redis连接监控和告警，追踪连接拒绝频率和根因"
+   ]
+  },
+  {
+   "asset_id": "sha256:547bb4f08afaccc5966f5d23ad33f7364bdd7712b47f85d4b0b9cf22b07209ef",
+   "summary": "优化Redis连接池配置，增加超时与最大连接数，确保连接及时释放以解决排队问题。",
+   "signals_match": [
+    "connection timeout",
+    "pool exhausted",
+    "wait queue full",
+    "redis maxclients"
+   ],
+   "strategy": [
+    "分析当前Redis连接池配置，识别最大连接数、超时时间及空闲回收策略等关键参数。",
+    "调整最大连接数上限，根据业务峰值流量合理扩容，避免连接数过早达到瓶颈。",
+    "设置合理的连接超时和命令执行超时，防止因慢查询或网络抖动导致连接长期占用。",
+    "引入连接健康检查机制，定期检测空闲连接有效性，自动剔除失效连接以释放资源。",
+    "监控连接池状态指标，设置告警阈值，确保在连接池接近耗尽前能及时发现并干预。"
+   ]
+  },
+  {
+   "asset_id": "sha256:2d05429ca22a8b4ac8813ac24e9a640e0098207bb068a08e56fe58fc211f0637",
+   "summary": "修复Redis连接错误和客户端数超限问题",
+   "signals_match": [
+    "redis_connection_refused",
+    "redis_max_clients_reached",
+    "redis_timeout_error",
+    "redis_connection_pool"
+   ],
+   "strategy": [
+    "1. 检查Redis服务状态和网络连接配置",
+    "2. 增加最大客户端连接数配置限制",
+    "3. 实现连接池复用避免频繁创建连接",
+    "4. 添加连接超时和重试机制处理异常",
+    "5. 验证Redis连接稳定应用正常访问缓存"
+   ]
+  },
+  {
+   "asset_id": "sha256:1854050dd6e0be628153f4021b8551ce7ff9b2517ce71fd79de10d971798e8e1",
+   "summary": "Repair Redis cluster authentication failures by implementing adaptive reconnection backoff with connection pool draining and sentinel-based failover detection to restore cache availability within 30 seconds",
+   "signals_match": [
+    "authentication_failure",
+    "connection_timeout"
+   ],
+   "strategy": [
+    "Implement exponential backoff reconnection with jitter for Redis auth failure recovery, detecting ACL mismatches and rotating credentials via sentinel config rewrite",
+    "Drain stale connections from the pool on timeout events using idle socket eviction and replace with authenticated connections through cluster topology rediscovery",
+    "Enable cross-slot migration verification after connection restoration to prevent partial key loss during failover transitions in sharded Memcached clusters"
+   ]
+  },
+  {
+   "asset_id": "sha256:dbbd28c9ec6ede1173bb6f212955b22bbd1e07ae437d3f6d38eb6a783acf04da",
+   "summary": "修复Redis连接池死锁与认证失败问题，实现自动重连机制与熔断器模式，将错误恢复时间从300秒降至45秒，连接成功率提升至99.7%",
+   "signals_match": [
+    "deadlock_detected",
+    "authentication_failure"
+   ],
+   "strategy": [
+    "实现Redis连接池健康检查机制，每30秒ping活跃连接，自动剔除失效连接并补充新连接，避免连接泄漏导致的资源耗尽",
+    "配置认证失败指数退避重试策略，初始延迟100ms，最大延迟5秒，结合本地缓存降级方案确保服务连续性"
+   ]
+  }
+ ],
+ "add a retry with exponential backoff to the upload client": [
+  {
+   "asset_id": "sha256:76c861cfb7b0ea8549e2df6f9db5bd9dedc098baa236d5c815bab631feb24de4",
+   "summary": "Fix TimeoutError errors in file-upload with exponential backoff retry and circuit breaker",
+   "signals_match": [
+    "TimeoutError"
+   ],
+   "strategy": [
+    "诊断 file-upload 系统中 TimeoutError 错误的根因，分析网络延迟、服务端负载、连接池耗尽等故障模式，建立监控追踪各类超时发生的频率和分布规律",
+    "实现指数退避重试机制，baseDelay 从 94ms 开始，最大延迟 82s，最多重试 8 次，配合 jitter 避免惊群效应",
+    "引入熔断器模式，当失败率超过 63% 且最小请求数达到 10 时自动熔断，快速返回降级响应",
+    "重新设计连接池参数，增加连接超时配置（connectTimeout 4798ms）、读超时（readTimeout 19602ms）、写超时",
+    "实施预热策略，初始化时创建 52% 最大连接数的预热连接，加快冷启动响应时间并提升首字节时间指标"
+   ]
+  },
+  {
+   "asset_id": "sha256:7831988ad8c82f84987010079daa613063d388f6577c6267c92e1727784813e8",
+   "summary": "Fix TimeoutError errors in file-upload with exponential backoff retry and circuit breaker",
+   "signals_match": [
+    "TimeoutError"
+   ],
+   "strategy": [
+    "诊断 file-upload 系统中 TimeoutError 错误的根因，分析网络延迟、服务端负载、连接池耗尽等故障模式，建立监控追踪各类超时发生的频率和分布规律",
+    "实现指数退避重试机制，baseDelay 从 55ms 开始，最大延迟 49s，最多重试 8 次，配合 jitter 避免惊群效应",
+    "引入熔断器模式，当失败率超过 31% 且最小请求数达到 6 时自动熔断，快速返回降级响应",
+    "重新设计连接池参数，增加连接超时配置（connectTimeout 1850ms）、读超时（readTimeout 12718ms）、写超时",
+    "实施预热策略，初始化时创建 38% 最大连接数的预热连接，加快冷启动响应时间并提升首字节时间指标"
+   ]
+  },
+  {
+   "asset_id": "sha256:52a55787bb8c0a4410fe3c08fc083634d2715853cda0140c4adb338fd904e6d1",
+   "summary": "Fix unreliable S3 uploads by implementing automatic retry with exponential backoff and multipart upload for large files exceeding 100MB to prevent timeout failures.",
+   "signals_match": [
+    "s3_upload_timeout",
+    "aws_sdk_network_error",
+    "multipart_upload_incomplete"
+   ],
+   "strategy": [
+    "Wrap S3 PutObject and Upload operations in a retry loop with exponential backoff starting at 1 second and max 3 retries",
+    "Use AWS SDK v3 built-in retry middleware with custom maxAttempts configuration for standard S3 operations",
+    "Switch to multipart upload using Upload class from @aws-sdk/lib-storage for files exceeding 5MB to enable parallel chunk uploads",
+    "Configure partSize of 8MB and queueSize of 4 for multipart uploads to balance memory usage and upload speed",
+    "Add AbortController timeout of 5 minutes per upload operation to prevent indefinite hangs on network partitions"
+   ]
+  },
+  {
+   "asset_id": "sha256:019f489191eebf04ef9207edcd7678efaf349fa3c1c5e9f0a51169634a4df8e1",
+   "summary": "Fix ETIMEDOUT errors in file-upload with exponential backoff retry and circuit breaker",
+   "signals_match": [
+    "ETIMEDOUT"
+   ],
+   "strategy": [
+    "诊断 file-upload 系统中 ETIMEDOUT 错误的根因，分析网络延迟、服务端负载、连接池耗尽等故障模式，建立监控追踪各类超时发生的频率和分布规律",
+    "实现指数退避重试机制，baseDelay 从 171ms 开始，最大延迟 112s，最多重试 9 次，配合 jitter 避免惊群效应",
+    "引入熔断器模式，当失败率超过 52% 且最小请求数达到 13 时自动熔断，快速返回降级响应",
+    "重新设计连接池参数，增加连接超时配置（connectTimeout 1066ms）、读超时（readTimeout 10581ms）、写超时",
+    "实施预热策略，初始化时创建 59% 最大连接数的预热连接，加快冷启动响应时间并提升首字节时间指标"
+   ]
+  },
+  {
+   "asset_id": "sha256:4f191d1c6614f8d7988e325cbd7db58884b1d7f5202cc13caef1bfee2590b32c",
+   "summary": "Implement exponential backoff retry for transient network errors with configurable max attempts and jitter",
+   "signals_match": [
+    "TimeoutError",
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT"
+   ]
+  }
+ ],
+ "把这个 React 组件的列表渲染改成虚拟滚动，现在 5000 条数据很卡": [
+  {
+   "asset_id": "sha256:65c573d62f5b9c8ace21d7f55e91ed8620b8eff2993301135a0eb163649ef09a",
+   "summary": "Implement React virtual scrolling with react-window FixedSizeList and useMemo for derived data, reducing render time from 2000ms to 60ms for a 5000-row table with instant scrolling and responsive filters.",
+   "signals_match": [
+    "React table component rendering 5000 rows causing 2-second frame drops and janky scrolling",
+    "All rows re-rendering on every scroll event because virtualization is not implemented in the data grid",
+    "Memoization missing for expensive derived data computations recalculated on each keystroke in filters"
+   ],
+   "strategy": [
+    "Replace the current map-render of all rows with react-window FixedSizeList wrapping a memoized Row component, rendering only visible rows plus 5 overscan rows to eliminate the O(N) DOM node count",
+    "Extract filter logic and data transformations into useMemo hooks with dependency arrays on raw data and filter state, preventing recomputation of derived columns on every keystroke during interactive filtering",
+    "Memoize the Row component with React.memo and useCallback for the onClick handler passed as props, preventing Row re-renders when the parent Table component updates unrelated state like the selected sort column",
+    "Implement windowing-aware scroll restoration by tracking scrollOffset in a useRef and restoring it with FixedSizeList.scrollTo() after data updates, preventing jarring position resets when filtering changes the dataset",
+    "Add react-window-infinite-loader for progressive data fetching with a threshold of 3 items before the scroll bottom, loading next page chunks of 100 rows when the user scrolls near the bottom of the virtualized list"
+   ]
+  },
+  {
+   "asset_id": "sha256:441acf492c9e843c76a4cf0c2e4dda3198bce7464d936a287b411b26078567b6",
+   "summary": "Replace a standard React list rendering approach with virtualized windowing using react-window to render only visible rows, reducing DOM node count from thousands to ~20 and cutting memory allocation by 90% for large datasets of 10K+ items.",
+   "signals_match": [
+    "slow_rendering",
+    "high_memory_usage",
+    "ui_jank",
+    "scroll_lag",
+    "dom_node_overflow"
+   ],
+   "strategy": [
+    "Profile current list component with React DevTools Profiler to measure render duration and count mounted DOM nodes at dataset sizes of 100, 1000, and 10000 items to quantify the performance degradation curve",
+    "Install react-window and replace the map-based list rendering with FixedSizeList, passing itemCount, itemSize, and height props calculated from the container viewport dimensions using a ResizeObserver",
+    "Implement an item renderer component wrapped in React.memo with a custom comparison function that only re-renders when the item data reference changes, preventing unnecessary reconciliation of off-screen items",
+    "Add overscanCount of 5 to pre-render items just outside the visible viewport for smooth scrolling without jarring pop-in, and configure initialScrollOffset for deep-linking to specific list positions",
+    "Replace the item key strategy from array index to a stable unique ID from the data to ensure React preserves DOM state correctly when items are reordered or filtered"
+   ]
+  },
+  {
+   "asset_id": "sha256:3fb9dc91312eda89228d415ee329ed8adaaef660e9e51ba6eb2d747865c7f650",
+   "summary": "Optimize 10k plus React list re-renders by combining virtualization with react-window, memoized item components, selective state updates with useMemo and useCallback, and profiling-driven render optimization",
+   "signals_match": [
+    "react usememo usecallback large list 10k re-render optimization react-window virtualization"
+   ],
+   "strategy": [
+    "Replace flat map with react-window FixedSizeList rendering only about 12 visible rows with overscan 5 reducing DOM nodes from 10000 to about 22 and cutting re-render cost per state update from 340ms to 4ms",
+    "Wrap list item component in React dot memo with custom areEqual that shallow-compares only the visible fields (id, name, status, avatar url) via a selector function ignoring parent-level filter sort state",
+    "Extract column visibility and sort filter state into zustand store with selector subscriptions per visible row preventing entire list re-render when one row detail panel toggles uses useSyncExternalStore for tear-free concurrent rendering"
+   ]
+  },
+  {
+   "asset_id": "sha256:5f7ef28b68a42018b16b03c73c56ab211b375b6bc1e736088edc7c2008f6b1c7",
+   "summary": "Rendering thousands of DOM rows at once blocks the main thread and causes scroll jank. Implementing list virtualization with react-window or react-virtualized renders only visible rows plus a small overscan buffer, reducing DOM nodes from N to a constant ~20 and restoring 60fps scrolling.",
+   "signals_match": [
+    "react_large_list_slow",
+    "dom_nodes_excessive",
+    "scroll_jank_thousand_items",
+    "virtualization_missing",
+    "render_all_rows_eager"
+   ],
+   "strategy": [
+    "Replace the flat list or table with a VirtualizedList from react-window, providing itemSize and itemCount props to enable windowed rendering",
+    "Implement an custom rowRenderer that receives index and style, rendering the data item at that index with absolute positioning from the virtualization library",
+    "Add an overscan of 5 rows above and below the visible window to smooth rapid scrolling, and measure with React DevTools Profiler to confirm dropped frames are eliminated"
+   ]
+  },
+  {
+   "asset_id": "sha256:eedc2de64f5d56d166802a9681d1cec28e04768b4d542b9c60117dca4174b612",
+   "summary": "Implement efficient virtual scrolling in large React lists using IntersectionObserver API for viewport detection, DOM node recycling for memory management, and useCallback/useRef for render optimization. Reduces DOM nodes from thousands to 50-100 visible items, achieving 90% fewer reflows.",
+   "signals_match": [
+    "React",
+    "virtual_scroll",
+    "IntersectionObserver",
+    "performance",
+    "memory_leak",
+    "recycling",
+    "windowing",
+    "DOM",
+    "rendering",
+    "lazy_loading",
+    "useRef",
+    "useCallback"
+   ],
+   "strategy": [
+    "Use IntersectionObserver API to detect item visibility and trigger render/unmount callbacks instead of scrolling event listeners",
+    "Implement node recycling pool that reuses DOM elements for off-screen items instead of mounting/unmounting"
+   ]
+  }
+ ]
+}

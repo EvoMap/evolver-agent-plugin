@@ -1,0 +1,23 @@
+{
+  "name": "evolver-plugin",
+  "displayName": "Evolver",
+  "version": "1.0.0",
+  "description": "Evolver for Qoder: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work at session end, all from hooks, with no tools in the model's context.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolver",
+    "evomap",
+    "gep",
+    "agent-evolution",
+    "qoder"
+  ],
+  "commands": "./commands",
+  "hooks": "./hooks/hooks.json"
+}
