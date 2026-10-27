@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DEVICE_FLOW_MAX_MS, SIGN_IN, isFinished, needsNewRun, signInOf } from '../lib/hub-login.js';
+import { DEVICE_FLOW_MAX_MS, SIGN_IN, START_MAX_MS, isFinished, needsNewRun, signInOf } from '../lib/hub-login.js';
 import { deviceText, failedText, signedInText } from './helpers/login-output.js';
 
 const INSECURE_WARNING = '[hubFetch] WARNING: EVOMAP_HUB_ALLOW_INSECURE=1 — https guard and TLS enforcement are DISABLED. Hub egress may be plaintext/unverified. Local dev / mock hub only, never production.\n';
@@ -47,4 +47,11 @@ test('a run past the device flow\'s 15 minutes that still looks alive is stale, 
   const states = [null, old, running(''), running(deviceText('u', 'c')), ended(signedInText('h')), ended(failedText('x'))].map((run) => signInOf(run, NOW));
   assert.deepEqual(states.map(needsNewRun), [true, true, false, false, false, false]);
   assert.deepEqual(states.map(isFinished), [false, false, false, false, true, true]);
+});
+
+test('a run that shows no code within 2 minutes failed, though it still runs: npx still fetching, or a hang', () => {
+  assert.deepEqual(signInOf(running('npm warn exec installing @evomap/evolver\n', NOW - START_MAX_MS - 1), NOW), {
+    state: SIGN_IN.FAILED, reason: 'Evolver showed no code within 2 minutes (its output is in /state/agent-login.log)',
+  });
+  assert.equal(signInOf(running(deviceText('u', 'c'), NOW - START_MAX_MS - 1), NOW).state, SIGN_IN.WAITING, 'a code shown keeps it waiting');
 });

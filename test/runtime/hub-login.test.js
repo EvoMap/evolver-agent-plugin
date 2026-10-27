@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir, uptime } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -173,4 +173,36 @@ test('a run is running only while its pid is the process that started then: not 
   assert.equal((await runOf({ pid: other.pid, startedAt: Date.now() - uptime() * 1000 - 60_000 })).isRunning, false, 'a run from before the last boot');
   assert.equal((await runOf({ pid: 1, startedAt: Date.now() })).isRunning, false, "another user's process");
   assert.equal(signInOf(await runOf({ pid: other.pid, startedAt: Date.now() - 5 * 60_000 }), Date.now()).state, SIGN_IN.FAILED, 'its old code is not shown');
+});
+
+test('without an engine of its own or an evolver on PATH, the sign-in runs npx on the one release the plugin was verified against', posix, async (t) => {
+  const world = scratch(t);
+  const bin = join(world.dir, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'npx'), `#!/bin/sh\necho "$$ $*" >> "${join(world.dir, 'fake', 'starts')}"\nprintf '  1. open  https://hub.test/device\\n  2. enter code:  NPX-CODE\\n'\n`);
+  chmodSync(join(bin, 'npx'), 0o755);
+  const signIn = hubSignInOf({ files: world.files, enginePrefix: join(world.dir, 'no-engine'), env: { ...world.env, PATH: bin } });
+  await signIn.joinOrStart(keepsLive);
+  const [line] = await until(() => startsOf(world.dir).length > 0 && startsOf(world.dir), 'npx');
+  assert.equal(line.split(' ').slice(1).join(' '), '-y @evomap/evolver@2.0.46 login');
+  assert.equal((statSync(world.files.log).mode & 0o777).toString(8), '600', 'the log is the person\'s alone');
+  await until(async () => (await signIn.latest()).output.includes('NPX-CODE'), 'its output');
+});
+
+test('a run replaced while it still runs is ended, so no second device flow lives on', posix, async (t) => {
+  const world = scratch(t);
+  const signIn = world.signIn();
+  await signIn.joinOrStart(keepsLive);
+  const [first] = await until(() => startsOf(world.dir).length > 0 && startsOf(world.dir), 'the first run');
+  const firstPid = Number(first.split(' ')[0]);
+  await signIn.joinOrStart(() => false);
+  await until(() => startsOf(world.dir).length === 2, 'the second run');
+  await until(() => {
+    try {
+      process.kill(firstPid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }, 'the first run to end');
 });
