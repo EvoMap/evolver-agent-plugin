@@ -7,17 +7,21 @@ import { ASSET } from '../app/memory-ports.js';
 
 /**
  * A loopback Proxy that answers recall with one asset and records every request, plus a scratch HOME whose
- * settings name it as a current Proxy, so no test ever starts setting the engine up. `delays` holds a path's answer
- * back for that many milliseconds.
+ * settings name it as a current Proxy, so no test ever starts setting the engine up. A Recipe search answers
+ * `recipes`, and a fetch by ids the `stepAssets` it names. `delays` holds a path's answer back for that many
+ * milliseconds.
  */
-export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {} } = {}) {
+export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {} } = {}) {
   const requests = [];
+  const fetched = (body) => (body?.asset_ids ? stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) : assets);
   const server = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
-      requests.push({ method: request.method, path: request.url, body: body ? JSON.parse(body) : undefined });
-      const answer = request.url === '/asset/fetch' ? { assets }
+      const parsed = body ? JSON.parse(body) : undefined;
+      requests.push({ method: request.method, path: request.url, body: parsed });
+      const answer = request.url === '/asset/fetch' ? { assets: fetched(parsed) }
+        : request.url === '/recipe/search' ? recipes
         : request.url === '/proxy/status' ? { running: true, status: 'running', node_id: 'node_test' }
           : request.url === '/conversation/distill' ? distillAnswer
             : { recorded: true };

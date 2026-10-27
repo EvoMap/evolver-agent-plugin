@@ -5,12 +5,17 @@ import { recallStrategy, promptTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
+  const searches = [];
   const proxyFetch = async (method, path, body) => {
+    if (path === '/recipe/search') {
+      searches.push(body);
+      return { ok: true, data: [] };
+    }
     calls.push({ method, path, body });
     if (recalled instanceof Error) throw recalled;
     return recalled === undefined ? { ok: false, error: 'nope' } : { ok: true, data: recalled };
   };
-  return { proxyFetch, calls };
+  return { proxyFetch, calls, searches };
 }
 
 // Every recalled asset must share terms with the prompt to be injected; this one
@@ -284,9 +289,11 @@ test('a strategy that would inject more than 4000 characters gives way to the ne
 });
 
 test('keys and tokens are stripped from the prompt before it leaves for recall', async () => {
-  const { proxyFetch, calls } = stubProxy({ assets: [] });
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const prompt = promptTextOf('upload retry fails with ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuv and ghp_abcdefghijklmnopqrstuvwxyz0123');
   await recallStrategy(proxyFetch, prompt);
-  assert.doesNotMatch(calls[0].body.text, /sk-ant|ghp_/);
-  assert.match(calls[0].body.text, /upload retry fails with/);
+  for (const sent of [calls[0].body.text, searches[0].q]) {
+    assert.doesNotMatch(sent, /sk-ant|ghp_/);
+    assert.match(sent, /upload retry fails with/);
+  }
 });

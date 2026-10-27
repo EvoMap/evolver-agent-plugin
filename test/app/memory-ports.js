@@ -15,6 +15,18 @@ export const ASSET = {
 
 export const PROMPT = 'fix the flaky redis connection retries in our tests';
 
+export const RECIPE = {
+  id: 'rcp_redis',
+  title: 'Stabilise flaky redis connection retries',
+  description: 'redis connection retries in tests',
+  steps: [{ asset_id: 'sha256:step2', position: 2 }, { asset_id: 'sha256:step1', position: 1 }],
+};
+
+export const RECIPE_STEPS = [
+  { asset_id: 'sha256:step1', short_title: 'Unbound redis retries', strategy: ['Set `maxRetriesPerRequest` to null in lib/redis.js', 'Run npm test to confirm the suite passes'] },
+  { asset_id: 'sha256:step2', short_title: 'Close the redis client', strategy: ['Close the connection in the global teardown hook'] },
+];
+
 const table = (empty) => {
   let value = structuredClone(empty);
   return {
@@ -40,7 +52,7 @@ const lines = () => {
   };
 };
 
-export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
+export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
   const sessions = new Map();
   const notes = lines();
   const edits = lines();
@@ -92,6 +104,8 @@ export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = nu
     proxy: {
       request: async (method, path, body) => {
         requests.push({ method, path, body });
+        if (path === '/recipe/search') return { ok: true, data: recipes };
+        if (path === '/asset/fetch' && body?.asset_ids) return { ok: true, data: { assets: stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) } };
         if (path === '/asset/fetch') return { ok: true, data: { assets } };
         if (path === '/conversation/distill') return { ok: true, data: distillAnswer };
         return { ok: true, data: { recorded: true } };
