@@ -66,7 +66,8 @@ test('every /evolver-* command but the evolve prompt is a palette command with a
   await startProxy(t);
   const commands = await loadTui(fakeApi());
   assert.deepEqual(Object.keys(commands).sort(), [
-    'evolver-distill', 'evolver-drafts', 'evolver-review', 'evolver-run', 'evolver-search', 'evolver-solidify', 'evolver-status', 'evolver-sync',
+    'evolver-distill', 'evolver-drafts', 'evolver-login', 'evolver-review', 'evolver-run', 'evolver-search', 'evolver-solidify', 'evolver-status',
+    'evolver-sync',
   ]);
   for (const command of Object.values(commands)) {
     assert.equal(command.namespace, 'palette');

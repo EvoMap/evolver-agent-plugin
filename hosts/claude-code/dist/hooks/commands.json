@@ -1,7 +1,11 @@
 [
   {
     "name": "evolver-status",
-    "description": "Evolver health: the Proxy, engine setup, distillation candidate and drafts."
+    "description": "Evolver health: the Proxy, engine setup, Hub sign-in, distillation candidate and drafts."
+  },
+  {
+    "name": "evolver-login",
+    "description": "Sign in to the EvoMap Hub with a device code, setting Evolver up first when needed, and show the registered node."
   },
   {
     "name": "evolver-search",

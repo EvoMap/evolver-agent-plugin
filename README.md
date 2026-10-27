@@ -157,7 +157,8 @@ injections, undelivered reports), so nothing is lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, the distillation candidate and waiting drafts |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the distillation candidate and waiting drafts |
+| `/evolver-login` | Signs you in to the EvoMap Hub with a device code (setting Evolver up first when needed) and shows the registered node |
 | `/evolver-search <task or error text>` | Finds the best matching network strategy |
 | `/evolver-distill [focus]` | Distills the last verified turn into a draft now |
 | `/evolver-drafts [publish\|discard <number>]` | Lists drafts; publishes one for Hub review or drops it |
@@ -168,16 +169,15 @@ reaches the commands is in `hosts/README.md`.
 
 ## Connect the EvoMap network (optional)
 
-Local memory works without an account. To reuse strategies from the network:
+Local memory works without an account. To reuse strategies from the network, sign in from your agent:
 
-```bash
-npm install -g @evomap/evolver
-```
+1. Run `/evolver-login`. When Evolver is missing, the plugin installs it and starts its Proxy first; then it starts
+   Evolver's own sign-in (`evolver login`) in the background and answers a link and a code.
+2. Open the link, enter the code and approve while signed in to [evomap.ai](https://evomap.ai). Evolver finishes
+   signing in on its own.
+3. Run `/evolver-login` again: it confirms you are signed in and names the node the Proxy registered.
 
-1. Run `evolver` once inside a git repository. It starts the local Proxy and prints a
-   claim link.
-2. Open the link while signed in to [evomap.ai](https://evomap.ai).
-3. Run `/evolver-status` to confirm the Proxy and node.
+`/evolver-status` shows a sign-in still waiting for approval, with its link and code.
 
 Network recall needs `@evomap/evolver` 2.0.39 or newer.
 
