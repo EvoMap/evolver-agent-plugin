@@ -40,6 +40,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | Codex | Supported | `hosts/codex`, command hooks; installs `dist/codex` |
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
+| Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -78,7 +79,7 @@ claude plugin disable evolver-mods@evolver-mods
 
 ## Install (other hosts)
 
-Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Grok, Antigravity, OpenCode and DeepSeek Harness
+Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Grok, Qoder, Antigravity, OpenCode and DeepSeek Harness
 install a folder packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
 plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
 injections, undelivered reports), so nothing is lost on the way over.
@@ -99,6 +100,15 @@ injections, undelivered reports), so nothing is lost on the way over.
   `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
   build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a
   marketplace of its own.
+- **Qoder CLI:** add this repository as a marketplace and install the plugin:
+
+  ```bash
+  qodercli plugins marketplace add EvoMap/evolver-agent-plugin
+  qodercli plugins install evolver-plugin@evomap
+  ```
+
+  The marketplace (`.qoder-plugin/marketplace.json`) installs `dist/qoder` from the `release` branch; start a new
+  session or run `/plugins reload`. Commands are typed as `/evolver-status` and answered as a blocked prompt.
 - **Codex:** remove the standalone plugin and its marketplace, then add this one at the `release` branch:
 
   ```bash

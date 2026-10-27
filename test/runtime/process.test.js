@@ -72,6 +72,21 @@ test('a cli model may take its prompt from a file in its empty folder, and set v
   assert.equal(existsSync(answer.cwd), false, 'the folder and its prompt file are removed after the run');
 });
 
+test('a cli model that exits non-zero fails with what its output says, else with its exit code and output', async () => {
+  const exiting = (stdout) => ({
+    kind: 'cli',
+    command: () => node,
+    args: () => ['-e', `process.stdout.write(${JSON.stringify(stdout)});process.exit(1)`],
+    parse: ({ stdout: printed }) => {
+      const result = JSON.parse(printed);
+      if (result.is_error) throw new Error(`no answer: ${result.result}`);
+      return { answer: result.result };
+    },
+  });
+  await assert.rejects(modelRunnerOf(exiting('{"is_error":true,"result":"Not logged in"}')).complete('m', 'gene', AbortSignal.timeout(5_000)), /^Error: no answer: Not logged in$/);
+  await assert.rejects(modelRunnerOf(exiting('{"is_error":false,"result":"half"}')).complete('m', 'gene', AbortSignal.timeout(5_000)), /exited 1: \{"is_error":false,"result":"half"\}$/);
+});
+
 test('a cli model declaration runs headless and parses its answer; none or in-session means no runner', async () => {
   const runner = modelRunnerOf({
     kind: 'cli',

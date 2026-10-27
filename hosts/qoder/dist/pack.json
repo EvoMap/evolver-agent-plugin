@@ -1,0 +1,10 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    ".qoder-plugin/plugin.json": "hosts/qoder/dist/.qoder-plugin/plugin.json",
+    "hooks/hooks.json": "hosts/qoder/dist/hooks/hooks.json",
+    "commands": "hosts/qoder/dist/commands",
+    "README.md": "hosts/qoder/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

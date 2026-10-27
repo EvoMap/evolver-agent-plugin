@@ -151,14 +151,14 @@ within 15 s is ended, and the next start waits longer after each failure.
 
 **Packing and publishing.** WorkBuddy copies only its plugin folder and loads every component folder at that
 folder's root, Antigravity installs a whole repo and loads its skills, commands and agents, OpenCode and DeepSeek
-Harness load an npm package, and Claude Code, Codex and Grok install a plugin folder: installed from this repo as it is, they would miss
+Harness load an npm package, and Claude Code, Codex, Grok and Qoder install a plugin folder: installed from this repo as it is, they would miss
 `lib/` or load another host's files. `npm run pack` builds each of them its own folder under `dist/<host>`
 (`scripts/pack.mjs`, from `hosts/<host>/dist/pack.json`): the files its entries load, at their paths here, and its
 manifests at the root. Cursor installs the repo root: its manifest names its commands and hooks, which turns off its
 folder discovery. `dist/` is not committed to `main`. CI (`.github/workflows/release.yml`) tests and packs every push
 to `main`, and `scripts/publish-release-branch.sh` commits `main` plus `dist/` to the `release` branch: one commit per
 build, only for `main`'s current tip, never a force-push. The repo root keeps only the marketplace manifests the
-hosts read at fixed paths. Claude Code's, WorkBuddy's and Grok's install `dist/<host>` from `release` through a
+hosts read at fixed paths. Claude Code's, WorkBuddy's, Grok's and Qoder's install `dist/<host>` from `release` through a
 `git-subdir` source, since a marketplace itself cannot be added at a branch; Codex adds the marketplace at
 `--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
@@ -168,7 +168,7 @@ hosts read at fixed paths. Claude Code's, WorkBuddy's and Grok's install `dist/<
 ## Layout
 
 ```
-.claude-plugin/ .codebuddy-plugin/ .cursor-plugin/ .agents/plugins/ .grok-plugin/
+.claude-plugin/ .codebuddy-plugin/ .cursor-plugin/ .agents/plugins/ .grok-plugin/ .qoder-plugin/
                        marketplace manifests, where each host reads them
 bin/                   entries: hook.mjs, worker.mjs, command.mjs, mcp.mjs, relay.mjs <host>
 hosts/<host>/          profile.js and its pure readers; dist/ holds what the host installs
