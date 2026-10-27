@@ -28,7 +28,7 @@ in a dialog. Text typed after a command name on the prompt line goes to the mode
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, the session's distillation candidate and waiting drafts |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub: a link and a code to approve, then, run again, the registered node |
 | `/evolver-search` | Recalls the best strategy for a text and hands it to the open session for its next turn |
 | `/evolver-distill` | Distills the open session's latest verified turn into a draft now |

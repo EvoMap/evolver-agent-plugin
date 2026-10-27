@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { SIGN_IN, needsNewRun, signInOf } from '../../lib/hub-login.js';
 import { profileNamed } from '../../lib/agent/registry.js';
 import { environmentFor } from '../../lib/runtime/environment.js';
-import { hubSignInOf, signInFilesOf } from '../../lib/runtime/hub-login.js';
+import { hubSignInOf, previousLogOf, signInFilesOf } from '../../lib/runtime/hub-login.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { installFakeEvolver } from '../helpers/fake-evolver.js';
 
@@ -122,6 +122,7 @@ test('a run that is over is replaced by a fresh evolver login, with a log of its
   const second = await signIn.joinOrStart(keepsLive);
   assert.notEqual(second.startedAt, first.startedAt);
   assert.doesNotMatch(second.output, /access_denied/);
+  assert.match(readFileSync(previousLogOf(world.files.log), 'utf8'), /access_denied/, 'the failed run\'s output is kept');
   await until(() => startsOf(world.dir).length === 2, 'the second evolver login');
 });
 

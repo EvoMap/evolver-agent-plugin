@@ -69,7 +69,8 @@ commands from a terminal instead (below).
 
 | Typed in Grok | What it does |
 | --- | --- |
-| `evolver-status` | The Proxy, engine setup, this session's distillation candidate and the drafts waiting. |
+| `evolver-status` | The Proxy, engine setup, Hub sign-in, this session's distillation candidate and the drafts waiting. |
+| `evolver-login` | Signs you in to the EvoMap Hub: answers a link and a code to approve, then, typed again, the registered node. |
 | `evolver-search <text>` | Finds the EvoMap strategy that best fits the text. |
 | `evolver-distill [focus]` | Distills this session's latest verified turn into a draft now. |
 | `evolver-drafts [publish\|discard <number>]` | Lists the distilled drafts; publishes one to the EvoMap Hub for review, or discards it. |
