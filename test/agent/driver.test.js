@@ -127,3 +127,23 @@ test('over MCP, only the report of the turn that became the candidate asks for a
   const second = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't2', outcome: 'failed', summary: 'Gave up.' });
   assert.equal(second.content[0].text, 'Reported.');
 });
+
+test('a host whose strategy lands at a tool result answers the prompt without it and the turn\'s first tool result with it', async () => {
+  const { driver, queued } = driverOf(hookProfile({ reply: { strategyAt: 'tool-result' } }));
+  assert.deepEqual(await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }), {});
+  const bash = { ...base, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { exit_code: 0 } };
+  const first = await driver.handle('PostToolUse', bash);
+  assert.equal(first.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.ok(first.hookSpecificOutput.additionalContext.endsWith('Apply them where they fit.'));
+  assert.deepEqual(await driver.handle('PostToolUse', bash), {});
+  await driver.handle('Stop', { ...base, last_assistant_message: 'Done.' });
+  assert.equal(queued[0].report.outcome, 'success');
+});
+
+test('by default the strategy rides the prompt, and a tool result answers nothing', async () => {
+  const { driver } = driverOf(hookProfile());
+  assert.equal(hookProfile().reply.strategyAt, 'prompt');
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  assert.deepEqual(await driver.handle('PostToolUse', { ...base, tool_name: 'Read', tool_input: {} }), {});
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'step' } }), /reply\.strategyAt must be one of prompt, tool-result/);
+});
