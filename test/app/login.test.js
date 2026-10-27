@@ -148,3 +148,13 @@ test('/evolver-status shows a sign-in waiting for approval, and otherwise points
   await world.login();
   assert.equal(await status(), `A sign-in to the EvoMap Hub waits for your approval: open ${URL} and enter the code ${CODE}.`);
 });
+
+test('a run finished long ago is not answered: a success after an `evolver logout`, or an old unseen timeout, starts afresh', async () => {
+  const world = loginWorld({ onStart: printsDeviceCode });
+  await world.login();
+  world.signIn.print(failedText('device_flow_timeout'));
+  world.signIn.exit();
+  world.advance(DEVICE_FLOW_MAX_MS + 1);
+  assert.ok((await world.login()).text.includes(`enter the code ${CODE}.`), 'the first call after shows a fresh code');
+  assert.equal(world.signIn.started.length, 2);
+});

@@ -40,6 +40,9 @@ test('a run that ended without an answer failed and points to its output; one st
 test('a run past the device flow\'s 15 minutes that still looks alive is stale, and only none or stale is replaced', () => {
   const old = running(deviceText('https://hub.test/device', 'X-1'), NOW - DEVICE_FLOW_MAX_MS - 1);
   assert.deepEqual(signInOf(old, NOW), { state: SIGN_IN.STALE });
+  const longAgo = NOW - DEVICE_FLOW_MAX_MS - 1;
+  assert.deepEqual(signInOf({ ...ended(signedInText('https://evomap.ai')), startedAt: longAgo }, NOW), { state: SIGN_IN.STALE }, 'an old success says nothing of now');
+  assert.deepEqual(signInOf({ ...ended(failedText('device_flow_timeout')), startedAt: longAgo }, NOW), { state: SIGN_IN.STALE });
   assert.deepEqual(signInOf(null, NOW), { state: SIGN_IN.NONE });
   const states = [null, old, running(''), running(deviceText('u', 'c')), ended(signedInText('h')), ended(failedText('x'))].map((run) => signInOf(run, NOW));
   assert.deepEqual(states.map(needsNewRun), [true, true, false, false, false, false]);
