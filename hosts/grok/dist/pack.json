@@ -1,0 +1,10 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    ".grok-plugin/plugin.json": "hosts/grok/dist/.grok-plugin/plugin.json",
+    "hooks/hooks.json": "hosts/grok/dist/hooks/hooks.json",
+    "commands/evolver-evolve.md": "hosts/grok/dist/commands/evolver-evolve.md",
+    "README.md": "hosts/grok/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}
