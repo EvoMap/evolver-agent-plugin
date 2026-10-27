@@ -103,11 +103,11 @@ injections, undelivered reports), so nothing is lost on the way over.
 
   The marketplace (`.qoder-plugin/marketplace.json`) installs `dist/qoder` from the `release` branch; start a new
   session or run `/plugins reload`. Commands are typed as `/evolver-status` and answered as a blocked prompt.
-- **Codex:** remove the standalone plugin and its marketplace, then add this one at the `release` branch:
+- **Codex:** remove the standalone plugin and its marketplace, then add this one:
 
   ```bash
   codex plugin remove evolver@evomap && codex plugin marketplace remove evomap
-  codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
+  codex plugin marketplace add EvoMap/evolver-agent-plugin
   codex plugin add evolver-plugin@evomap
   ```
 

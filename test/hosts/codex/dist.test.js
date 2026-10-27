@@ -50,12 +50,12 @@ test('the tool hooks fire for Bash and apply_patch only, and a compaction starts
   assert.deepEqual(['startup', 'resume', 'clear', 'fork', 'compact'].map((source) => sources.test(source)), [true, true, true, true, false]);
 });
 
-test('the marketplace Codex reads at the repository root installs dist/codex, where npm run pack puts it', () => {
+test('the marketplace Codex reads at the repository root installs dist/codex from the release branch, with no ref to pass', () => {
   const marketplace = json('.agents/plugins/marketplace.json');
   const manifest = json(`${DIST}/.codex-plugin/plugin.json`);
   const [entry, ...rest] = marketplace.plugins;
   assert.deepEqual(rest, []);
-  assert.deepEqual(entry.source, { source: 'local', path: './dist/codex' });
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/codex', ref: 'release' });
   assert.equal(json('package.json').scripts.pack, 'node scripts/pack.mjs all dist');
   assert.ok(packedHosts().includes('codex'));
   assert.equal(entry.name, manifest.name);
@@ -67,7 +67,7 @@ test('the README installs evolver-plugin@evomap, after removing the standalone e
   const readme = readFileSync(at(`${DIST}/README.md`), 'utf8');
   const removal = readme.indexOf('codex plugin remove evolver@evomap');
   assert.ok(removal >= 0);
-  assert.ok(removal < readme.indexOf('codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release'), 'the standalone plugin goes first');
+  assert.ok(removal < readme.search(/^codex plugin marketplace add EvoMap\/evolver-agent-plugin$/m), 'the standalone plugin goes first');
   assert.match(readme, /^codex plugin add evolver-plugin@evomap$/m);
   assert.match(readme, /hooks\.state\."evolver-plugin@evomap:hooks\/hooks\.json:user_prompt_submit:0:0"/);
   assert.match(readme, /plugins\/cache\/evomap\/evolver-plugin\/<version>\/bin\/command\.mjs codex evolver-status/);
