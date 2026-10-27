@@ -1,0 +1,38 @@
+{
+  "name": "evomap",
+  "description": "EvoMap plugin marketplace for Qoder.",
+  "owner": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "plugins": [
+    {
+      "name": "evolver-plugin",
+      "version": "0.4.0",
+      "description": "Evolver for Qoder: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work at session end, all from hooks, with no tools in the model's context.",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
+        "path": "dist/qoder",
+        "ref": "release"
+      },
+      "author": {
+        "name": "EvoMap",
+        "email": "team@evomap.ai",
+        "url": "https://evomap.ai"
+      },
+      "homepage": "https://evomap.ai",
+      "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "evolver",
+        "evomap",
+        "gep",
+        "agent-evolution",
+        "qoder"
+      ]
+    }
+  ]
+}

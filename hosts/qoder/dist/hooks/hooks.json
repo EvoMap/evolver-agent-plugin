@@ -1,0 +1,137 @@
+{
+  "description": "Evolver: strategy recall behind the prompt, reuse reports at turn and session end, and session-end distillation, with no tools in the model's context",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|new",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "SessionStart"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "UserPromptSubmit"
+            ],
+            "timeout": 660
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "PreToolUse"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "PostToolUse"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "PostToolUseFailure"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "Stop"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "StopFailure"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "SessionEnd"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
