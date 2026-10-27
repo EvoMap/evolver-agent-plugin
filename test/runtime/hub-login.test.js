@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -144,4 +144,14 @@ test('two agents with state folders of their own share one sign-in, since they s
     return state.state === SIGN_IN.SIGNED_IN && state;
   }, 'the sign-in, seen from the other agent');
   assert.equal(signedIn.hub, 'https://hub.test');
+});
+
+test('a start lock left by a killed process gives no run rather than a false one, and starts nothing', async (t) => {
+  const world = scratch(t);
+  mkdirSync(world.files.lock, { recursive: true });
+  writeFileSync(join(world.files.lock, 'owner'), 'a token of a process that is gone');
+  const startedAt = Date.now();
+  assert.equal(await world.signIn().joinOrStart(keepsLive), null);
+  assert.ok(Date.now() - startedAt < 8_000);
+  assert.deepEqual(startsOf(world.dir), []);
 });

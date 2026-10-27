@@ -176,3 +176,9 @@ test('the whole answer comes within 45 s, the engine and Evolver sharing one dea
   await runCommand(cancelled.ports, { sessionId: 's1', name: 'evolver-login', signal: AbortSignal.abort() });
   assert.equal(cancelled.ports.clock.now(), cancelledAt);
 });
+
+test('when another process holds the start and shows no run, the answer says so instead of waiting on nothing', async () => {
+  const world = loginWorld({ onStart: printsDeviceCode });
+  world.ports.signIn = { ...world.ports.signIn, joinOrStart: async () => null };
+  assert.deepEqual(await world.login(), { ok: true, text: 'Another sign-in to the EvoMap Hub is starting; run /evolver-login again in a minute.' });
+});
