@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -66,21 +66,21 @@ async function session(t, { options = { node_path: process.execPath } } = {}) {
   });
   const seen = { appended: [], toasts: [], submitted: [], commands: [], completions: [] };
   const $ = {
-    plugin: { name: 'evolver-agent-plugin', root },
+    plugin: { name: 'evolver-plugin', root },
     session: {
       id: async () => captured.session.id,
       cwd: async () => project,
       model: async () => captured.session.model,
       append: async ({ message }) => { seen.appended.push(message.content[0].text); },
     },
-    fs: { stat: async (path) => ({ realPath: path }) },
+    fs: { stat: async (path) => ({ realPath: path }), read: async (path) => readFileSync(path, 'utf8') },
     http: {
       fetch: async (url, init) => {
         const response = await fetch(url, init);
         return { ok: response.ok, status: response.status, text: await response.text() };
       },
     },
-    clock: { sleep: (ms, { signal } = {}) => new Promise((resolve, reject) => {
+    clock: { now: async () => Date.now(), sleep: (ms, { signal } = {}) => new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, ms);
       signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); });
     }) },
@@ -107,7 +107,12 @@ async function session(t, { options = { node_path: process.execPath } } = {}) {
     return { catch() {} };
   }, options);
   const call = (event, input = {}, ran = () => ({})) => handlers.get(event)($, input, Object.assign(async (value) => ran(value), { signal: new AbortController().signal }));
-  return { call, seen, proxy, project, children };
+  // A model step streams: the hook is a generator over the steps beneath it, which here answer nothing.
+  const step = async (turnId, index = 0) => {
+    const beneath = async function* stepped() { return {}; };
+    for await (const chunk of handlers.get('turn.step')($, { turnId, index, model: captured.session.model, messageCount: 3 }, beneath)) void chunk;
+  };
+  return { call, step, seen, proxy, project, children };
 }
 
 async function until(read, what, deadlineMs = 10_000) {
@@ -122,14 +127,22 @@ async function until(read, what, deadlineMs = 10_000) {
 
 const reuseReports = (proxy) => proxy.requests.filter((request) => request.path === '/asset/reuse-result').map((request) => request.body);
 
-async function verifiedTurn(cc, turnId = 't1') {
+// The recall lands after `turn.start`; the turn's next model step carries the strategy, and books it.
+async function recalledTurn(cc, turnId = 't1') {
   await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  const before = cc.seen.appended.length;
   await cc.call('turn.start', { text: PROMPT, turnId });
+  await until(() => cc.seen.appended.length > before, 'the strategy to land');
+  await cc.step(turnId, 1);
+}
+
+async function verifiedTurn(cc, turnId = 't1') {
+  await recalledTurn(cc, turnId);
   await cc.call('tool.call', { tool: 'Edit', file_path: join(cc.project, 'lib', 'redis.js'), old_string: '3', new_string: 'null', tool_use_id: `${turnId}-edit` }, () => {
     writeFileSync(join(cc.project, 'lib', 'redis.js'), 'export const retries = null;\n');
     return { ref: 1, text: 'The file has been updated.' };
   });
-  await cc.call('tool.call', { tool: 'Bash', command: 'npm test', tool_use_id: `${turnId}-test` }, () => ({ ref: 2, text: '# pass 3\n# fail 0' }));
+  await cc.call('tool.call', { tool: 'Bash', command: 'npm test', description: 'Run the tests', tool_use_id: `${turnId}-test` }, () => ({ ref: 2, text: '# pass 3\n# fail 0' }));
   return cc.call('turn.complete', { answer: 'Retries are unbounded now; npm test passes.', durationMs: 900, isAborted: false, turnId, reason: 'answer', usage: USAGE }, () => ({ text: '', usage: USAGE }));
 }
 
@@ -142,7 +155,10 @@ test('a session starts the relay, registers the commands, and a whole turn is re
 
   const ended = await verifiedTurn(cc);
   assert.match(cc.seen.appended[0], /^\[Evolution Memory\] Fix flaky Redis connection retries[\s\S]*Apply them where they fit\.$/);
-  assert.match(ended.text, /^✓ Goal reached \(last check passed: npm test\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  assert.match(ended.text, /^✓ Goal reached \(last check passed: Run the tests\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  const state = join(cc.proxy.env.HOME, '.evolver', 'state');
+  const [sessionFile] = readdirSync(state).filter((name) => /^claude-code-session-.*\.json$/.test(name));
+  assert.equal(JSON.parse(readFileSync(join(state, sessionFile), 'utf8')).pid, process.pid, 'the session belongs to Claude Code, the relay\'s parent');
   const [report] = await until(() => reuseReports(cc.proxy).length > 0 && reuseReports(cc.proxy), 'the reuse report');
   assert.deepEqual(
     [report.task_id, report.outcome, report.evidence.tier, report.evidence.applied, report.evidence.check],
@@ -177,26 +193,46 @@ test('a module loaded again without a session start still answers its commands',
   assert.equal(cc.seen.commands.length, 0);
 });
 
-test('a prompt nobody typed opens no turn, and a relay that died is started again by the next event', async (t) => {
+test('the commands the module registers are the plugin\'s, as the relay knows them', async () => {
+  const { commandCatalog } = await import('../../../lib/channels/plugin/adapter.js');
+  const shipped = JSON.parse(readFileSync(join(root, 'hooks', 'commands.json'), 'utf8'));
+  assert.deepEqual(shipped, commandCatalog.map(({ name, description, hint }) => ({ name, description, ...(hint && { hint }) })));
+});
+
+test('a prompt nobody typed is recalled for nothing, and a relay that died is started again by the next event', async (t) => {
   const cc = await session(t);
   await cc.call('session.start', captured.sessionStart);
   await cc.call('prompt.submit', { text: PROMPT, wait: false, origin: { kind: 'task-notification' } });
   await cc.call('turn.start', { text: PROMPT, turnId: 't-note' });
+  await new Promise((resolve) => setTimeout(resolve, 300));
   assert.deepEqual(cc.seen.appended, []);
+  assert.deepEqual(cc.proxy.requests.filter((request) => request.path === '/asset/fetch'), []);
   cc.children[0].kill('SIGKILL');
   await until(() => cc.children[0].exitCode !== null || cc.children[0].signalCode !== null, 'the relay to exit');
   await new Promise((resolve) => setTimeout(resolve, 50));
-  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT });
-  await cc.call('turn.start', { text: PROMPT, turnId: 't2' });
+  await recalledTurn(cc, 't2');
   assert.equal(cc.children.length, 2);
   assert.match(cc.seen.appended[0], /^\[Evolution Memory\]/);
+});
+
+test('a strategy that lands after the turn\'s last model step is added but never booked or reported', async (t) => {
+  const cc = await session(t);
+  await cc.call('session.start', captured.sessionStart);
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await until(() => cc.seen.appended.length > 0, 'the strategy to land');
+  await cc.call('turn.complete', { answer: 'Done.', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' }, () => ({ text: '' }));
+  await cc.step('t1', 1);
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: 'and the readme', origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: 'and the readme', turnId: 't2' });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.deepEqual(reuseReports(cc.proxy), []);
 });
 
 test('a session end closes its open turn as aborted and reports the strategy it held', async (t) => {
   const cc = await session(t);
   await cc.call('session.start', captured.sessionStart);
-  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT });
-  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await recalledTurn(cc, 't1');
   await cc.call('session.end', captured.sessionEnd);
   const [report] = await until(() => reuseReports(cc.proxy).length > 0 && reuseReports(cc.proxy), 'the aborted report');
   assert.deepEqual([report.task_id, report.evidence.aborted], [`claude-code:${captured.session.id}:1`, true]);

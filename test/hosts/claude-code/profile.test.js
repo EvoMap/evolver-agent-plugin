@@ -19,10 +19,11 @@ test('a submitted prompt opens a turn, named by its turn id, in the session and 
   assert.equal(profile.payload.isIgnored(payload, context('turn.start')), false);
 });
 
-test('a prompt nobody typed, and a subagent\'s turn end, open and close nothing', () => {
+test('a turn nobody typed is recalled for nothing but counts; a subagent\'s turn end is not the session\'s', () => {
   const turn = { ...SESSION, turn_id: 't', text: 'x' };
-  assert.equal(profile.payload.isIgnored({ ...turn, origin: { kind: 'task-notification' } }, context('turn.start')), true);
-  assert.equal(profile.payload.isIgnored({ ...turn, origin: { kind: 'composer' } }, context('turn.start')), false);
+  assert.equal(profile.payload.isIgnored({ ...turn, origin: { kind: 'task-notification' } }, context('turn.start')), false);
+  assert.equal(profile.payload.prompt({ ...turn, origin: { kind: 'task-notification' } }), '');
+  assert.equal(profile.payload.prompt({ ...turn, origin: { kind: 'composer' } }), 'x');
   assert.equal(profile.payload.isIgnored({ ...turn, agent_id: 'agent_7' }, context('turn.complete')), true);
   assert.equal(profile.payload.isIgnored({ ...SESSION, call: typed.subagentBash, result: resultOf(typed.bashPassed) }, context('tool.call')), false);
 });
@@ -37,16 +38,17 @@ test('a turn ends the way Claude Code says it did, and an end it does not name i
 
 test('a shell run is a check with its verdict; a background run has none yet; a denied call never ran', () => {
   const note = (call, ran) => profile.evidence.toolNote({ ...SESSION, call, result: resultOf(ran) }, context('tool.call'));
-  assert.deepEqual(note(typed.bash, typed.bashPassed), { kind: 'shell', command: 'node --test', exit: 0, output: '# pass 1\n# fail 0' });
-  assert.deepEqual(note(typed.bash, typed.bashFailed), { kind: 'shell', command: 'node --test', exit: 1, output: '# pass 0\n# fail 1' });
+  assert.deepEqual(note(typed.bash, typed.bashPassed), { kind: 'shell', command: 'node --test', exit: 0, output: '# pass 1\n# fail 0', label: 'Run the tests' });
+  assert.deepEqual(note(typed.bash, typed.bashFailed), { kind: 'shell', command: 'node --test', exit: 1, output: '# pass 0\n# fail 1', label: 'Run the tests' });
+  assert.equal(note({ tool: 'Bash', command: "python3 - <<'EOF'\nprint('npm test')\nEOF" }, typed.bashPassed).label, "python3 - <<'EOF'");
   assert.deepEqual(note(typed.bashInBackground, typed.bashPassed), { kind: 'tool', command: 'npm test', paths: [] });
   assert.equal(note(typed.bash, typed.denied), null);
 });
 
 test('an edit names the file it wrote, hashed before it runs; a read is only a path', () => {
   const note = (call, ran) => profile.evidence.toolNote({ ...SESSION, call, result: resultOf(ran) }, context('tool.call'));
-  assert.deepEqual(note(typed.edit, typed.editDone), { kind: 'edit', paths: ['/proj/add.js'] });
-  assert.deepEqual(note(typed.write, typed.editDone), { kind: 'edit', paths: ['/proj/add.test.js'] });
+  assert.deepEqual(note(typed.edit, typed.editDone), { kind: 'edit', paths: ['/proj/add.js'], lines: 2 });
+  assert.deepEqual(note(typed.write, typed.editDone), { kind: 'edit', paths: ['/proj/add.test.js'], lines: 2 });
   assert.equal(note(typed.edit, { isError: true, text: 'old_string not found' }), null);
   assert.deepEqual(note(typed.read, { text: '# readme' }), { kind: 'tool', paths: ['/proj/README.md'] });
   assert.deepEqual(profile.evidence.editedFiles({ ...SESSION, call: typed.edit }, context('tool.call.before')), ['/proj/add.js']);
@@ -67,14 +69,17 @@ test('answers: a strategy is appended, a notice toasted, a command shown with it
 
 test('a turn that reused a strategy ends with the one-line summary; any other turn with none', () => {
   const strategies = ['[Evolution Memory] Fix flaky Redis connection retries (EvoMap network):\n1. a.'];
-  const line = summaryLineOf({ strategies, record: { checks: [{ command: 'npm test', failed: false }] } }, { input_tokens: 1_000, output_tokens: 500 });
-  assert.match(line, /^✓ Goal reached \(last check passed: npm test\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  const record = { checks: [{ command: 'npm test', failed: false, label: 'Run the tests' }], changedLines: 12 };
+  const line = summaryLineOf({ strategies, record }, { reason: 'answer', usage: { input_tokens: 1_000, output_tokens: 500 } });
+  assert.match(line, /^✓ Goal reached \(last check passed: Run the tests\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  assert.equal(summaryLineOf({ strategies, record: { checks: [] } }, { reason: 'answer' }), '✓ Goal reached · reused EvoMap strategy "Fix flaky Redis connection retries"');
   assert.deepEqual(profile.reply.turnEnd({ strategies: [], record: { checks: [] } }, 'turn.complete', {}), {});
 });
 
 test('the relay runs under Claude Code: its owner is the process that started it, its model the session\'s', () => {
   assert.equal(profile.channel, 'relay');
   assert.equal(profile.owner, 'parent');
+  assert.deepEqual(profile.budgets, { prompt: 0 }, 'turn.start holds no model call, so every recall is a late one');
   assert.deepEqual(profile.model, { kind: 'sdk' });
   assert.equal(profile.payload.model({ model: captured.session.model }), 'claude-haiku-5-5');
 });

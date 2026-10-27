@@ -11,69 +11,93 @@ type Relay = { url: string; token: string }
 type Answer = { append?: string; toast?: string; submit?: string; text?: string; context?: string[]; exitCode?: number; late?: string }
 type CatalogCommand = { name: string; description: string; hint?: string }
 type ModelRequest = { id: string; model: string; prompt: string }
+type Landed = { id: string; text: string }
 
 const AGENT = 'claude-code'
 const RELAY_START_MS = 15_000
+const RELAY_RETRY_MS = 30_000
+const RELAY_RETRY_MAX_MS = 10 * 60_000
 const MODEL_POLL_MS = 20_000
+const MODEL_RETRY_MAX_MS = 30_000
 const MODEL_MAX_TOKENS = 4_096
 const MODEL_TIMEOUT_MS = 120_000
 const MAX_PENDING_PROMPTS = 32
+const UNKNOWN_ORIGIN = { kind: 'unknown' }
 
 let relay: Promise<Relay> | null = null
+let current: Relay | null = null
+let failedStarts = 0
+let retryAt = 0
 let catalog: Promise<CatalogCommand[]> | null = null
 const promptOrigins = new Map<string, unknown>()
+const carried = new Map<string, Landed>()
 
 function quietly<T>(work: Promise<T>): Promise<T | null> {
   return work.catch(() => null)
 }
 
 function relayArgv($: EngineInterface, options: PluginOptions): string[] {
-  const noModel = options.auto_distill === false ? ['--no-model'] : []
-  return [String(options.node_path || 'node'), `${$.plugin.root}/bin/relay.mjs`, AGENT, ...noModel]
+  return [String(options.node_path || 'node'), `${$.plugin.root}/bin/relay.mjs`, AGENT]
 }
 
 function relayEnv(options: PluginOptions): Record<string, string> {
   return {
     ...(options.proxy_port ? { EVOMAP_PROXY_PORT: String(options.proxy_port) } : {}),
     ...(options.recall_enabled === false ? { EVOLVER_RECALL: 'off' } : {}),
+    ...(options.auto_distill === false ? { EVOLVER_AUTO_DISTILL: 'off' } : {}),
   }
 }
 
-// The relay prints `{ port, token }` once it listens. The loop below is the child's life: it runs on after the
-// hook that started it, and the relay is started again by the next event once it has ended.
+// The relay prints `{ port, token }` once it listens. The spawn's loop is the child's life: it runs on after the hook
+// that started it, and leaving it (a start that timed out) kills the child. Only the relay still current clears itself
+// when it ends; the next event then starts another.
 async function startRelay($: EngineInterface, options: PluginOptions): Promise<Relay> {
+  const pieces = $.process.spawn({ argv: relayArgv($, options), env: relayEnv(options) })
+  let connection: Relay | null = null
   const started = new Promise<Relay>((resolve, reject) => {
     void (async () => {
       let pending = ''
-      let isUp = false
       try {
-        for await (const piece of $.process.spawn({ argv: relayArgv($, options), env: relayEnv(options) })) {
-          if (isUp || piece.stream !== 'stdout') continue
+        for await (const piece of pieces) {
+          if (connection || piece.stream !== 'stdout') continue
           pending += piece.text
           const newline = pending.indexOf('\n')
           if (newline < 0) continue
           const { port, token } = JSON.parse(pending.slice(0, newline))
-          isUp = true
-          resolve({ url: `http://127.0.0.1:${port}`, token })
-          void serveModel($, { url: `http://127.0.0.1:${port}`, token })
+          connection = { url: `http://127.0.0.1:${port}`, token }
+          current = connection
+          resolve(connection)
+          void serveModel($, connection)
         }
       } catch (error) {
-        if (!isUp) reject(error)
+        reject(error)
       }
-      relay = null
-      if (!isUp) reject(new Error('the Evolver relay exited before it listened'))
+      if (connection && current === connection) {
+        current = null
+        relay = null
+      }
+      reject(new Error('the Evolver relay exited before it listened'))
     })()
   })
   started.catch(() => undefined)
   const waiting = new AbortController()
   const timedOut = $.clock.sleep(RELAY_START_MS, { signal: waiting.signal }).then(() => null, () => null)
   const relayed = await Promise.race([started, timedOut]).finally(() => waiting.abort())
-  if (!relayed) throw new Error('the Evolver relay did not start in time')
-  return relayed
+  if (relayed) return relayed
+  await quietly(pieces.return({ code: null, signal: null }))
+  throw new Error('the Evolver relay did not start in time')
 }
 
-function relayOf($: EngineInterface, options: PluginOptions): Promise<Relay> {
-  relay ??= startRelay($, options).catch((error) => {
+// A relay that cannot start (no Node, a broken install) is not started again on every event: each failure waits
+// longer before the next try, so a turn never pays for it more than once in a while.
+function relayOf($: EngineInterface, options: PluginOptions, now: number): Promise<Relay> {
+  if (!relay && now < retryAt) return Promise.reject(new Error('the Evolver relay is waiting to start again'))
+  relay ??= startRelay($, options).then((started) => {
+    failedStarts = 0
+    return started
+  }, (error) => {
+    failedStarts += 1
+    retryAt = now + Math.min(RELAY_RETRY_MS * 2 ** (failedStarts - 1), RELAY_RETRY_MAX_MS)
     relay = null
     throw error
   })
@@ -91,7 +115,7 @@ async function postTo($: EngineInterface, { url, token }: Relay, path: string, b
 }
 
 async function post($: EngineInterface, options: PluginOptions, path: string, body: unknown): Promise<any> {
-  return postTo($, await relayOf($, options), path, body)
+  return postTo($, await relayOf($, options, await $.clock.now()), path, body)
 }
 
 async function sessionFields($: EngineInterface): Promise<{ session_id: string; cwd: string }> {
@@ -109,58 +133,74 @@ async function appendHidden($: EngineInterface, text: string): Promise<void> {
 }
 
 // The relay's model requests are its distillations: each runs as one completion on the session's own client,
-// outside the conversation, and its answer goes back by id.
+// outside the conversation, and its answer goes back by id. A failed poll is tried again for as long as this relay
+// is the current one.
 async function serveModel($: EngineInterface, connection: Relay): Promise<void> {
-  for (;;) {
-    const request: ModelRequest | null = await postTo($, connection, '/model/next', { waitMs: MODEL_POLL_MS }).catch(() => undefined)
-    if (request === undefined) return
+  let failures = 0
+  while (current === connection) {
+    const request: ModelRequest | null | undefined = await postTo($, connection, '/model/next', { waitMs: MODEL_POLL_MS }).catch(() => undefined)
+    if (request === undefined) {
+      failures += 1
+      await quietly($.clock.sleep(Math.min(1_000 * 2 ** (failures - 1), MODEL_RETRY_MAX_MS)))
+      continue
+    }
+    failures = 0
     if (!request) continue
     const reply = await $.model.complete({ model: request.model, prompt: request.prompt, maxTokens: MODEL_MAX_TOKENS, timeoutMs: MODEL_TIMEOUT_MS })
       .catch((error: Error) => ({ isAnswered: false as const, reason: String(error?.message ?? error) }))
     const outcome = reply.isAnswered ? { id: request.id, text: reply.text, usage: reply.usage } : { id: request.id, error: String(reply.reason) }
-    if ((await postTo($, connection, '/model/answer', outcome).catch(() => undefined)) === undefined) return
+    await quietly(postTo($, connection, '/model/answer', outcome))
   }
 }
 
-// Read once per module: a hot reload starts with none, so a command run before the next session start still knows it.
-function catalogOf($: EngineInterface, options: PluginOptions): Promise<CatalogCommand[]> {
-  catalog ??= post($, options, '/commands', {}).catch((error) => {
+// The commands ship beside this module, so they register at session start even before the relay is up, and are
+// known after a hot reload.
+function catalogOf($: EngineInterface): Promise<CatalogCommand[]> {
+  catalog ??= $.fs.read(`${$.plugin.root}/hooks/commands.json`).then((text) => JSON.parse(String(text)), (error) => {
     catalog = null
     throw error
   })
   return catalog
 }
 
-async function registerCommands($: EngineInterface, options: PluginOptions): Promise<void> {
-  for (const command of await catalogOf($, options)) {
+async function registerCommands($: EngineInterface): Promise<void> {
+  for (const command of await catalogOf($)) {
     await $.command.register({ name: command.name, description: command.description, ...(command.hint ? { argumentHint: command.hint } : {}) })
   }
 }
 
-async function isOurCommand($: EngineInterface, options: PluginOptions, name: string): Promise<boolean> {
-  const commands = await catalogOf($, options).catch(() => [])
+async function isOurCommand($: EngineInterface, name: string): Promise<boolean> {
+  const commands = await catalogOf($).catch(() => [])
   return commands.some((command) => command.name === name)
 }
 
 async function startSession($: EngineInterface, options: PluginOptions): Promise<void> {
-  await registerCommands($, options)
+  await quietly(registerCommands($))
   const answer = await raise($, options, 'session.start')
   if (answer.toast) $.ui.toast(answer.toast)
 }
 
-// A recall slower than the turn's wait goes on: once it lands, the relay books it only while the turn is still open,
-// and it is added then, reaching the model from the turn's next step.
-async function joinLate($: EngineInterface, options: PluginOptions, id: string): Promise<void> {
-  const landed = await post($, options, '/late', { id })
+// A recall lands after `turn.start`, which holds no model call: the strategy is added to the conversation when it
+// lands and booked by the relay at the turn's next main-loop step, the first that carries it. A turn that ends first
+// books nothing.
+async function addWhenLanded($: EngineInterface, options: PluginOptions, turnId: string, id: string): Promise<void> {
+  const landed: Landed | null = await post($, options, '/late', { id })
   if (!landed) return
-  const { joined } = await post($, options, '/late/join', { id: landed.id })
-  if (joined) await appendHidden($, landed.text)
+  await appendHidden($, landed.text)
+  carried.set(turnId, landed)
+}
+
+async function bookCarried($: EngineInterface, options: PluginOptions, turnId: string): Promise<void> {
+  const landed = carried.get(turnId)
+  if (!landed) return
+  carried.delete(turnId)
+  await post($, options, '/late/join', { id: landed.id })
 }
 
 async function startTurn($: EngineInterface, options: PluginOptions, e: { text: string; turnId: string }, origin: unknown): Promise<void> {
   const answer = await raise($, options, 'turn.start', { turn_id: e.turnId, text: e.text, origin })
   if (answer.append) await appendHidden($, answer.append)
-  if (answer.late) void quietly(joinLate($, options, answer.late))
+  if (answer.late) void quietly(addWhenLanded($, options, e.turnId, answer.late))
 }
 
 function rememberOrigin(text: string, origin: unknown): void {
@@ -168,8 +208,10 @@ function rememberOrigin(text: string, origin: unknown): void {
   if (promptOrigins.size > MAX_PENDING_PROMPTS) promptOrigins.delete(promptOrigins.keys().next().value!)
 }
 
-function isRelayRunning(): boolean {
-  return relay !== null
+function originOf(text: string): unknown {
+  const origin = promptOrigins.get(text) ?? UNKNOWN_ORIGIN
+  promptOrigins.delete(text)
+  return origin
 }
 
 export const register: Register = (on, options) => {
@@ -179,19 +221,20 @@ export const register: Register = (on, options) => {
   })
 
   // `prompt.submit` names who sent the prompt but resolves only after its turn started, so its origin is kept
-  // before `next`; `turn.start` then hands the turn to the relay, which decides whose prompt opens a turn.
+  // before `next`; `turn.start` hands the turn to the relay with it.
   on('prompt.submit', async ($, e, next) => {
     rememberOrigin(e.text, e.origin)
     return next(e)
   }).catch(($, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
-    if (promptOrigins.has(e.text)) {
-      const origin = promptOrigins.get(e.text)
-      promptOrigins.delete(e.text)
-      await quietly(startTurn($, options, e, origin))
-    }
+    await quietly(startTurn($, options, e, originOf(e.text)))
     return next(e)
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) await quietly(bookCarried($, options, e.turnId))
+    return yield* next(e)
   })
 
   on('tool.call', async ($, e, next) => {
@@ -203,6 +246,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
+    carried.delete(e.turnId)
     const answer = await quietly(raise($, options, 'turn.complete', {
       turn_id: e.turnId, reason: e.reason, answer: e.answer, usage: e.usage, agent_id: e.agentId, model: await $.session.model(),
     }))
@@ -211,7 +255,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', async ($, e, next) => {
-    if (!(await isOurCommand($, options, e.command))) return next(e)
+    if (!(await isOurCommand($, e.command))) return next(e)
     const answer = await raise($, options, 'command.run', { command: e.command, args: e.args })
     if (answer.submit) {
       void quietly($.prompt.submit({ text: answer.submit }))
@@ -223,8 +267,9 @@ export const register: Register = (on, options) => {
   // Every plugin's `session.end` shares one short bound, so the relay only writes; one that is not running is not
   // started for it, and the next session start settles what this one left.
   on('session.end', async ($, e, next) => {
-    if (isRelayRunning()) await quietly(raise($, options, 'session.end', { session_id: e.sessionId }))
+    if (relay) await quietly(raise($, options, 'session.end', { session_id: e.sessionId }))
     promptOrigins.clear()
+    carried.clear()
     return next(e)
   })
 }

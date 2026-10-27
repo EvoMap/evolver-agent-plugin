@@ -4,8 +4,7 @@
 
 import { runRelayProcess } from '../lib/channels/relay/server.js';
 
-const [agent, ...flags] = process.argv.slice(2);
-runRelayProcess(agent, { useModel: !flags.includes('--no-model') }).catch((error) => {
+runRelayProcess(process.argv[2]).catch((error) => {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
 });

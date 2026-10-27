@@ -38,6 +38,17 @@ test('an old plugin\'s turn counters, open injections and retention checks are a
   assert.equal((await stores.sessions.read('ses_a')).turn, 7, 'adopted once');
 });
 
+test('a ledger alone says how far its session got: the turn counts on from its latest entry, reported or not', async () => {
+  const dir = folder();
+  write(dir, 'claude-code-injected-0123456789abcdef.json', {
+    'sha256:old': { turn: 5, injectedAt: 4, strategyText: '1. a.', sessionId: 'resumed', pid: 4242, reportedAt: 6 },
+    'sha256:older': { turn: 2, injectedAt: 1, strategyText: '1. b.', sessionId: 'resumed', pid: 4242, reportedAt: 3 },
+  });
+  const stores = fileStoresOf({ dir, agent: 'claude-code' });
+  stores.adoptLegacy([{ ledgers: /^claude-code-injected-[0-9a-f]{16}\.json$/ }]);
+  assert.equal((await stores.sessions.read('resumed')).turn, 5);
+});
+
 test('files an old plugin named without the agent are moved under its name, and never over a newer one', async () => {
   const dir = folder();
   write(dir, 'session-0123456789abcdef.json', { turn: 3 });

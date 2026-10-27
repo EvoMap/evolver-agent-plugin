@@ -23,35 +23,28 @@ async function started(t, { delays } = {}) {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
     return { status: response.status, body: await response.json() };
   };
-  return { post, proxy };
+  return { post, proxy, port, relay };
 }
 
-test('the relay answers only the module holding its token, on the routes it serves', async (t) => {
-  const { post } = await started(t);
-  assert.equal((await post('/commands', {}, 'wrong')).status, 401);
+test('the relay answers only the module holding its token, on the routes it serves, and survives a bad body', async (t) => {
+  const { post, port, relay } = await started(t);
+  assert.equal((await post('/model/next', { waitMs: 10 }, 'wrong')).status, 401);
   assert.equal((await post('/nowhere')).status, 404);
-  const { body: catalog } = await post('/commands');
-  assert.ok(catalog.some((command) => command.name === 'evolver-status'));
-  assert.ok(catalog.find((command) => command.name === 'evolver-evolve').forAgent);
+  const bad = await fetch(`http://127.0.0.1:${port}/event`, { method: 'POST', headers: { Authorization: `Bearer ${relay.token}` }, body: '{not json' });
+  assert.equal(bad.status, 500);
+  assert.deepEqual((await post('/model/next', { waitMs: 10 })).body, null);
 });
 
-test('a host event goes through the profile and the shared use cases, and its answer comes back', async (t) => {
+test('a turn\'s recall answers later, by id; the strategy is joined to its turn once, while it is open', async (t) => {
   const { post } = await started(t);
-  const turn = { session_id: 's1', cwd: '/proj', turn_id: 't1', text: PROMPT, origin: { kind: 'composer' } };
-  const { body } = await post('/event', { hostEvent: 'turn.start', payload: turn });
-  assert.match(body.append, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
-  assert.deepEqual((await post('/event', { hostEvent: 'no.such.event', payload: turn })).body, {});
-});
-
-test('a recall slower than the wait is fetched by id, then joined once, while its turn is open', async (t) => {
-  const { post } = await started(t, { delays: { '/asset/fetch': 6_500 } });
   const turn = { session_id: 's1', cwd: '/proj', turn_id: 't1', text: PROMPT, origin: { kind: 'composer' } };
   const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: turn });
   assert.equal(answer.append, undefined);
   const { body: landed } = await post('/late', { id: answer.late });
-  assert.match(landed.text, /^\[Evolution Memory\]/);
+  assert.match(landed.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.deepEqual((await post('/late/join', { id: landed.id })).body, { joined: true });
   assert.deepEqual((await post('/late/join', { id: landed.id })).body, { joined: false });
+  assert.deepEqual((await post('/event', { hostEvent: 'no.such.event', payload: turn })).body, {});
 });
 
 test('a model request waits for the module, which answers it by id; an abandoned one is withdrawn', async () => {

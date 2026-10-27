@@ -65,6 +65,15 @@ test('with no model outside the conversation, a leftover waits a day for an agen
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
+test('a person who turned distillation off keeps the leftover from the background, and still distills it on demand', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  ports.settings = { recall: true, autoDistill: false };
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.ok((await ports.candidates.read()).s1);
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+});
+
 test('the model may decline, which settles the candidate without calling the Proxy', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering({ skip: 'routine edit' }) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });

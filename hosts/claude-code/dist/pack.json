@@ -5,6 +5,7 @@
     ".claude-plugin/marketplace.json": "hosts/claude-code/dist/.claude-plugin/marketplace.json",
     "hooks/hooks.json": "hosts/claude-code/dist/hooks/hooks.json",
     "hooks/register.ts": "hosts/claude-code/dist/hooks/register.ts",
+    "hooks/commands.json": "hosts/claude-code/dist/hooks/commands.json",
     "README.md": "hosts/claude-code/dist/README.md",
     "LICENSE": "LICENSE"
   }

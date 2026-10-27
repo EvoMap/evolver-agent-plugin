@@ -33,3 +33,10 @@ test('a passing summary that counts zero failures passes', () => {
   assert.equal(verificationFailed({ text: 'failures: 0\nerrors: 0' }), false);
   assert.equal(verificationFailed({ text: '✔ Validation passed' }), false);
 });
+
+test('a heredoc body that names a check is data, not a check; the command lines still count', () => {
+  const editsReadme = "python3 - <<'EOF'\ntext = 'run npm test, then make'\nprint(text)\nEOF";
+  assert.equal(isVerificationCommand(editsReadme), false);
+  assert.equal(isVerificationCommand("cat > notes.md <<EOF\nmake build\nEOF\nnpm test"), true);
+  assert.equal(isVerificationCommand('npm test <<EOF\nanswers\nEOF'), true);
+});

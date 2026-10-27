@@ -64,3 +64,15 @@ for (let i = 0; i < 25; i += 1) updateState(${JSON.stringify(target)}, {}, (stat
   await Promise.all([run(), run(), run(), run()]);
   assert.equal(readState(target, {}).count, 100);
 });
+
+test('a session file outlives the outbox: a session resumed within a month still counts its turns on', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-prune-'));
+  dirs.push(dir);
+  const stores = fileStoresOf({ dir, agent: 'testagent' });
+  await stores.sessions.update('s1', () => ({ turn: 9 }));
+  const day = 24 * 60 * 60 * 1000;
+  stores.prune(Date.now() + 20 * day);
+  assert.equal((await stores.sessions.read('s1')).turn, 9);
+  stores.prune(Date.now() + 31 * day);
+  assert.deepEqual(await stores.sessions.read('s1'), {});
+});
