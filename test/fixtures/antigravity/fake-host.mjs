@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
+// Linux names a process by its main thread, which a recent Node renames: the title keeps the name the owner probe reads.
+process.title = 'language_server';
+
 // Stands in for Antigravity's language server: runs each hook command it is sent through `sh -c` with the payload
 // on stdin, as Antigravity does, and stays up until killed, so the hooks find it as their owner process.
 createInterface({ input: process.stdin }).on('line', (line) => {
