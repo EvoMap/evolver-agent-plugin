@@ -9,7 +9,6 @@
   "plugins": [
     {
       "name": "evolver-plugin",
-      "version": "1.0.0",
       "description": "Evolver for Grok, from hooks with no tools: recalls one EvoMap strategy per prompt and hands it to the model at the turn's first tool result, reports each reuse with the checks the turn ran, and distills verified work into drafts you publish or discard.",
       "source": {
         "source": "git-subdir",

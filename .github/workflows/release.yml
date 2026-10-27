@@ -3,6 +3,7 @@ name: Test and release
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -28,27 +29,34 @@ jobs:
       - run: npm test
       - run: npm run pack
 
-  # The release branch is main plus the packed dist/, which the hosts' marketplaces install from (Claude Code,
-  # WorkBuddy, Codex, Grok and Qoder) and Antigravity, OpenCode and DeepSeek Harness are installed from. Only a tested push to main moves it.
-  release:
+  # A release is a tag vX.Y.Z a maintainer pushes on main; nothing on main names a version. The tag's version is
+  # stamped into every packed manifest, and the release branch, which the hosts install from (Claude Code, WorkBuddy,
+  # Grok and Qoder through their marketplaces, Codex at --ref, Antigravity, OpenCode and DeepSeek Harness from a
+  # clone), moves one commit on, with the tag re-pointed there. A push made with this workflow's token starts no run.
+  publish:
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     concurrency:
-      group: release-branch
+      group: publish
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - run: npm run pack
-      - run: scripts/publish-release-branch.sh release main
+      - run: node scripts/pack.mjs all dist "--version=$GITHUB_REF_NAME"
+      - run: scripts/publish-tag.sh "$GITHUB_REF_NAME" release
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      - run: gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

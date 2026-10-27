@@ -54,7 +54,7 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
    config calling `node bin/mcp.mjs <name>`), its commands and manifests, and `pack.json` when the host cannot install
    this repo as it is (it copies one folder, loads every component folder at a plugin's root, or wants a package).
 3. The host's manifest at its fixed place in the repo root: the plugin itself when the host installs the repo, or a
-   marketplace pointing at `dist/<host>` on the `release` branch, which CI builds from every push to `main`.
+   marketplace pointing at `dist/<host>` on the `release` branch, which CI moves when a release tag is pushed.
 4. `test/hosts/<name>/`: every reader against payloads from the real host, and the hooks end to end, from a packed
    folder where the host installs one.
 

@@ -56,8 +56,8 @@ In Claude Code:
 /plugin install evolver-plugin@evolver-agent-plugin
 ```
 
-The marketplace installs `dist/claude-code` from the `release` branch, which CI builds from
-every tested push to `main`; Node.js 22.13+ must be on the `PATH` (or set `node_path` in
+The marketplace installs `dist/claude-code` from the `release` branch, which CI moves only when a
+release tag is pushed; Node.js 22.13+ must be on the `PATH` (or set `node_path` in
 `/config`). Restart Claude Code afterwards. To update, refresh the marketplace first, then the
 plugin, and restart:
 
@@ -65,17 +65,12 @@ plugin, and restart:
 claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-plugin@evolver-agent-plugin
 ```
 
-Claude Code updates an installed plugin only when its version changes, so a release meant
-to reach installs bumps `version` in `hosts/claude-code/dist/.claude-plugin/plugin.json`. To
+Claude Code updates an installed plugin only when its version changes. A release is one tag on `main`,
+`git tag vX.Y.Z && git push origin vX.Y.Z`, with no file to edit: CI tests, packs with that version stamped into
+every host's manifest, moves `release` one commit on, points the tag there and opens a GitHub Release. A failed
+release changes nothing; delete the tag, fix, and push it again. To
 try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
 
-Run one Evolver plugin, not several: if `evolver-mods@evolver-mods`, `evolver@evolver` or the earlier
-`evolver-agent-plugin@evolver-agent-plugin` is installed, uninstall it so that each reuse is reported only once:
-
-```bash
-claude plugin uninstall evolver-agent-plugin@evolver-agent-plugin
-claude plugin disable evolver-mods@evolver-mods
-```
 
 ## Install (other hosts)
 
@@ -96,8 +91,7 @@ injections, undelivered reports), so nothing is lost on the way over.
 
   The marketplace installs `dist/workbuddy` from the `release` branch, and the first session moves the old data
   folder's files (`evolver-evomap-workbuddy`) into the new one. WorkBuddy updates an installed plugin only
-  when its version changes, so a release meant to reach installs bumps the version in
-  `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
+  when its version changes, which the release tag stamps into the packed folder. To try a local
   build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a
   marketplace of its own.
 - **Qoder CLI:** add this repository as a marketplace and install the plugin:
@@ -129,8 +123,7 @@ injections, undelivered reports), so nothing is lost on the way over.
   session afterwards. Grok's prompt hooks cannot add context, so the recalled strategy reaches the model at the
   turn's first tool result, and a turn answered without any tool call does without it. Commands are typed into the
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
-  Grok command. A release bumps `version` in `hosts/grok/dist/.grok-plugin/plugin.json` and
-  `.grok-plugin/marketplace.json` together; `grok plugin update evolver-plugin` fetches it.
+  Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
