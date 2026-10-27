@@ -18,7 +18,7 @@
         "source": "git-subdir",
         "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
         "path": "dist/workbuddy",
-        "ref": "release"
+        "ref": "v1.0.0"
       },
       "category": "productivity",
       "author": {

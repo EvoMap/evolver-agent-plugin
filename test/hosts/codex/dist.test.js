@@ -67,7 +67,7 @@ test('the README installs evolver-plugin@evomap, after removing the standalone e
   const readme = readFileSync(at(`${DIST}/README.md`), 'utf8');
   const removal = readme.indexOf('codex plugin remove evolver@evomap');
   assert.ok(removal >= 0);
-  assert.ok(removal < readme.indexOf('codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release'), 'the standalone plugin goes first');
+  assert.ok(removal < readme.search(/codex plugin marketplace add EvoMap\/evolver-agent-plugin --ref v\d/), 'the standalone plugin goes first');
   assert.match(readme, /^codex plugin add evolver-plugin@evomap$/m);
   assert.match(readme, /hooks\.state\."evolver-plugin@evomap:hooks\/hooks\.json:user_prompt_submit:0:0"/);
   assert.match(readme, /plugins\/cache\/evomap\/evolver-plugin\/<version>\/bin\/command\.mjs codex evolver-status/);

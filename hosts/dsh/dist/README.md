@@ -15,11 +15,11 @@ This package replaces the standalone `@evomap/dsh-evolver` (from `EvoMap/evolver
 **Remove that first** in every profile that has it: pnpm may keep an installed package's source when you add another,
 and with both loaded every reuse is reported twice.
 
-The package is not on npm yet. Install the packed folder from the `release` branch of `EvoMap/evolver-agent-plugin`
+The package is not on npm yet. Install the packed folder from a release tag of `EvoMap/evolver-agent-plugin`
 (or a local `npm run pack`), by its absolute path, into each profile you use (`dst` runs `dsh-tui`):
 
 ```bash
-git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
+git clone --depth 1 --branch v1.0.0 https://github.com/EvoMap/evolver-agent-plugin.git
 dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
 dsh plugin --profile dsh-tui add -w "$PWD/evolver-agent-plugin/dist/dsh"
 ```

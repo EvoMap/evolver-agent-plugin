@@ -38,13 +38,12 @@ test('every plugin command ships as an inline script with the description and hi
   }
 });
 
-test('the marketplace at the repository root installs the packed plugin, dist/workbuddy, from the release branch CI publishes', () => {
+test('the marketplace at the repository root installs the packed plugin, dist/workbuddy, from the release tag', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
   const manifest = json(`${DIST}/.codebuddy-plugin/plugin.json`);
   const [entry] = marketplace.plugins;
-  const published = /publish-release-branch\.sh (\S+)/.exec(readFileSync(at('.github/workflows/release.yml'), 'utf8'))[1];
   assert.equal(marketplace.plugins.length, 1);
-  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/workbuddy', ref: published });
+  assert.deepEqual(entry.source, { source: 'git-subdir', url: 'https://github.com/EvoMap/evolver-agent-plugin.git', path: 'dist/workbuddy', ref: `v${manifest.version}` });
   assert.equal(entry.name, manifest.name);
   assert.equal(entry.version, manifest.version);
   assert.equal(marketplace.metadata.version, manifest.version);

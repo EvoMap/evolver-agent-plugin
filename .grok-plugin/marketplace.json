@@ -15,7 +15,7 @@
         "source": "git-subdir",
         "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
         "path": "dist/grok",
-        "ref": "release"
+        "ref": "v1.0.0"
       },
       "author": {
         "name": "EvoMap"

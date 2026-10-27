@@ -13,7 +13,7 @@
         "source": "git-subdir",
         "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
         "path": "dist/claude-code",
-        "ref": "release"
+        "ref": "v1.0.0"
       },
       "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard.",
       "author": {
