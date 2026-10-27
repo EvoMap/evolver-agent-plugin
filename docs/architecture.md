@@ -19,7 +19,7 @@ them is in `hosts/README.md`):
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers: recall, reflect, record the lesson. |
-| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver` when it is not installed), ten minutes at most. |
+| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed), ten minutes at most. |
 
 ## Configuration
 
@@ -42,7 +42,7 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 
 ## Troubleshooting
 
-State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`.
+State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
 
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
   Proxy relays as HTTP 400. A strategy is also skipped when its relevance to your prompt is below 2: each shared

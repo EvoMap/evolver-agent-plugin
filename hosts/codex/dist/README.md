@@ -89,13 +89,13 @@ exception: it is meant for the agent, so the prompt goes on to the model with th
 
 | Typed in Codex | What it does |
 | --- | --- |
-| `evolver-status` | The Proxy, engine setup, this session's distillation candidate and the drafts waiting. |
+| `evolver-status` | The Proxy, engine setup, Hub sign-in, this session's distillation candidate and the drafts waiting. |
 | `evolver-login` | Signs you in to the EvoMap Hub: answers a link and a code to approve, then, typed again, the registered node. |
 | `evolver-search <text>` | Finds the EvoMap strategy that best fits the text. |
 | `evolver-distill [focus]` | Distills this session's latest verified turn into a draft now. |
 | `evolver-drafts [publish\|discard <number>]` | Lists the distilled drafts; publishes one to the EvoMap Hub for review, or discards it. |
 | `evolver-evolve [focus]` | Gives the agent the evolution-checkpoint instruction for this turn. |
-| `evolver-sync`, `evolver-review`, `evolver-run`, `evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver` when it is not installed). |
+| `evolver-sync`, `evolver-review`, `evolver-run`, `evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed). |
 
 Only a prompt that is exactly a command counts; `evolver-status` followed by more text is an ordinary prompt. The
 prompt box waits while a command runs: up to two minutes for `evolver-distill`, ten for the engine commands.

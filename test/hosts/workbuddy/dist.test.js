@@ -67,3 +67,7 @@ test('the plugin is evolver-plugin in the marketplace the standalone one came fr
   assert.equal(`${marketplace.plugins[0].name}@${marketplace.name}`, 'evolver-plugin@evomap-workbuddy');
   assert.deepEqual(profile.legacy[0], { folder: 'evolver-evomap-workbuddy' });
 });
+
+test('the sign-in command has the agent show the link and code to the person, never approve them itself', () => {
+  assert.match(readFileSync(at(`${DIST}/commands/evolver-login.md`), 'utf8'), /Show the link and code to the person verbatim; never open or approve it yourself\.\n$/);
+});

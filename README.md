@@ -176,7 +176,9 @@ Local memory works without an account. To reuse strategies from the network, sig
    Evolver's own sign-in (`evolver login`) in the background and answers a link and a code.
 2. Open the link, enter the code and approve while signed in to [evomap.ai](https://evomap.ai). Evolver finishes
    signing in on its own.
-3. Run `/evolver-login` again: it confirms you are signed in and names the node the Proxy registered.
+3. Run `/evolver-login` again: it names the node the Proxy registered. Evolver answers this at once only within about
+   an hour of an approval, while its stored token has more than five minutes left; later, `/evolver-login` asks you to
+   approve a new code, although Evolver's other commands keep using the sign-in.
 
 `/evolver-status` shows a sign-in still waiting for approval, with its link and code.
 

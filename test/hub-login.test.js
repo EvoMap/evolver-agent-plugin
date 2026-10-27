@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DEVICE_FLOW_MAX_MS, SIGN_IN, isFinished, needsNewRun, signInOf } from '../lib/hub-login.js';
+import { DEVICE_FLOW_MAX_MS, SIGN_IN, START_MAX_MS, isFinished, needsNewRun, signInOf } from '../lib/hub-login.js';
 import { deviceText, failedText, signedInText } from './helpers/login-output.js';
 
 const INSECURE_WARNING = '[hubFetch] WARNING: EVOMAP_HUB_ALLOW_INSECURE=1 — https guard and TLS enforcement are DISABLED. Hub egress may be plaintext/unverified. Local dev / mock hub only, never production.\n';
@@ -40,8 +40,18 @@ test('a run that ended without an answer failed and points to its output; one st
 test('a run past the device flow\'s 15 minutes that still looks alive is stale, and only none or stale is replaced', () => {
   const old = running(deviceText('https://hub.test/device', 'X-1'), NOW - DEVICE_FLOW_MAX_MS - 1);
   assert.deepEqual(signInOf(old, NOW), { state: SIGN_IN.STALE });
+  const longAgo = NOW - DEVICE_FLOW_MAX_MS - 1;
+  assert.deepEqual(signInOf({ ...ended(signedInText('https://evomap.ai')), startedAt: longAgo }, NOW), { state: SIGN_IN.STALE }, 'an old success says nothing of now');
+  assert.deepEqual(signInOf({ ...ended(failedText('device_flow_timeout')), startedAt: longAgo }, NOW), { state: SIGN_IN.STALE });
   assert.deepEqual(signInOf(null, NOW), { state: SIGN_IN.NONE });
   const states = [null, old, running(''), running(deviceText('u', 'c')), ended(signedInText('h')), ended(failedText('x'))].map((run) => signInOf(run, NOW));
   assert.deepEqual(states.map(needsNewRun), [true, true, false, false, false, false]);
   assert.deepEqual(states.map(isFinished), [false, false, false, false, true, true]);
+});
+
+test('a run that shows no code within 2 minutes failed, though it still runs: npx still fetching, or a hang', () => {
+  assert.deepEqual(signInOf(running('npm warn exec installing @evomap/evolver\n', NOW - START_MAX_MS - 1), NOW), {
+    state: SIGN_IN.FAILED, reason: 'Evolver showed no code within 2 minutes (its output is in /state/agent-login.log)',
+  });
+  assert.equal(signInOf(running(deviceText('u', 'c'), NOW - START_MAX_MS - 1), NOW).state, SIGN_IN.WAITING, 'a code shown keeps it waiting');
 });

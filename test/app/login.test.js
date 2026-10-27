@@ -144,7 +144,41 @@ test('a run quiet past the wait asks for another try; one past the device flow\'
 test('/evolver-status shows a sign-in waiting for approval, and otherwise points to /evolver-login', async () => {
   const world = loginWorld({ onStart: printsDeviceCode });
   const status = () => runCommand(world.ports, { sessionId: 's1', name: 'evolver-status' }).then((answer) => answer.text.split('\n').at(-1));
-  assert.equal(await status(), 'Hub sign-in: /evolver-login signs you in to the EvoMap Hub, or confirms that you are.');
+  assert.equal(await status(), 'Hub sign-in: /evolver-login signs you in to the EvoMap Hub; within about an hour of an approval it answers at once, after that it asks for a new one.');
   await world.login();
   assert.equal(await status(), `A sign-in to the EvoMap Hub waits for your approval: open ${URL} and enter the code ${CODE}.`);
+});
+
+test('a run finished long ago is not answered: a success after an `evolver logout`, or an old unseen timeout, starts afresh', async () => {
+  const world = loginWorld({ onStart: printsDeviceCode });
+  await world.login();
+  world.signIn.print(failedText('device_flow_timeout'));
+  world.signIn.exit();
+  world.advance(DEVICE_FLOW_MAX_MS + 1);
+  assert.ok((await world.login()).text.includes(`enter the code ${CODE}.`), 'the first call after shows a fresh code');
+  assert.equal(world.signIn.started.length, 2);
+});
+
+test('the whole answer comes within 45 s, the engine and Evolver sharing one deadline, and a cancel ends the wait', async () => {
+  const world = loginWorld({ status: null });
+  const startedAt = world.ports.clock.now();
+  const proxy = world.ports.proxy.request;
+  world.ports.proxy = { request: async (...args) => {
+    if (world.ports.clock.now() - startedAt >= 44_000) world.state.status = REGISTERED;
+    return proxy(...args);
+  } };
+  const answer = await world.login();
+  assert.ok(world.ports.clock.now() - startedAt <= 45_000, `answered after ${world.ports.clock.now() - startedAt} ms`);
+  assert.match(answer.text, /has not shown its code yet/);
+
+  const cancelled = loginWorld({ status: null });
+  const cancelledAt = cancelled.ports.clock.now();
+  await runCommand(cancelled.ports, { sessionId: 's1', name: 'evolver-login', signal: AbortSignal.abort() });
+  assert.equal(cancelled.ports.clock.now(), cancelledAt);
+});
+
+test('when another process holds the start and shows no run, the answer says so instead of waiting on nothing', async () => {
+  const world = loginWorld({ onStart: printsDeviceCode });
+  world.ports.signIn = { ...world.ports.signIn, joinOrStart: async () => null };
+  assert.deepEqual(await world.login(), { ok: true, text: 'Another sign-in to the EvoMap Hub is starting; run /evolver-login again in a minute.' });
 });

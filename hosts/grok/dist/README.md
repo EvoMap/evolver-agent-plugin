@@ -69,13 +69,13 @@ commands from a terminal instead (below).
 
 | Typed in Grok | What it does |
 | --- | --- |
-| `evolver-status` | The Proxy, engine setup, this session's distillation candidate and the drafts waiting. |
-| `evolver-search <text>` | Finds the EvoMap strategy that best fits the text. |
+| `evolver-status` | The Proxy, engine setup, Hub sign-in, this session's distillation candidate and the drafts waiting. |
 | `evolver-login` | Signs you in to the EvoMap Hub: answers a link and a code to approve, then, typed again, the registered node. |
+| `evolver-search <text>` | Finds the EvoMap strategy that best fits the text. |
 | `evolver-distill [focus]` | Distills this session's latest verified turn into a draft now. |
 | `evolver-drafts [publish\|discard <number>]` | Lists the distilled drafts; publishes one to the EvoMap Hub for review, or discards it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint for the agent. A prompt hook cannot hand the agent text, so this is the plugin's one command file, which Grok sends to the model; it counts only typed with its `/`. |
-| `evolver-sync`, `evolver-review`, `evolver-run`, `evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver` when it is not installed). |
+| `evolver-sync`, `evolver-review`, `evolver-run`, `evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed). |
 
 Only a prompt that is exactly a command counts; `evolver-status` followed by more text is an ordinary prompt. The
 prompt box waits while a command runs: up to two minutes for `evolver-distill`, ten for the engine commands.
