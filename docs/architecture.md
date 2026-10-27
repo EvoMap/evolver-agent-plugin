@@ -161,10 +161,9 @@ packs with the tag's version stamped into every host's manifest (`scripts/pack.m
 `scripts/publish-tag.sh` moves the `release` branch one commit on, the tagged source plus `dist/`, and re-points the
 tag at it, in one atomic push. A tag off `main`, or older than what `release` holds, is refused; a re-run changes
 nothing. The repo root keeps only the marketplace manifests the
-hosts read at fixed paths. Claude Code's, WorkBuddy's, Grok's and Qoder's install `dist/<host>` from `release` through a
+hosts read at fixed paths. Claude Code's, WorkBuddy's, Codex's, Grok's and Qoder's install `dist/<host>` from `release` through a
 `git-subdir` source, since a marketplace itself is read from `main`; the marketplace entries name no version, so each host reads the
-stamped one from the packed manifest; Codex adds the marketplace at
-`--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
+stamped one from the packed manifest; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
 **Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.

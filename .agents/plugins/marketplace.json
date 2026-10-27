@@ -7,8 +7,10 @@
     {
       "name": "evolver-plugin",
       "source": {
-        "source": "local",
-        "path": "./dist/codex"
+        "source": "git-subdir",
+        "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
+        "path": "dist/codex",
+        "ref": "release"
       },
       "policy": {
         "installation": "AVAILABLE",
