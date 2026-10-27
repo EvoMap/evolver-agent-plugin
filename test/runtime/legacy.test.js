@@ -83,7 +83,11 @@ test('WorkBuddy 0.3.0 session files take their id and owner from their ledger en
   assert.equal(existsSync(join(dir, 'session-0123456789abcdef.json')), false);
 });
 
+// A folder under a plain file can never be made, whoever runs the test; Node 22's recursive mkdir loops for good
+// on a missing folder under /proc.
 test('a state folder that cannot be written does not stop the hook', () => {
-  const stores = fileStoresOf({ dir: '/proc/definitely/not/writable', agent: 'workbuddy' });
+  const blocker = join(folder(), 'a-file');
+  writeFileSync(blocker, '');
+  const stores = fileStoresOf({ dir: join(blocker, 'state'), agent: 'workbuddy' });
   assert.doesNotThrow(() => stores.adoptLegacy([{ turns: 'x.json' }]));
 });
