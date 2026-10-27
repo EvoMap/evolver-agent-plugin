@@ -1,0 +1,23 @@
+{
+  "entries": ["hosts/dsh/dist/plugin.mjs"],
+  "root": {
+    "package.json": "hosts/dsh/dist/package.json",
+    "cordis.patch.yml": "hosts/dsh/dist/cordis.patch.yml",
+    "locale": "hosts/dsh/dist/locale",
+    "assets/logo.png": "assets/logo.png",
+    "README.md": "hosts/dsh/dist/README.md",
+    "LICENSE": "LICENSE"
+  },
+  "patch": {
+    "package.json": {
+      "main": "./hosts/dsh/dist/plugin.mjs",
+      "exports": {
+        ".": "./hosts/dsh/dist/plugin.mjs",
+        "./locale/*": "./locale/*",
+        "./package.json": "./package.json"
+      },
+      "icon": "assets/logo.png",
+      "files": ["hosts/", "lib/", "locale/", "assets/", "cordis.patch.yml", "LICENSE", "README.md"]
+    }
+  }
+}

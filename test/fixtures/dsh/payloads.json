@@ -1,0 +1,705 @@
+{
+ "_source": "dsh 0.2.0-rc.2 (the headless profile on macOS), captured with a probe cordis plugin beside the packed plugin, against a scripted DeepSeek Messages endpoint and a fake Proxy; the project path is renamed, nothing else changed.",
+ "agentCreated": {
+  "startup": {
+   "source": "startup",
+   "sessionId": "session-1f2aef5c-50fd-4441-aa5d-7e8bcf695969",
+   "header": {
+    "version": 4,
+    "id": "session-1f2aef5c-50fd-4441-aa5d-7e8bcf695969",
+    "createdAt": 1793071030580,
+    "cwd": "/home/dev/project",
+    "isSeeded": false
+   },
+   "options": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash"
+   }
+  },
+  "resume": {
+   "source": "resume",
+   "sessionId": "session-1f2aef5c-50fd-4441-aa5d-7e8bcf695969",
+   "header": {
+    "version": 4,
+    "id": "session-1f2aef5c-50fd-4441-aa5d-7e8bcf695969",
+    "createdAt": 1793071030580,
+    "cwd": "/home/dev/project",
+    "isSeeded": false,
+    "delegationDepth": 0
+   },
+   "options": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash"
+   }
+  },
+  "subagent": {
+   "source": "startup",
+   "sessionId": "05cccb47-6926-4924-a1c4-eafee2768a44",
+   "header": {
+    "version": 4,
+    "id": "05cccb47-6926-4924-a1c4-eafee2768a44",
+    "createdAt": 1793071996170,
+    "cwd": "/home/dev/project",
+    "parentSession": "session-b5152b3b-16f3-4ef5-b1a9-6ca13ea571d9",
+    "isSeeded": false,
+    "origin": "subagent",
+    "delegationDepth": 1
+   },
+   "options": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash",
+    "reasoningEffort": "high",
+    "subagentDepth": 1
+   }
+  }
+ },
+ "subagent": {
+  "prompt": {
+   "turn": 1,
+   "step": 1,
+   "messages": [
+    {
+     "id": "67eb81eb-bb65-4f9e-ad1d-1e130ded43b6",
+     "role": "user",
+     "source": {
+      "kind": "user"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "HELPER TASK: count the files in the project"
+      }
+     ]
+    },
+    {
+     "id": "067f5577-7528-44f8-83cc-d6b050eb49fa",
+     "role": "user",
+     "source": {
+      "kind": "runtime-context",
+      "form": "snapshot",
+      "sections": [
+       {
+        "name": "sandbox:policy",
+        "text": "Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/home/dev/project\". Some platform temporary areas may also be writable."
+       },
+       {
+        "name": "approval:policy",
+        "text": "Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+       },
+       {
+        "name": "subagent:delegation",
+        "text": "You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+       }
+      ]
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/home/dev/project\". Some platform temporary areas may also be writable.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+      }
+     ]
+    }
+   ]
+  },
+  "bash": {
+   "name": "bash",
+   "callId": "toolu_1",
+   "arguments": {
+    "command": "ls | wc -l",
+    "description": "Count files"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "       3\n"
+     }
+    ],
+    "value": {
+     "kind": "foreground",
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "aborted": false,
+     "timeoutMs": 60000,
+     "stdout": {
+      "text": "       3\n",
+      "truncated": false
+     },
+     "stderr": {
+      "text": "",
+      "truncated": false
+     },
+     "sandbox": {
+      "mode": "workspace-write",
+      "denied": false,
+      "enforcement": "full"
+     }
+    },
+    "error": null,
+    "meta": null
+   }
+  },
+  "disposedHeader": {
+   "version": 4,
+   "id": "05cccb47-6926-4924-a1c4-eafee2768a44",
+   "createdAt": 1793071996170,
+   "cwd": "/home/dev/project",
+   "parentSession": "session-b5152b3b-16f3-4ef5-b1a9-6ca13ea571d9",
+   "isSeeded": false,
+   "origin": "subagent",
+   "delegationDepth": 1
+  }
+ },
+ "preStep": {
+  "prompt": {
+   "turn": 1,
+   "step": 1,
+   "messages": [
+    {
+     "id": "f72f8aba-35d5-4503-8617-d1b0513a9c7c",
+     "role": "user",
+     "source": {
+      "kind": "user"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "add a sum function to sum.js and make the tests pass"
+      }
+     ]
+    },
+    {
+     "id": "992a457e-5ba4-45df-ac25-7171aba45af5",
+     "role": "user",
+     "source": {
+      "kind": "runtime-context",
+      "form": "snapshot",
+      "sections": [
+       {
+        "name": "sandbox:policy",
+        "text": "Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/home/dev/project\". Some platform temporary areas may also be writable."
+       },
+       {
+        "name": "approval:policy",
+        "text": "Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed."
+       }
+      ]
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/home/dev/project\". Some platform temporary areas may also be writable.\n\nApproval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed."
+      }
+     ]
+    }
+   ]
+  },
+  "lateNoteNextStep": {
+   "turn": 1,
+   "step": 2,
+   "messages": [
+    {
+     "id": "b3051e35-8849-4461-b82a-5c03254482ad",
+     "role": "user",
+     "source": {
+      "kind": "plugin:evolver",
+      "form": "notice",
+      "summary": "Probe late note."
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "[probe] late note"
+      }
+     ]
+    }
+   ]
+  },
+  "toolStep": {
+   "turn": 1,
+   "step": 3,
+   "messages": []
+  },
+  "resumedPrompt": {
+   "turn": 2,
+   "step": 1,
+   "messages": [
+    {
+     "id": "e210fc09-7db1-4b6e-85b9-d0df830691df",
+     "role": "user",
+     "source": {
+      "kind": "user"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "now explain what sum does"
+      }
+     ]
+    }
+   ]
+  },
+  "searchedStrategyNextStep": {
+   "turn": 1,
+   "step": 2,
+   "messages": [
+    {
+     "id": "0ce6ddbf-18b2-4ac5-bbb8-3c234dcf7e0c",
+     "role": "user",
+     "source": {
+      "kind": "plugin:evolver",
+      "form": "recall"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "[Evolution Memory] Fix flaky Redis connection retries (EvoMap network):\n1. Set `maxRetriesPerRequest` to null in lib/redis.js\n2. Run npm test to confirm the suite passes\n3. Wrap the client in a singleton factory module\n4. Close the connection in the global teardown hook\n\nApply them where they fit."
+      }
+     ]
+    }
+   ]
+  },
+  "evolveFollowup": {
+   "turn": 2,
+   "step": 1,
+   "messages": [
+    {
+     "id": "67af033f-d811-4e9d-9f3f-b74d7c0a1220",
+     "role": "user",
+     "source": {
+      "kind": "plugin:evolver",
+      "form": "instructions"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Take a deliberate evolution step for the current task.\n\n1. **Recall.** Look at the evolution memory this plugin injected behind the prompt, or read the tail of the full\n   engine's memory graph — `~/.evolver/memory/evolution/memory_graph.jsonl`, or the project's\n   `memory/evolution/memory_graph.jsonl` when it exists. Summarize any recent outcome — success or failure —\n   relevant to what we're working on.\n\n2. **Reflect.** Given the current diff and task state, say in one or two lines: what worked, what didn't, and\n   what the durable lesson is.\n\nReuse of an injected strategy is reported at every turn end, and the session's verified work is distilled when\nthe session ends; `/evolver-distill` distills it now. Keep this lightweight — it is an explicit checkpoint, not a\nceremony on every turn.\n\nFocus on: the retry path"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "tools": {
+  "write": {
+   "name": "write",
+   "callId": "toolu_1",
+   "arguments": {
+    "file_path": "sum.js",
+    "content": "export const sum = (a, b) => a + b;\n"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "<path>/home/dev/project/sum.js</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+     }
+    ],
+    "value": {
+     "path": "/home/dev/project/sum.js",
+     "operation": "create",
+     "before": null,
+     "after": "export const sum = (a, b) => a + b;\n"
+    },
+    "error": null,
+    "meta": {
+     "operation": "create",
+     "diffs": []
+    }
+   }
+  },
+  "bashPassed": {
+   "name": "bash",
+   "callId": "toolu_2",
+   "arguments": {
+    "command": "npm test 2>&1 | tail -5",
+    "description": "Run the tests"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "ℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 79.601166\n"
+     }
+    ],
+    "value": {
+     "kind": "foreground",
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "aborted": false,
+     "timeoutMs": 60000,
+     "stdout": {
+      "text": "ℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 79.601166\n",
+      "truncated": false
+     },
+     "stderr": {
+      "text": "",
+      "truncated": false
+     },
+     "sandbox": {
+      "mode": "workspace-write",
+      "denied": false,
+      "enforcement": "full"
+     }
+    },
+    "error": null,
+    "meta": null
+   }
+  },
+  "bashExit3": {
+   "name": "bash",
+   "callId": "toolu_3",
+   "arguments": {
+    "command": "node -e \"process.exit(3)\"",
+    "description": "Exit with three"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "(no output)\n[exit code: 3]"
+     }
+    ],
+    "value": {
+     "kind": "foreground",
+     "exitCode": 3,
+     "signal": null,
+     "timedOut": false,
+     "aborted": false,
+     "timeoutMs": 60000,
+     "stdout": {
+      "text": "",
+      "truncated": false
+     },
+     "stderr": {
+      "text": "",
+      "truncated": false
+     },
+     "sandbox": {
+      "mode": "workspace-write",
+      "denied": false,
+      "enforcement": "full"
+     }
+    },
+    "error": null,
+    "meta": null
+   }
+  },
+  "edit": {
+   "name": "edit",
+   "callId": "toolu_4",
+   "arguments": {
+    "file_path": "sum.js",
+    "old_string": "a + b",
+    "new_string": "b + a"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "The file /home/dev/project/sum.js has been updated successfully."
+     }
+    ],
+    "value": {
+     "path": "/home/dev/project/sum.js",
+     "before": "export const sum = (a, b) => a + b;\n",
+     "after": "export const sum = (a, b) => b + a;\n"
+    },
+    "error": null,
+    "meta": {
+     "diffs": [
+      {
+       "path": "sum.js",
+       "oldText": "export const sum = (a, b) => a + b;",
+       "newText": "export const sum = (a, b) => b + a;"
+      }
+     ]
+    }
+   }
+  },
+  "read": {
+   "name": "read",
+   "callId": "toolu_5",
+   "arguments": {
+    "file_path": "sum.js"
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "<path>/home/dev/project/sum.js</path>\n<type>file</type>\n<content>\n1: export const sum = (a, b) => b + a;\n\n(End of file - total 1 lines)\n</content>"
+     }
+    ],
+    "value": {
+     "path": "/home/dev/project/sum.js",
+     "offset": 1,
+     "lines": [
+      {
+       "number": 1,
+       "text": "export const sum = (a, b) => b + a;"
+      }
+     ],
+     "totalLines": 1
+    },
+    "error": null,
+    "meta": {
+     "path": "/home/dev/project/sum.js",
+     "offset": 1,
+     "lines": [
+      {
+       "number": 1,
+       "text": "export const sum = (a, b) => b + a;"
+      }
+     ],
+     "totalLines": 1,
+     "lang": "js"
+    }
+   }
+  },
+  "bashBackground": {
+   "name": "bash",
+   "callId": "toolu_4",
+   "arguments": {
+    "command": "sleep 1; echo background done",
+    "description": "Run in background",
+    "run_in_background": true
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "started background job bash-3"
+     }
+    ],
+    "value": {
+     "kind": "background",
+     "jobId": "bash-3"
+    },
+    "error": null,
+    "meta": null
+   }
+  },
+  "bashPromoted": {
+   "name": "bash",
+   "callId": "toolu_5",
+   "arguments": {
+    "command": "sleep 3; echo slow",
+    "description": "Slow command",
+    "timeoutMs": 300
+   },
+   "result": {
+    "isError": false,
+    "content": [
+     {
+      "type": "text",
+      "text": "[still running after 300ms; moved to background job bash-4]\nThe command keeps running in the background. You will be notified when it finishes; read newer output with job_output, stop it with job_kill."
+     }
+    ],
+    "value": {
+     "kind": "promoted",
+     "jobId": "bash-4",
+     "timeoutMs": 300,
+     "output": ""
+    },
+    "error": null,
+    "meta": null
+   }
+  },
+  "bashRefused": {
+   "name": "bash",
+   "callId": "toolu_6",
+   "arguments": {
+    "command": "exit 0",
+    "description": ""
+   },
+   "result": {
+    "isError": true,
+    "content": [
+     {
+      "type": "text",
+      "text": "Error: invalid description: expected a non-empty string"
+     }
+    ],
+    "value": null,
+    "error": {
+     "message": "invalid description: expected a non-empty string"
+    },
+    "meta": null
+   }
+  }
+ },
+ "assistantMessage": {
+  "toolCall": {
+   "turn": 1,
+   "step": 1,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "tool-call",
+      "id": "toolu_1",
+      "name": "write",
+      "arguments": "{\"file_path\":\"sum.js\",\"content\":\"export const sum = (a, b) => a + b;\\n\"}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "32c00ced-60b5-4b3a-b055-fdc0afe3342c"
+   },
+   "usage": {
+    "inputTokens": 150,
+    "outputTokens": 30,
+    "totalTokens": 180
+   },
+   "stream": "[stream 6]"
+  },
+  "answer": {
+   "turn": 1,
+   "step": 6,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "Added sum; the tests pass."
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "text"
+       }
+      ]
+     }
+    },
+    "id": "b8b19c94-c41f-4258-b891-d2b2608ab301"
+   },
+   "usage": {
+    "inputTokens": 120,
+    "outputTokens": 12,
+    "totalTokens": 132
+   },
+   "stream": "[stream 5]"
+  }
+ },
+ "turnEnd": {
+  "completed": {
+   "turn": 1,
+   "reason": {
+    "kind": "completed"
+   }
+  },
+  "resumed": {
+   "turn": 2,
+   "reason": {
+    "kind": "completed"
+   }
+  },
+  "error": {
+   "turn": 1,
+   "reason": {
+    "kind": "error",
+    "error": {
+     "message": "scripted failure",
+     "code": "INVALID_REQUEST",
+     "status": 400
+    }
+   }
+  }
+ },
+ "commandsListed": [
+  {
+   "name": "evolver-distill",
+   "description": "Distill this session's latest verified turn into a draft Gene now, instead of at session end.",
+   "input": {
+    "hint": "[focus]"
+   }
+  },
+  {
+   "name": "evolver-drafts",
+   "description": "List distilled drafts; publish one to the EvoMap Hub for review, or discard it.",
+   "input": {
+    "hint": "[publish|discard <number>]"
+   }
+  },
+  {
+   "name": "evolver-evolve",
+   "description": "Run an evolution checkpoint: recall past outcomes, reflect on the current task, record the lesson.",
+   "input": {
+    "hint": "[focus]"
+   }
+  },
+  {
+   "name": "evolver-review",
+   "description": "Review Evolver's pending evolved changes, then approve or reject them (evolver review).",
+   "input": {
+    "hint": "[--approve | --reject]"
+   }
+  },
+  {
+   "name": "evolver-run",
+   "description": "Run one Evolver self-evolution cycle on this repository (evolver run).",
+   "input": {
+    "hint": "[--loop] [--dry-run] [--strategy=…]"
+   }
+  },
+  {
+   "name": "evolver-search",
+   "description": "Find the EvoMap strategy that best fits a task; where the agent sees the answer, its reuse is reported.",
+   "input": {
+    "hint": "<task description or error text>"
+   }
+  },
+  {
+   "name": "evolver-solidify",
+   "description": "Solidify the working changes into a durable Gene or Capsule (evolver solidify).",
+   "input": {
+    "hint": "[--dry-run] [--intent=…] [--summary=…]"
+   }
+  },
+  {
+   "name": "evolver-status",
+   "description": "Evolver health: the Proxy, engine setup, distillation candidate and drafts."
+  },
+  {
+   "name": "evolver-sync",
+   "description": "Sync assets between the local store and the EvoMap Hub (evolver sync).",
+   "input": {
+    "hint": "[--scope=…] [--type=…] [--dry-run]"
+   }
+  }
+ ]
+}

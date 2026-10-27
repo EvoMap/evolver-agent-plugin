@@ -1,0 +1,5 @@
+# Bundle patch: `dsh plugin add` activates this layer. The entry keeps the id of the standalone @evomap/dsh-evolver,
+# so a profile's own settings for `evolver` still apply.
+- insert:
+    - id: evolver
+      name: '@evomap/dsh-evolver'
