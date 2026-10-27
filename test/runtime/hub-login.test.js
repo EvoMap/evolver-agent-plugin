@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { SIGN_IN, needsNewRun, signInOf } from '../../lib/hub-login.js';
-import { hubSignInOf } from '../../lib/runtime/hub-login.js';
+import { profileNamed } from '../../lib/agent/registry.js';
+import { environmentFor } from '../../lib/runtime/environment.js';
+import { hubSignInOf, signInFilesOf } from '../../lib/runtime/hub-login.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { installFakeEvolver } from '../helpers/fake-evolver.js';
 
@@ -19,12 +21,13 @@ function scratch(t) {
   const stores = fileStoresOf({ dir: join(dir, 'state'), agent: 'testagent' });
   const prefix = stores.folder('engine');
   const fake = installFakeEvolver(prefix, join(dir, 'fake'));
-  const env = { ...process.env, ...fake.env };
+  const env = { ...process.env, ...fake.env, HOME: dir };
+  const files = signInFilesOf(env);
   t.after(() => {
     for (const line of startsOf(dir)) try { process.kill(Number(line.split(' ')[0]), 'SIGKILL'); } catch {}
     rmSync(dir, { recursive: true, force: true });
   });
-  return { dir, stores, prefix, env, signIn: () => hubSignInOf({ files: stores.signIn, enginePrefix: prefix, env }) };
+  return { dir, stores, prefix, env, files, signIn: () => hubSignInOf({ files, enginePrefix: prefix, env }) };
 }
 
 function startsOf(dir) {
@@ -51,9 +54,9 @@ const keepsLive = (run) => !needsNewRun(signInOf(run, Date.now()));
 function startFromAParentThatExits(world) {
   const script = `
     const { fileStoresOf } = await import(${JSON.stringify(STORES)});
-    const { hubSignInOf } = await import(${JSON.stringify(RUNTIME)});
+    const { hubSignInOf, signInFilesOf } = await import(${JSON.stringify(RUNTIME)});
     const stores = fileStoresOf({ dir: ${JSON.stringify(join(world.dir, 'state'))}, agent: 'testagent' });
-    const run = await hubSignInOf({ files: stores.signIn, enginePrefix: stores.folder('engine') }).joinOrStart(() => false);
+    const run = await hubSignInOf({ files: signInFilesOf(), enginePrefix: stores.folder('engine') }).joinOrStart(() => false);
     process.stdout.write(JSON.stringify({ parent: process.pid, startedAt: run.startedAt }));
   `;
   const parent = spawn(process.execPath, ['--input-type=module', '-e', script], { env: world.env, stdio: ['ignore', 'pipe', 'inherit'] });
@@ -86,7 +89,7 @@ test('the background evolver login outlives the process that started it, in a gr
   }, 'the sign-in to finish');
   assert.deepEqual(signInOf(run, Date.now()), { state: SIGN_IN.SIGNED_IN, hub: 'https://hub.test' });
   assert.equal(run.startedAt, parent.startedAt);
-  assert.match(readFileSync(world.stores.signIn.log, 'utf8'), /Token stored at/);
+  assert.match(readFileSync(world.files.log, 'utf8'), /Token stored at/);
   await signIn.forget(run);
   assert.equal(await signIn.latest(), null);
 });
@@ -120,4 +123,25 @@ test('a run that is over is replaced by a fresh evolver login, with a log of its
   assert.notEqual(second.startedAt, first.startedAt);
   assert.doesNotMatch(second.output, /access_denied/);
   await until(() => startsOf(world.dir).length === 2, 'the second evolver login');
+});
+
+test('two agents with state folders of their own share one sign-in, since they sign in to one identity home', posix, async (t) => {
+  const world = scratch(t);
+  const pluginData = join(world.dir, 'workbuddy-data');
+  const env = { ...world.env, CODEBUDDY_PLUGIN_DATA: pluginData };
+  const portsOf = async (agent) => environmentFor({ profile: await profileNamed(agent), env, lifetime: 'ephemeral', runBackground: async () => true }).ports;
+  const [codex, workbuddy] = await Promise.all([portsOf('codex'), portsOf('workbuddy')]);
+  installFakeEvolver(join(world.dir, '.evolver', 'state', 'codex-engine'), join(world.dir, 'fake'));
+  installFakeEvolver(join(pluginData, 'workbuddy-engine'), join(world.dir, 'fake'));
+  const [first, second] = await Promise.all([codex.signIn.joinOrStart(keepsLive), workbuddy.signIn.joinOrStart(keepsLive)]);
+  assert.equal(first.startedAt, second.startedAt);
+  await until(() => startsOf(world.dir).length > 0, 'the start');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(startsOf(world.dir).length, 1, 'one device flow');
+  writeFileSync(join(world.dir, 'fake', 'approved'), '');
+  const signedIn = await until(async () => {
+    const state = signInOf(await workbuddy.signIn.latest(), Date.now());
+    return state.state === SIGN_IN.SIGNED_IN && state;
+  }, 'the sign-in, seen from the other agent');
+  assert.equal(signedIn.hub, 'https://hub.test');
 });
