@@ -9,7 +9,7 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test --test-timeout=120000 \"test/**/*.test.js\"",
     "validate": "node scripts/pack.mjs claude-code dist/claude-code && claude plugin validate dist/claude-code",
     "dev:sync": "bash scripts/sync-dev-mod.sh",
     "pack": "node scripts/pack.mjs all dist"

@@ -40,6 +40,7 @@ function hook(hostEvent, payload, env = proxy.env) {
     child.stdout.on('data', (chunk) => { written += chunk; });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve(JSON.parse(written)) : reject(new Error(`hook exited ${code}`))));
+    child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify(payload));
   });
 }

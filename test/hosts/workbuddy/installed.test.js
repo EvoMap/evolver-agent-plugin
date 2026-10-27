@@ -61,6 +61,7 @@ function shell(command, { env, input = '' }) {
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.on('close', (code) => resolve({ code, stdout }));
+    child.stdin.on('error', () => {});
     child.stdin.end(input);
   });
 }

@@ -12,6 +12,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   let output = '';
   child.stdout.on('data', (chunk) => { output += chunk; });
   child.on('exit', (code) => process.stdout.write(`${JSON.stringify({ id, code, output })}\n`));
+  // A hook that answers without reading its input closes the pipe first.
+  child.stdin.on('error', () => {});
   child.stdin.end(JSON.stringify(input));
 });
 setInterval(() => {}, 60_000);
