@@ -961,6 +961,72 @@
     "tool_use_id": "call_4",
     "duration_ms": 1525
   },
+  "PostToolUse.get_command_or_subagent_output.cancelled": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c41-c087-7af2-9ed0-1327b1fea0e0",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T07:27:28.614037+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "get_command_or_subagent_output",
+    "toolUseId": "call_6",
+    "toolInput": {
+      "task_ids": [
+        "call_4"
+      ]
+    },
+    "toolResult": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_4",
+        "command": "sleep 30; npm test",
+        "status": "cancelled",
+        "exit_code": null,
+        "started": "2026-10-27T07:27:27Z",
+        "ended": "2026-10-27T07:27:28Z",
+        "duration_secs": 0.907858,
+        "output": "",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/terminal/call_4.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 0
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 0,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c41-c087-7af2-9ed0-1327b1fea0e0",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "get_command_or_subagent_output",
+    "tool_input": {
+      "task_ids": [
+        "call_4"
+      ]
+    },
+    "tool_response": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_4",
+        "command": "sleep 30; npm test",
+        "status": "cancelled",
+        "exit_code": null,
+        "started": "2026-10-27T07:27:27Z",
+        "ended": "2026-10-27T07:27:28Z",
+        "duration_secs": 0.907858,
+        "output": "",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c41-c087-7af2-9ed0-1327b1fea0e0/terminal/call_4.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 0
+      }
+    },
+    "tool_use_id": "call_6",
+    "duration_ms": 0
+  },
   "PostToolUseFailure.mcp": {
     "hookEventName": "post_tool_use_failure",
     "sessionId": "01a17c2a-8550-7e71-b330-fe3c551471b8",

@@ -50,7 +50,10 @@ function taskOutputNoteOf({ toolResult: result }) {
   const command = text(task?.command);
   if (!command || !text(task.task_id)) return null;
   if (task.status === STILL_RUNNING) return { kind: 'shell', command, running: true, callId: task.task_id };
-  return { kind: 'shell', command, exit: exitOf(task), output: text(task.output), callId: task.task_id };
+  const exit = exitOf(task);
+  const neverFinished = exit === null;
+  if (neverFinished) return { kind: 'shell', command, running: true, callId: task.task_id };
+  return { kind: 'shell', command, exit, output: text(task.output), callId: task.task_id };
 }
 
 // grok reports an edit it could not make (`NoMatchesFound`) as a result like any other; another runtime's result has

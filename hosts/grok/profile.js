@@ -19,8 +19,9 @@ const text = (value) => (typeof value === 'string' ? value : '');
 // grok starts a turn of its own when a background task completes: its promptId names the task, and its prompt is
 // only the reminder grok wrote. It is no turn of the person's, so it opens, counts and clears nothing.
 const SELF_STARTED_PROMPT_ID = /^task-completed-/;
-const ONLY_REMINDERS = /^\s*(?:<system-reminder>[\s\S]*?<\/system-reminder>\s*)+$/;
-const isSelfStarted = ({ promptId, prompt }) => SELF_STARTED_PROMPT_ID.test(text(promptId)) || ONLY_REMINDERS.test(text(prompt));
+const REMINDER_BLOCK = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
+const isOnlyReminders = (prompt) => prompt.includes('<system-reminder>') && prompt.replace(REMINDER_BLOCK, '').trim() === '';
+const isSelfStarted = ({ promptId, prompt }) => SELF_STARTED_PROMPT_ID.test(text(promptId)) || isOnlyReminders(text(prompt));
 
 // A Stop without a promptId is the one grok fires at session end (`shutdown`, `channel_closed`): no turn ended.
 function turnEndReasonOf(payload, context) {

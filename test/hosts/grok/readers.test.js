@@ -61,6 +61,21 @@ test('a call grok moves to the background has no verdict until its task\'s outpu
   assert.deepEqual(grok.evidence.toolNote(stillRunning), { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
 });
 
+test('a background task killed before it finished reports no exit code and settles no check', () => {
+  const cancelled = noteOf('PostToolUse.get_command_or_subagent_output.cancelled');
+  assert.deepEqual(cancelled, { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' });
+  const started = { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' };
+  assert.deepEqual(turnRecordOf([started, cancelled]).checks, [], 'a run that never finished is no pass');
+});
+
+test('a prompt of many reminders followed by the person\'s text is read in linear time and stays the person\'s', () => {
+  const blocks = '<system-reminder>pasted</system-reminder>\n'.repeat(5_000);
+  const startedAt = Date.now();
+  assert.equal(grok.payload.isIgnored({ ...payload('UserPromptSubmit'), prompt: `${blocks}fix the build` }), false);
+  assert.equal(grok.payload.isIgnored({ ...payload('UserPromptSubmit'), prompt: blocks }), true);
+  assert.ok(Date.now() - startedAt < 500, 'no backtracking over the blocks');
+});
+
 test('a turn grok starts itself when a background task completes is no turn of the person\'s', () => {
   assert.match(grok.payload.prompt(payload('UserPromptSubmit.taskCompleted')), /^<system-reminder>\nBackground task "call_3" completed \(exit code: 1\)/);
   assert.equal(grok.payload.isIgnored(payload('UserPromptSubmit.taskCompleted')), true);
