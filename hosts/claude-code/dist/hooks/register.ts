@@ -20,8 +20,8 @@ const MODEL_TIMEOUT_MS = 120_000
 const MAX_PENDING_PROMPTS = 32
 
 let relay: Promise<Relay> | null = null
+let catalog: Promise<CatalogCommand[]> | null = null
 const promptOrigins = new Map<string, unknown>()
-const commandNames = new Set<string>()
 
 function quietly<T>(work: Promise<T>): Promise<T | null> {
   return work.catch(() => null)
@@ -122,12 +122,24 @@ async function serveModel($: EngineInterface, connection: Relay): Promise<void> 
   }
 }
 
+// Read once per module: a hot reload starts with none, so a command run before the next session start still knows it.
+function catalogOf($: EngineInterface, options: PluginOptions): Promise<CatalogCommand[]> {
+  catalog ??= post($, options, '/commands', {}).catch((error) => {
+    catalog = null
+    throw error
+  })
+  return catalog
+}
+
 async function registerCommands($: EngineInterface, options: PluginOptions): Promise<void> {
-  const catalog: CatalogCommand[] = await post($, options, '/commands', {})
-  for (const command of catalog) {
+  for (const command of await catalogOf($, options)) {
     await $.command.register({ name: command.name, description: command.description, ...(command.hint ? { argumentHint: command.hint } : {}) })
-    commandNames.add(command.name)
   }
+}
+
+async function isOurCommand($: EngineInterface, options: PluginOptions, name: string): Promise<boolean> {
+  const commands = await catalogOf($, options).catch(() => [])
+  return commands.some((command) => command.name === name)
 }
 
 async function startSession($: EngineInterface, options: PluginOptions): Promise<void> {
@@ -199,7 +211,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', async ($, e, next) => {
-    if (!commandNames.has(e.command)) return next(e)
+    if (!(await isOurCommand($, options, e.command))) return next(e)
     const answer = await raise($, options, 'command.run', { command: e.command, args: e.args })
     if (answer.submit) {
       void quietly($.prompt.submit({ text: answer.submit }))

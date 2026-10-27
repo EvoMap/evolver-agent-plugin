@@ -171,6 +171,12 @@ test('commands answer as Claude Code shows them: evolve is sent as a prompt, oth
   assert.deepEqual(await cc.call('command.run', { command: 'compact', args: '' }, () => ({ text: 'core' })), { text: 'core' });
 });
 
+test('a module loaded again without a session start still answers its commands', async (t) => {
+  const cc = await session(t);
+  assert.match((await cc.call('command.run', { command: 'evolver-drafts', args: '' })).text, /No distilled drafts are waiting/);
+  assert.equal(cc.seen.commands.length, 0);
+});
+
 test('a prompt nobody typed opens no turn, and a relay that died is started again by the next event', async (t) => {
   const cc = await session(t);
   await cc.call('session.start', captured.sessionStart);
