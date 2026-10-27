@@ -1,6 +1,6 @@
 {
   "name": "evolver-plugin",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Evolver for WorkBuddy / CodeBuddy: recalls proven strategies behind the prompt, reports their reuse and distills verified work into draft Genes from hooks, with nothing else of Evolver in the model's context.",
   "description_en": "Evolver for WorkBuddy / CodeBuddy: recalls proven strategies behind the prompt, reports their reuse and distills verified work into draft Genes from hooks, with nothing else of Evolver in the model's context.",
   "author": {

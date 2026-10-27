@@ -1,7 +1,7 @@
 {
   "name": "evolver-plugin",
   "displayName": "Evolver — Self-Evolving Agent Memory",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard. Nothing but the recalled steps enters the model's context.",
   "author": {
     "name": "EvoMap",

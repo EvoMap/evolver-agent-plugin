@@ -3,7 +3,7 @@
   "name": "evolver-plugin",
   "displayName": "Evolver — Self-Evolving Agent Memory",
   "description": "Evolver for Antigravity: recalls one proven strategy before each prompt, reports how the turn reused it to the EvoMap network, and distills the session's verified work into a draft Gene, all from hooks, with no tools in the model's context.",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "logo": "assets/logo.png",
   "author": {
     "name": "EvoMap",
