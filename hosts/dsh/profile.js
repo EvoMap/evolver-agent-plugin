@@ -33,6 +33,7 @@ export default defineProfile({
   payload: {
     sessionId: (payload) => text(payload.sessionId) || null,
     turnId: (payload) => (Number.isInteger(payload.turn) ? String(payload.turn) : null),
+    hostTurn: (payload) => (Number.isInteger(payload.turn) ? payload.turn : null),
     prompt: (payload) => personTextOf(payload.messages),
     projectDir: (payload) => text(payload.cwd) || null,
     isIgnored: (payload, context) => payload.origin === 'subagent' || isOtherProducersTurn(payload, context.hostEvent),

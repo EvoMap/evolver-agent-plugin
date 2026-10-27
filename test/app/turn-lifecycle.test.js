@@ -313,3 +313,10 @@ test('a prompt that cleans down to nothing (a bare link) is its own task, not th
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'https://example.com/issue/42', ...WAIT });
   assert.equal(sessionOfStored(await ports.sessions.read('s1')).prompt, '');
 });
+
+test('a host\'s own turn number keeps the count at least there, so a session resumed without its state repeats no task id', async () => {
+  const { ports } = memoryPorts();
+  const resumed = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, hostTurn: 4, ...WAIT });
+  assert.equal(resumed.turn, 4);
+  assert.equal((await promptSubmitted(ports, { sessionId: 's1', prompt: 'and the readme', hostTurn: 2, ...WAIT })).turn, 5, 'never back');
+});

@@ -176,6 +176,17 @@ test('a session resumed by a later dsh process goes on counting its turns', asyn
   assert.deepEqual(reportsOf(proxy).map((report) => [report.task_id, report.asset_id]), [[`dsh:${sessionId}:1`, ASSET.asset_id], [`dsh:${sessionId}:2`, other.asset_id]]);
 });
 
+test('a session the standalone ran, resumed with none of its state left, reports under dsh\'s own turn number', async (t) => {
+  const proxy = await startProxy(t);
+  const sessionId = DSH.agentCreated.resume.sessionId;
+  const dsh = await startDsh();
+  const resumed = await dsh.createAgent({ sessionId, source: DSH.agentCreated.resume.source });
+  await dsh.turn(resumed, { turn: 4, prompt: 'fix the flaky redis connection retries in our worker tests too' });
+  await until(() => reportsOf(proxy).length === 1, 'the report');
+  assert.equal(reportsOf(proxy)[0].task_id, `dsh:${sessionId}:4`, 'the standalone already sent :1 to :3 for this session');
+  await dsh.dispose();
+});
+
 test('an interrupted turn is reported aborted and a failed model request failed, from turn/end', async (t) => {
   const proxy = await startProxy(t);
   const dsh = await startDsh();

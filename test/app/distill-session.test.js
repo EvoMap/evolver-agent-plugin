@@ -74,6 +74,20 @@ test('a person who turned distillation off keeps the leftover from the backgroun
   assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
 });
 
+test('a process shutting down stops a leftover\'s model call without counting a try, and gives the claim back', async () => {
+  const stopping = new AbortController();
+  const waitsForever = { complete: (model, prompt, signal) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason))) };
+  const { ports } = await withCandidate({ model: waitsForever });
+  ports.scheduler = { ...ports.scheduler, signal: stopping.signal };
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const running = distillLeftovers(ports);
+  await new Promise((resolve) => setImmediate(resolve));
+  stopping.abort();
+  assert.deepEqual((await running).map((outcome) => outcome.status), ['stopped']);
+  const { s1 } = await ports.candidates.read();
+  assert.deepEqual([s1.attempts, s1.claimedBy ?? null], [0, null]);
+});
+
 test('the model may decline, which settles the candidate without calling the Proxy', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering({ skip: 'routine edit' }) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
