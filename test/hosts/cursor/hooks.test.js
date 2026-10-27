@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { ASSET, PROMPT } from '../../app/memory-ports.js';
+import { ASSET, PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
 const PASSED_RUN = 'ℹ tests 2\nℹ pass 2\nℹ fail 0\n';
@@ -127,6 +127,18 @@ test("the stop reports the strategy with the turn's own checks: an exit code fai
   assert.deepEqual(report.evidence.check, { kind: 'test', passed: true, fail_then_pass: true });
   assert.equal(report.evidence.tier, 'L1');
   assert.equal(report.evidence.aborted, false);
+});
+
+test('a recalled Recipe rides additional_context whole, and the stop reports each of its steps under the turn', async () => {
+  proxy.close();
+  proxy = await fakeProxy({ recipes: [RECIPE], stepAssets: RECIPE_STEPS });
+  const answer = await fixTurn(chat('s-recipe'));
+  assert.match(answer.additional_context, /^\[Evolution Memory\] Recipe: Stabilise flaky redis connection retries/);
+  const reports = await waitFor(() => (reuseReports().length >= 2 ? reuseReports() : []));
+  assert.deepEqual(reports.map((report) => [report.asset_id, report.task_id, report.outcome]).sort(), [
+    ['sha256:step1', 'cursor:s-recipe:1', 'success'],
+    ['sha256:step2', 'cursor:s-recipe:1', 'success'],
+  ]);
 });
 
 test('a timed-out check fails; an interrupted, backgrounded or denied one is no evidence', async () => {
