@@ -17,7 +17,11 @@ grok plugin install evolver-plugin --trust
 ```
 
 Then start a new session. `--trust` turns the plugin's hooks on; without it Grok shows what the plugin holds and
-stops. `grok plugin list` shows it enabled.
+stops. `grok inspect` lists it as enabled, with its hooks.
+
+Install it through the marketplace, as above. `grok plugin install EvoMap/evolver-agent-plugin`, a form Grok also
+accepts, installs the repository's root instead, which Grok reads through Cursor's manifest there: Cursor's command
+files and hooks, which never run on Grok.
 
 ### Requirements
 
@@ -35,7 +39,8 @@ Grok discards what a `UserPromptSubmit` hook prints when it lets the prompt thro
 prompt as it does on other agents. The prompt hook recalls it and keeps it for the turn; the turn's first
 `PostToolUse` (or `PostToolUseFailure`) hands it over as `additionalContext`, which Grok puts right after that
 tool's result, and only then is it counted as reused. A turn that answers without any tool call never sees it: it is
-not reported, and a later prompt may recall it again.
+not reported, and a later prompt may recall it again. Grok names no turn on a tool result, so one that arrives late
+from an interrupted turn could carry the next turn's strategy.
 
 ## What runs when
 
@@ -44,19 +49,23 @@ not reported, and a later prompt may recall it again.
 | `SessionStart` | Reports whether an earlier session's edits in this project were kept, reports a killed session's open strategies as aborted, sets Evolver up and distills leftover candidates, all in a detached background process. Shows a one-off notice when it installed, upgraded or could not start Evolver. |
 | `UserPromptSubmit` | Answers the `evolver-*` commands itself. Otherwise recalls a strategy by the prompt text and keeps it for the turn; reads the prompt as a correction or approval of the previous turn's reuse, and a correction drops that turn's candidate. |
 | `PreToolUse` (edit tools) | Hashes the file an edit is about to change, for the next session's retention report. |
-| `PostToolUse`, `PostToolUseFailure` | Notes the turn's commands with their exit codes, its checks (test, build, lint, type check) and the files it edited; the turn's first one hands over the recalled strategy. |
+| `PostToolUse`, `PostToolUseFailure` | Notes the turn's commands with their exit codes, its checks (test, build, lint, type check) and the files it edited; the turn's first one hands over the recalled strategy. A command Grok moves to the background (past its `block_until_ms`, 30 s by default) has no verdict until `get_command_or_subagent_output` returns its exit code in the same turn; until then the check counts as not run. |
 | `Stop` | Reports every strategy the turn used, and makes the turn the session's distillation candidate when it ended on a passing check after editing files or running three commands. The `Stop` Grok fires at session end is ignored. |
 | `StopFailure`, `StopCancelled` | Report the turn's strategies as failed or aborted. |
 | `SessionEnd` | Closes a turn still open, reports what is left as aborted, and distills the session's candidate in the background. Keeps the session's turn counter, so a resumed session never repeats a task id. |
 
 Events inside a subagent (they carry `subagentType`) are not the session's turn: they get no recall and end no turn.
+Nor is a turn Grok starts itself when a background task completes (its prompt id is `task-completed-…` and its
+prompt only Grok's reminder): it takes no turn number and leaves the last turn's reuses for your next prompt to
+correct or approve.
 
 ## Commands
 
 Grok plugin commands are prompts for the model, so the plugin's commands are typed into the prompt box as they are,
 with or without a leading `/`. The `UserPromptSubmit` hook answers each one and blocks the prompt: Grok sends it to
-no model, opens no turn and shows you the answer as the block's reason. `grok -p` prints no such reason, so in a
-script run the commands from a terminal instead (below).
+no model, opens no turn and shows you the answer as the block's reason. The blocked command stays at the front of
+Grok's queue, where you edit, resend or discard it. `grok -p` prints no such reason, so in a script run the
+commands from a terminal instead (below).
 
 | Typed in Grok | What it does |
 | --- | --- |
@@ -70,21 +79,27 @@ script run the commands from a terminal instead (below).
 Only a prompt that is exactly a command counts; `evolver-status` followed by more text is an ordinary prompt. The
 prompt box waits while a command runs: up to two minutes for `evolver-distill`, ten for the engine commands.
 
-The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest candidate:
+The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest candidate.
+The marketplace installs the repository's `release` branch, so the plugin is its `dist/grok` folder:
 
 ```bash
-node ~/.grok/installed-plugins/<folder>/bin/command.mjs grok evolver-status
+node ~/.grok/installed-plugins/<folder>/dist/grok/bin/command.mjs grok evolver-status
 ```
 
 ## Session-end distillation
 
 When the session ends, a detached process runs Grok itself headless on your own config —
-`grok -p - --output-format json --verbatim --no-subagents --no-plan --disable-web-search --max-turns 1` with no
-tools offered, in an empty folder, with the prompt on stdin — to write a Gene from a digest of the candidate turn
+`grok --prompt-file <folder>/prompt.md --output-format json --verbatim --no-subagents --no-plan --disable-web-search
+--max-turns 1` with no tools offered, in an empty folder — to write a Gene from a digest of the candidate turn
 (task, commands, paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's
 `POST /conversation/distill`. Unless the Proxy verifies it, the answer is a draft, kept until you publish or discard
-it with `evolver-drafts`. The plugin's hooks stay quiet inside that run. Grok also asks its session-title and
-turn-summary model once each for such a run, as for any session. A candidate is tried three times, then given up.
+it with `evolver-drafts`. A candidate is tried three times, then given up.
+
+The plugin's hooks stay quiet inside that run, and the Claude Code and Cursor hooks, rules, skills and MCP servers
+Grok imports are turned off for it (`GROK_CLAUDE_HOOKS_ENABLED=false` and the like), with Grok's turn summary and
+memory. Grok still asks its session-title model once. Hooks in `~/.grok/hooks` and other plugins' hooks have no
+switch: a blocking `Stop` hook there keeps the run going past `--max-turns`, and such an answer is refused rather
+than sent.
 
 ## Reuse reports
 

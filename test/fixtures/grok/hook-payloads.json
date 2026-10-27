@@ -707,6 +707,291 @@
     "session_id": "01a17beb-2b34-7982-9924-b1bb4e9175e0",
     "permission_mode": "bypassPermissions"
   },
+  "PostToolUse.run_terminal_command.background": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:47.697750+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "toolResult": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 1396
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 597,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "tool_response": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 1396
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 597
+  },
+  "Stop.backgroundRunning": {
+    "hookEventName": "stop",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:47.785751+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "09cd7820-7ffc-45f2-9c5f-5c13ba440a04",
+    "permissionMode": "bypassPermissions",
+    "reason": "end_turn",
+    "stopHookActive": false,
+    "lastAssistantMessage": "The tests are running in the background.",
+    "backgroundTasks": [
+      {
+        "id": "call_3",
+        "type": "shell",
+        "status": "running",
+        "command": "sleep 2; npm test"
+      }
+    ],
+    "sessionCrons": [],
+    "hook_event_name": "Stop",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "The tests are running in the background."
+  },
+  "UserPromptSubmit.taskCompleted": {
+    "hookEventName": "user_prompt_submit",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.296896+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "task-completed-call_3",
+    "permissionMode": "bypassPermissions",
+    "prompt": "<system-reminder>\nBackground task \"call_3\" completed (exit code: 1).\nDescription: Run the tests | Duration: 2.2s\nUse get_command_or_subagent_output(\"call_3\") to see the full output.\n</system-reminder>",
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "Stop.taskCompleted": {
+    "hookEventName": "stop",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.376894+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "promptId": "task-completed-call_3",
+    "permissionMode": "bypassPermissions",
+    "reason": "end_turn",
+    "stopHookActive": false,
+    "lastAssistantMessage": "The tests are running in the background.",
+    "backgroundTasks": [],
+    "sessionCrons": [],
+    "hook_event_name": "Stop",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "The tests are running in the background."
+  },
+  "SessionStart.load": {
+    "hookEventName": "session_start",
+    "sessionId": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:54:49.927919+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "source": "load",
+    "hook_event_name": "SessionStart",
+    "session_id": "01a17c23-d980-7b60-a847-6b38aa011b53",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c23-d980-7b60-a847-6b38aa011b53/updates.jsonl",
+    "permission_mode": "bypassPermissions"
+  },
+  "PostToolUse.run_terminal_command.backgroundForTaskOutput": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:51:29.973940+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "run_terminal_command",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "toolResult": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 78676
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 551,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "run_terminal_command",
+    "tool_input": {
+      "command": "sleep 2; npm test",
+      "description": "Run the tests",
+      "block_until_ms": 500
+    },
+    "tool_response": {
+      "type": "BackgroundTaskStarted",
+      "task_id": "call_3",
+      "task_type": "bash",
+      "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+      "status": "running",
+      "command": "sleep 2; npm test",
+      "summary": "Command \"Run the tests\" is still running after 0.5s (block_until_ms) and has been moved to the background as task call_3.",
+      "retrieval_hint": "Use get_command_or_subagent_output with task_ids=[\"call_3\"] when you need the output.",
+      "pid": 78676
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 551
+  },
+  "PostToolUse.get_command_or_subagent_output": {
+    "hookEventName": "post_tool_use",
+    "sessionId": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T06:51:31.804901+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "get_command_or_subagent_output",
+    "toolUseId": "call_4",
+    "toolInput": {
+      "task_ids": [
+        "call_3"
+      ],
+      "timeout_ms": 10000
+    },
+    "toolResult": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_3",
+        "command": "sleep 2; npm test",
+        "status": "failed",
+        "exit_code": 1,
+        "started": "2026-10-27T06:51:29Z",
+        "ended": "2026-10-27T06:51:31Z",
+        "duration_secs": 2.388686,
+        "output": "\n> test\n> sh check.sh\n\n1 failing\n",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 33
+      }
+    },
+    "toolInputTruncated": false,
+    "toolResultTruncated": false,
+    "durationMs": 1525,
+    "isBackgrounded": false,
+    "hook_event_name": "PostToolUse",
+    "session_id": "01a17c20-d479-7342-8445-1a6b644c855d",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "get_command_or_subagent_output",
+    "tool_input": {
+      "task_ids": [
+        "call_3"
+      ],
+      "timeout_ms": 10000
+    },
+    "tool_response": {
+      "type": "TaskOutput",
+      "Result": {
+        "task_id": "call_3",
+        "command": "sleep 2; npm test",
+        "status": "failed",
+        "exit_code": 1,
+        "started": "2026-10-27T06:51:29Z",
+        "ended": "2026-10-27T06:51:31Z",
+        "duration_secs": 2.388686,
+        "output": "\n> test\n> sh check.sh\n\n1 failing\n",
+        "output_file": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c20-d479-7342-8445-1a6b644c855d/terminal/call_3.log",
+        "truncated": false,
+        "truncation_hint": "[truncated - use read_file on output_file for full content]",
+        "raw_output_bytes": 33
+      }
+    },
+    "tool_use_id": "call_4",
+    "duration_ms": 1525
+  },
+  "PostToolUseFailure.mcp": {
+    "hookEventName": "post_tool_use_failure",
+    "sessionId": "01a17c2a-8550-7e71-b330-fe3c551471b8",
+    "cwd": "/Users/you/project",
+    "workspaceRoot": "/Users/you/project",
+    "timestamp": "2026-10-27T07:02:04.398168+00:00",
+    "transcriptPath": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c2a-8550-7e71-b330-fe3c551471b8/updates.jsonl",
+    "permissionMode": "bypassPermissions",
+    "toolName": "probe__fail",
+    "toolUseId": "call_3",
+    "toolInput": {
+      "tool_name": "probe__fail",
+      "tool_input": {}
+    },
+    "toolInputTruncated": false,
+    "error": "Failed to call fail: boom: the probe tool failed",
+    "durationMs": 8,
+    "isInterrupt": false,
+    "hook_event_name": "PostToolUseFailure",
+    "session_id": "01a17c2a-8550-7e71-b330-fe3c551471b8",
+    "transcript_path": "/Users/you/.grok/sessions/%2FUsers%2Fyou%2Fproject/01a17c2a-8550-7e71-b330-fe3c551471b8/updates.jsonl",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "probe__fail",
+    "tool_input": {
+      "tool_name": "probe__fail",
+      "tool_input": {}
+    },
+    "tool_use_id": "call_3",
+    "duration_ms": 8,
+    "is_interrupt": false
+  },
   "env.PostToolUse": {
     "GROK_WORKSPACE_ROOT": "/Users/you/project",
     "CLAUDE_PLUGIN_ROOT": "/Users/you/.grok/installed-plugins/plugin-4d4de0a5",

@@ -74,6 +74,7 @@ test('the manifest names the plugin as every host does, at the version of the la
 test('the one command file is the evolution checkpoint for the agent, word for word, and the model may not invoke it', () => {
   const source = readFileSync(at(`${DIST}/commands/evolver-evolve.md`), 'utf8');
   assert.ok(source.includes(EVOLVE_PROMPT));
+  assert.doesNotMatch(EVOLVE_PROMPT, /behind the prompt/, 'on Grok the strategy joins the turn at a tool result');
   assert.match(source, /^disable-model-invocation: true$/m);
   assert.match(source, /\$ARGUMENTS/);
   assert.deepEqual(Object.keys(packSpecOf('grok').root).filter((path) => path.startsWith('commands/')), ['commands/evolver-evolve.md']);
@@ -92,5 +93,9 @@ test('the README installs from the marketplace and names the commands as they ar
   const readme = readFileSync(at(`${DIST}/README.md`), 'utf8');
   assert.match(readme, /^grok plugin marketplace add EvoMap\/evolver-agent-plugin$/m);
   assert.match(readme, /^grok plugin install evolver-plugin --trust$/m);
-  assert.match(readme, /bin\/command\.mjs grok evolver-status/);
+  assert.match(readme, /installed-plugins\/<folder>\/dist\/grok\/bin\/command\.mjs grok evolver-status/, 'the marketplace installs the release branch whole');
+  assert.match(readme, /`grok inspect` lists it as enabled/);
+  assert.doesNotMatch(readme, /`grok plugin list` shows it enabled/, 'grok plugin list shows no status');
+  assert.match(readme, /`grok plugin install EvoMap\/evolver-agent-plugin`, a form Grok also\naccepts, installs the repository's root instead/);
+  assert.match(readme, /stays at the front of\nGrok's queue/);
 });

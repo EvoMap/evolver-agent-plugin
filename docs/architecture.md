@@ -204,7 +204,9 @@ scripts/               pack.mjs, publish-release-branch.sh
   strategy waits for the turn's first tool hook. A `PreToolUse` and a `PostToolUse` context both land right after
   that tool's result, as a `<system-reminder>` user message kept in later requests (measured on a fake model), but a
   `PreToolUse` one is dropped when any hook denies the call or the person rejects it, so `PostToolUse` (and
-  `PostToolUseFailure`) carries it. A turn answered without a tool call never sees it.
+  `PostToolUseFailure`) carries it. A turn answered without a tool call never sees it. grok names no turn on a tool
+  result, so a late result of an interrupted turn could carry the next turn's strategy; no payload field tells them
+  apart.
 - **Reuse reports.** Every injection is reported, through the Proxy's `POST /asset/reuse-result`, as
   `{asset_id, outcome, task_id, reason, evidence}`; the field names are shared with the Hub and Evolver. `reason`
   names the turn and the check kind, never the prompt, a command, code or a diff, and the prompt loses keys and

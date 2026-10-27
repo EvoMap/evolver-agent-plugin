@@ -16,6 +16,12 @@ const TURN_ENDS = { [STOP]: 'answer', StopFailure: 'error', StopCancelled: 'abor
 
 const text = (value) => (typeof value === 'string' ? value : '');
 
+// grok starts a turn of its own when a background task completes: its promptId names the task, and its prompt is
+// only the reminder grok wrote. It is no turn of the person's, so it opens, counts and clears nothing.
+const SELF_STARTED_PROMPT_ID = /^task-completed-/;
+const ONLY_REMINDERS = /^\s*(?:<system-reminder>[\s\S]*?<\/system-reminder>\s*)+$/;
+const isSelfStarted = ({ promptId, prompt }) => SELF_STARTED_PROMPT_ID.test(text(promptId)) || ONLY_REMINDERS.test(text(prompt));
+
 // A Stop without a promptId is the one grok fires at session end (`shutdown`, `channel_closed`): no turn ended.
 function turnEndReasonOf(payload, context) {
   const hostEvent = context?.hostEvent ?? payload.hook_event_name;
@@ -40,7 +46,7 @@ export default defineProfile({
   },
   payload: {
     turnId: (payload) => text(payload.promptId) || null,
-    isIgnored: (payload) => Boolean(payload.subagentType),
+    isIgnored: (payload) => Boolean(payload.subagentType) || isSelfStarted(payload),
     // grok's hooks name no model, so the distillation runs on the default model of the person's config.
     model: () => ({ model: null }),
   },
@@ -68,7 +74,8 @@ export default defineProfile({
     unclosed: { settleMs: 2_000, as: 'aborted' },
   },
   commands: { entry: 'intercept', parse: (payload, hostEvent, { prompt }) => promptCommandOf(prompt) },
-  // UserPromptSubmit also answers the evolver-* commands, which may run the evolver CLI for ten minutes.
-  budgets: { prompt: 660_000 },
+  // UserPromptSubmit also answers the evolver-* commands, which may run the evolver CLI for ten minutes; grok gives a
+  // plugin's SessionEnd hook 1.5 s whatever its timeout says.
+  budgets: { prompt: 660_000, sessionEnd: 1_500 },
   model: headlessGrok,
 });

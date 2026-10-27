@@ -47,6 +47,41 @@ test('a shell result carries its exit code; failure then pass reads as a fixed c
   assert.deepEqual(record.paths, ['/Users/you/project/README.md']);
 });
 
+test('a call grok moves to the background has no verdict until its task\'s output settles it under the same call id', () => {
+  const started = noteOf('PostToolUse.run_terminal_command.background');
+  assert.deepEqual(started, { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
+  assert.deepEqual(turnRecordOf([started]).checks, [], 'a check still running is no pass');
+  const output = noteOf('PostToolUse.get_command_or_subagent_output');
+  assert.deepEqual(output, { kind: 'shell', command: 'sleep 2; npm test', exit: 1, output: '\n> test\n> sh check.sh\n\n1 failing\n', callId: 'call_3' });
+  const record = turnRecordOf([noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput'), output]);
+  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', failed: true }]);
+  assert.deepEqual(record.commands, ['sleep 2; npm test'], 'its output is the same command, not a second one');
+  const stillRunning = { ...payload('PostToolUse.get_command_or_subagent_output') };
+  stillRunning.toolResult = { ...stillRunning.toolResult, Result: { ...stillRunning.toolResult.Result, status: 'running', exit_code: null } };
+  assert.deepEqual(grok.evidence.toolNote(stillRunning), { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
+});
+
+test('a turn grok starts itself when a background task completes is no turn of the person\'s', () => {
+  assert.match(grok.payload.prompt(payload('UserPromptSubmit.taskCompleted')), /^<system-reminder>\nBackground task "call_3" completed \(exit code: 1\)/);
+  assert.equal(grok.payload.isIgnored(payload('UserPromptSubmit.taskCompleted')), true);
+  assert.equal(grok.payload.isIgnored(payload('Stop.taskCompleted')), true);
+  assert.equal(grok.payload.isIgnored({ ...payload('UserPromptSubmit.taskCompleted'), promptId: 'p9' }), true, 'its prompt is only a reminder grok wrote');
+  assert.equal(grok.payload.isIgnored({ ...payload('UserPromptSubmit'), prompt: 'fix it\n<system-reminder>x</system-reminder>' }), false);
+  assert.equal(grok.payload.isIgnored(payload('Stop.backgroundRunning')), false, 'the person\'s turn that started the task');
+});
+
+test('a resumed session starts as a load, under the same session id', () => {
+  assert.equal(payload('SessionStart.load').source, 'load');
+  assert.equal(grok.payload.sessionId(payload('SessionStart.load')), grok.payload.sessionId(payload('UserPromptSubmit.taskCompleted')));
+  assert.equal(grok.events.SessionStart, 'sessionStart');
+});
+
+test('an MCP tool that failed is no evidence, but its PostToolUseFailure still carries the strategy', () => {
+  assert.equal(grok.evidence.toolNote(payload('PostToolUseFailure.mcp'), { hostEvent: 'PostToolUseFailure' }), null);
+  assert.equal(grok.events.PostToolUseFailure, 'toolResult');
+  assert.equal(payload('PostToolUseFailure.mcp').error, 'Failed to call fail: boom: the probe tool failed');
+});
+
 test('a result past 128 KiB arrives as the model-facing text, whose exit line still decides; a backgrounded call has no verdict', () => {
   const base = payload('PostToolUse.run_terminal_command.failed');
   const truncated = grok.evidence.toolNote({ ...base, toolResult: 'exit: 2\nlots of output', toolResultTruncated: true });
@@ -57,11 +92,12 @@ test('a result past 128 KiB arrives as the model-facing text, whose exit line st
 
 test('an applied edit or write is an edit; an edit grok could not make is not, and other tools leave no note', () => {
   assert.deepEqual(noteOf('PostToolUse.search_replace'), { kind: 'edit', paths: ['/Users/you/project/README.md'] });
-  assert.deepEqual(noteOf('PostToolUse.write'), { kind: 'edit', paths: ['notes.md'] });
-  assert.deepEqual(noteOf('PostToolUse.search_replace.noMatch'), { kind: 'tool', paths: ['README.md'] });
+  assert.deepEqual(noteOf('PostToolUse.write'), { kind: 'edit', paths: [join('/Users/you/project', 'notes.md')] }, 'absolute, as PreToolUse names it');
+  assert.deepEqual(grok.evidence.editedFiles(payload('PreToolUse.write')), noteOf('PostToolUse.write').paths);
+  assert.deepEqual(noteOf('PostToolUse.search_replace.noMatch'), { kind: 'tool', paths: [join('/Users/you/project', 'README.md')] });
   assert.equal(noteOf('PostToolUse.read_file'), null);
-  const cursorPreset = { toolName: 'StrReplace', toolInput: { path: 'src/a.js', old_string: 'a', new_string: 'b' }, toolResult: { ok: true } };
-  assert.deepEqual(grok.evidence.toolNote(cursorPreset), { kind: 'edit', paths: ['src/a.js'] }, 'the Cursor preset names the file in path');
+  const cursorPreset = { toolName: 'StrReplace', toolInput: { path: 'src/a.js', old_string: 'a', new_string: 'b' }, toolResult: { ok: true }, cwd: '/Users/you/project' };
+  assert.deepEqual(grok.evidence.toolNote(cursorPreset), { kind: 'edit', paths: [join('/Users/you/project', 'src/a.js')] }, 'the Cursor preset names the file in path');
 });
 
 test('the file an edit is about to change is named absolute against the event cwd, in either tool shape', () => {
@@ -112,6 +148,7 @@ test('the plugin sees grok\'s plugin variables; state lives in ~/.evolver/state,
   assert.equal(env.CLAUDE_PLUGIN_ROOT, env.GROK_PLUGIN_ROOT);
   assert.equal(env.GROK_HOOK_EVENT, 'post_tool_use');
   assert.match(grok.stateDir({ HOME: '/h' }), /^[\\/]h[\\/]\.evolver[\\/]state$/);
+  assert.equal(grok.budgets.sessionEnd, 1_500, 'grok gives a plugin\'s SessionEnd hook 1.5 s');
   assert.deepEqual(grok.legacy, []);
   assert.equal(grok.owner, 'parent', 'the hook\'s parent is the grok process, past any sh -c');
 });

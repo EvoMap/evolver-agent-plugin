@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -93,6 +94,19 @@ function session(id) {
       return answerOf('PostToolUse', edit);
     },
     bash: (command, result) => runHook('PostToolUse', shell(command, result)),
+    background: (command) => {
+      const fixture = PAYLOADS['PostToolUse.run_terminal_command.background'];
+      return answerOf('PostToolUse', { ...fixture, ...base, toolInput: { ...fixture.toolInput, command }, toolResult: { ...fixture.toolResult, command } });
+    },
+    taskOutput: (command, exitCode) => {
+      const fixture = PAYLOADS['PostToolUse.get_command_or_subagent_output'];
+      return answerOf('PostToolUse', { ...fixture, ...base, toolResult: { ...fixture.toolResult, Result: { ...fixture.toolResult.Result, command, exit_code: exitCode } } });
+    },
+    mcpFailure: () => runHook('PostToolUseFailure', { ...PAYLOADS['PostToolUseFailure.mcp'], ...base }),
+    selfStarted: async () => {
+      await answerOf('UserPromptSubmit', { ...PAYLOADS['UserPromptSubmit.taskCompleted'], ...base });
+      return answerOf('Stop', { ...PAYLOADS['Stop.taskCompleted'], ...base });
+    },
     stop: (answer) => answerOf('Stop', { ...PAYLOADS.Stop, ...base, promptId: promptId(), lastAssistantMessage: answer, last_assistant_message: answer }),
     cancel: () => answerOf('StopCancelled', { ...PAYLOADS['StopCancelled.max_turns'], ...base, promptId: promptId() }),
     shutdownStop: () => answerOf('Stop', { ...PAYLOADS['Stop.shutdown'], ...base }),
@@ -101,6 +115,7 @@ function session(id) {
 }
 
 const stateFile = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
+const sessionState = (id) => JSON.parse(readFileSync(stateFile(`grok-session-${createHash('sha256').update(id).digest('hex').slice(0, 16)}.json`), 'utf8'));
 const pending = () => (existsSync(stateFile('grok-distill-pending.json')) ? JSON.parse(readFileSync(stateFile('grok-distill-pending.json'), 'utf8')) : {});
 const posted = (path) => proxy.requests.filter((request) => request.path === path).map((request) => request.body);
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
@@ -173,6 +188,69 @@ test('a cancelled turn is reported aborted with the check it ran, and leaves no 
   assert.equal(pending()['s-cut'], undefined);
 });
 
+test('a check grok moved to the background is no pass: the turn reports no check, and its task\'s output settles it', posix, async () => {
+  const s = session('s-background');
+  await s.prompt(PROMPT);
+  await s.edit();
+  assert.deepEqual(await s.background('npm test'), {});
+  await s.stop('The tests are running in the background.');
+  const report = await waitFor(() => reportOf('grok:s-background:1'));
+  assert.equal(report.evidence.check, undefined, 'a check still running is no evidence');
+  assert.notEqual(report.evidence.tier, 'L1');
+  assert.equal(pending()['s-background'], undefined, 'no passing check, no candidate');
+  const settling = session('s-background-settled');
+  await settling.prompt(PROMPT);
+  await settling.edit();
+  await settling.background('npm test');
+  assert.deepEqual(await settling.taskOutput('npm test', 1), {});
+  await settling.stop('The tests failed.');
+  const settled = await waitFor(() => reportOf('grok:s-background-settled:1'));
+  assert.deepEqual([settled.outcome, settled.evidence.check], ['failed', { kind: 'test', passed: false, fail_then_pass: false }]);
+});
+
+const CORRECTION = 'that did not work, the redis retries still fail';
+
+test('a turn grok starts itself when a background task completes neither counts nor clears the last turn\'s reuses', posix, async () => {
+  const s = session('s-wake');
+  await verifiedTurn(s);
+  await waitFor(() => reportOf('grok:s-wake:1'));
+  assert.deepEqual(await s.selfStarted(), {});
+  await s.prompt(CORRECTION);
+  assert.equal((await waitFor(() => reportOf('grok:s-wake:1:correction'))).evidence.stage, 'correction');
+  assert.equal(sessionState('s-wake').turn, 2, 'the person\'s next turn is turn 2');
+});
+
+test('a strategy reaches the model from a failed MCP call, the turn\'s first tool result', posix, async () => {
+  const s = session('s-mcp');
+  await s.prompt(PROMPT);
+  const failed = await s.mcpFailure();
+  assert.equal(failed.code, 0);
+  assert.equal(failed.answer.hookSpecificOutput.hookEventName, 'PostToolUseFailure');
+  assert.match(failed.answer.hookSpecificOutput.additionalContext, /^\[Evolution Memory\]/);
+  assert.deepEqual(await s.read(), {});
+});
+
+test('a session end with a turn still open answers within the 1.5 s grok gives it, and reports the turn aborted', posix, async () => {
+  const s = session('s-open-end');
+  await s.prompt(PROMPT);
+  await s.read();
+  const started = Date.now();
+  assert.deepEqual(await s.end(), {});
+  const took = Date.now() - started;
+  assert.ok(took < 1_500, `took ${took} ms`);
+  assert.equal((await waitFor(() => reportOf('grok:s-open-end:1'))).evidence.aborted, true);
+});
+
+test('a resumed session starts with a load, and its next turn carries the count on', posix, async () => {
+  const s = session('s-resume');
+  await verifiedTurn(s);
+  await s.end();
+  await waitFor(() => reportOf('grok:s-resume:1'));
+  assert.deepEqual(await answerOf('SessionStart', { ...PAYLOADS['SessionStart.load'], sessionId: 's-resume', session_id: 's-resume', cwd: project }), {});
+  await s.prompt('and now the README');
+  assert.equal(sessionState('s-resume').turn, 2, 'a resumed session never repeats a task id');
+});
+
 test('a command typed into the prompt box is answered and blocked: it opens no turn and recalls nothing', posix, async () => {
   const s = session('s-command');
   const fetches = posted('/asset/fetch').length;
@@ -194,7 +272,9 @@ test('the session end distills its candidate through grok -p, headless, in an em
   assert.deepEqual([body.platform, body.trigger, body.user_prompt], ['grok', 'session_end', PROMPT]);
   assert.deepEqual(body.distill_usage, { inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, reasoningOutputTokens: 0 });
   const run = grokRuns().find((entry) => entry.prompt.includes(`## Task\n${PROMPT}`));
-  assert.deepEqual(run.args.slice(0, 4), ['-p', '-', '--output-format', 'json']);
+  assert.equal(run.args[0], '--prompt-file');
+  assert.deepEqual(run.args.slice(2, 4), ['--output-format', 'json']);
+  assert.equal(run.isolation.GROK_CLAUDE_HOOKS_ENABLED, 'false', 'the Claude Code hooks grok imports stay off');
   assert.equal(run.args.includes('-m'), false, 'on the default model of the person\'s config');
   assert.equal(run.headless, '1');
   await waitFor(() => !pending()['s-done']);
