@@ -6,34 +6,35 @@
 
 One plugin that gives AI agents a persistent evolution memory and a live link to the
 [EvoMap network](https://evomap.ai), with no tools for the model to call. Everything runs
-from the host's hooks:
+from the host's hooks or plugin API:
 
 - **Recall.** For each prompt you send, it picks one reusable strategy that fits the task
   and adds it to the turn.
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
-  the turn ran, and shows a one-line summary: whether the goal was reached, and roughly
-  how many tokens the reused strategy saved.
-- **Distill.** After a turn that edited files and ended on a passing test, build, lint or
-  type-check, it reads the lesson back and keeps it as a draft. Nothing reaches the
-  network until you publish the draft.
+  the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
+  and roughly how many tokens the reused strategy saved.
+- **Distill.** After the session ends, its last turn that edited files and ended on a
+  passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
+  the network until you publish the draft.
 
 ## Hosts
 
-The plugin is the access layer: shared logic lives in `lib/`, and each host gets a thin
-adapter that turns its hook events into that logic's calls.
+The plugin is the access layer: shared logic lives in `lib/`, and each host is a profile in
+`hosts/<host>/` that says where it differs, plus what the host installs.
 
 | Host | Status | Adapter |
 |---|---|---|
-| Claude Code 2.1.286+ | Supported | `hooks/register.ts`, a function-hooks module |
+| Claude Code 2.1.286+ | Supported | `hosts/claude-code`, a hooks module relaying to a Node process; installs `dist/claude-code` |
 | WorkBuddy / CodeBuddy | Supported | `hosts/workbuddy`, command hooks; installs `dist/workbuddy` |
 | Cursor | Supported | `hosts/cursor`, command hooks; installs the repo root |
 | Antigravity | Supported | `hosts/antigravity`, command hooks; installs `dist/antigravity` |
 | OpenCode 1.19.4+ | Supported | `hosts/opencode`, an in-process plugin; installs `dist/opencode` |
 | Any MCP client without hooks (Kiro, openclaw, …) | Supported | `hosts/mcp-generic`, `node bin/mcp.mjs mcp-generic` over stdio |
-| Codex, Muse Code | Not yet | Need a command-hook adapter on Evolver's normalized event API |
+| Codex | Supported | `hosts/codex`, command hooks; installs `dist/codex` |
+| Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
-Every host but Claude Code runs on one stack (`lib/channels`, `lib/agent`, `lib/app`, `lib/runtime`), described in
+Every host runs on one stack (`lib/channels`, `lib/agent`, `lib/app`, `lib/runtime`), described in
 [`docs/architecture.md`](docs/architecture.md); `hosts/README.md` lists how each host differs.
 
 ## Install (Claude Code)
@@ -45,12 +46,18 @@ In Claude Code:
 /plugin install evolver-agent-plugin@evolver-agent-plugin
 ```
 
-Restart Claude Code afterwards. To update, refresh the marketplace first, then the
+The marketplace installs `dist/claude-code` from the `release` branch, which CI builds from
+every tested push to `main`; Node.js 22.13+ must be on the `PATH` (or set `node_path` in
+`/config`). Restart Claude Code afterwards. To update, refresh the marketplace first, then the
 plugin, and restart:
 
 ```bash
 claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-agent-plugin@evolver-agent-plugin
 ```
+
+Claude Code updates an installed plugin only when its version changes, so a release meant
+to reach installs bumps `version` in `hosts/claude-code/dist/.claude-plugin/plugin.json`. To
+try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
 
 Run one Evolver plugin, not several: if `evolver-mods@evolver-mods` or `evolver@evolver`
 is installed, disable it so that each reuse is reported only once:
@@ -61,8 +68,8 @@ claude plugin disable evolver-mods@evolver-mods
 
 ## Install (other hosts)
 
-WorkBuddy, Antigravity and OpenCode install a folder packed for them (`npm run pack`, into `dist/<host>`). CI packs
-every tested push to `main` and commits the result to the `release` branch: `main` plus `dist/`.
+WorkBuddy, Codex, Antigravity and OpenCode install a folder packed for them too (`npm run pack`, into
+`dist/<host>`), from the `release` branch.
 
 - **WorkBuddy / CodeBuddy:** `/plugin marketplace add EvoMap/evolver-agent-plugin`, then
   `/plugin install evolver@evomap-workbuddy`; the marketplace installs `dist/workbuddy` from the `release` branch. It
@@ -90,13 +97,14 @@ so nothing is reported twice or lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state: node, pending messages, last Hub sync |
-| `/evolver-search <task or error text>` | Adds the best matching network strategy to the conversation |
-| `/evolver-distill [focus]` | Distills the last verified turn into a draft |
+| `/evolver-status` | Proxy state, engine setup, the distillation candidate and waiting drafts |
+| `/evolver-search <task or error text>` | Finds the best matching network strategy |
+| `/evolver-distill [focus]` | Distills the last verified turn into a draft now |
 | `/evolver-drafts [publish\|discard <number>]` | Lists drafts; publishes one for Hub review or drops it |
+| `/evolver-evolve [focus]` | An evolution checkpoint the agent answers |
 
-`/evolver-agent-plugin:run`, `:review`, `:solidify` and `:sync` drive the full Evolver CLI
-when it is installed.
+`/evolver-run`, `/evolver-review`, `/evolver-solidify` and `/evolver-sync` drive the Evolver CLI. How each host
+reaches the commands is in `hosts/README.md`.
 
 ## Connect the EvoMap network (optional)
 
@@ -124,7 +132,8 @@ Commands, settings and troubleshooting are in [`docs/architecture.md`](docs/arch
 ```bash
 npm ci
 npm test
-claude --plugin-dir ./
+npm run pack
+claude --plugin-dir dist/claude-code
 ```
 
 ## License

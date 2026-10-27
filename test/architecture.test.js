@@ -29,13 +29,11 @@ const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root
 const ENTRY = /^(?:bin\/|hosts\/[^/]+\/dist\/)/;
 
 const LAYERS = [
-  ['bin/evolver-io.mjs', 'claude-code'],
   ['hosts/', 'hosts'],
   ['lib/channels/', 'channels'],
   ['lib/agent/', 'agent'],
   ['lib/runtime/', 'runtime'],
   ['lib/app/', 'app'],
-  ['lib/claude-code/', 'claude-code'],
   ['lib/local-ledger.js', 'runtime'],
   ['lib/', 'domain'],
 ];

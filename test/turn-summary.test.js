@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { changedLinesOf } from '../lib/claude-code/tool-calls.js';
 import { referenceReuseSavings } from '../lib/savings.js';
 import { turnSummaryOf } from '../lib/turn-summary.js';
 
@@ -11,12 +10,6 @@ test('savings follow evolver-core savingsCore 0.3.0 for a reference reuse', () =
   assert.deepEqual(referenceReuseSavings(30), { tokens: 57_600, usd: 0.52, basis: 'estimated_blast_radius' });
   assert.deepEqual(referenceReuseSavings(0), { tokens: 72_000, usd: 0.65, basis: 'estimated_default' });
   assert.equal(referenceReuseSavings(10_000).tokens, 240_000);
-});
-
-test('changed lines count what an edit removed and wrote', () => {
-  assert.equal(changedLinesOf({ old_string: 'a\nb', new_string: 'c\nd\ne' }), 5);
-  assert.equal(changedLinesOf({ content: 'one\ntwo' }), 2);
-  assert.equal(changedLinesOf({ edits: [{ old_string: 'x', new_string: 'y' }, { old_string: 'p', new_string: 'q\nr' }] }), 5);
 });
 
 test('a turn that reused nothing shows nothing', () => {

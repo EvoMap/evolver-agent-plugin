@@ -1,0 +1,24 @@
+{
+  "captured": {
+    "from": "Claude Code 2.1.308, a hooks module logging each event's input in `claude -p` (the model call itself failed to sign in, so the turn ended in error); the session folder is replaced by /proj",
+    "session": { "id": "648e9822-744c-4bf4-9aba-f4752356ca2e", "cwd": "/proj", "model": "claude-haiku-5-5" },
+    "sessionStart": { "cwd": "/proj", "surface": null, "isInteractive": false },
+    "promptSubmit": { "text": "Create add.js exporting function add(a, b) returning a + b, and add.test.js testing it with node:test and node:assert. Then run: node --test . Reply with one line.", "wait": false, "origin": { "kind": "sdk" } },
+    "turnStart": { "text": "Create add.js exporting function add(a, b) returning a + b, and add.test.js testing it with node:test and node:assert. Then run: node --test . Reply with one line.", "turnId": "7c933363-a818-4471-9b5d-80ff6d743994" },
+    "turnComplete": { "answer": "", "durationMs": 36, "isAborted": false, "turnId": "7c933363-a818-4471-9b5d-80ff6d743994", "reason": "error" },
+    "sessionEnd": { "reason": "other", "sessionId": "648e9822-744c-4bf4-9aba-f4752356ca2e", "resume": { "id": "648e9822-744c-4bf4-9aba-f4752356ca2e" } }
+  },
+  "typed": {
+    "from": "the tool.call input (ToolCallReserved plus BuiltinToolInputs) and result (ToolCallResult) of Claude Code 2.1.308's hooks-module types",
+    "bash": { "tool": "Bash", "command": "node --test", "description": "Run the tests", "tool_use_id": "toolu_01" },
+    "bashPassed": { "ref": 1, "result": { "stdout": "# pass 1\n# fail 0", "stderr": "" }, "text": "# pass 1\n# fail 0" },
+    "bashFailed": { "ref": 2, "result": { "stdout": "# pass 0\n# fail 1", "stderr": "" }, "text": "# pass 0\n# fail 1", "isError": true },
+    "bashInBackground": { "tool": "Bash", "command": "npm test", "run_in_background": true, "tool_use_id": "toolu_02" },
+    "edit": { "tool": "Edit", "file_path": "/proj/add.js", "old_string": "a - b", "new_string": "a + b", "tool_use_id": "toolu_03" },
+    "write": { "tool": "Write", "file_path": "/proj/add.test.js", "content": "import { test } from 'node:test';\n", "tool_use_id": "toolu_04" },
+    "editDone": { "ref": 3, "result": { "filePath": "/proj/add.js" }, "text": "The file /proj/add.js has been updated." },
+    "denied": { "deny": "Permission denied by the person" },
+    "read": { "tool": "Read", "file_path": "/proj/README.md", "tool_use_id": "toolu_05" },
+    "subagentBash": { "tool": "Bash", "command": "node --test", "tool_use_id": "toolu_06", "agentId": "agent_7" }
+  }
+}

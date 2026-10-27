@@ -2,7 +2,7 @@
   "name": "@evomap/evolver-agent-plugin",
   "version": "0.1.0",
   "private": true,
-  "description": "Evolver as one agent plugin with no tools: strategy recall, edit signals, evidence-backed reuse reports and distillation of verified turns, all from hooks. Claude Code is the first host.",
+  "description": "Evolver as one agent plugin with no tools: strategy recall, evidence-backed reuse reports and distillation of verified turns, from each host's hooks, plugin API or MCP.",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
@@ -10,7 +10,7 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
-    "validate": "claude plugin validate .",
+    "validate": "node scripts/pack.mjs claude-code dist/claude-code && claude plugin validate dist/claude-code",
     "dev:sync": "bash scripts/sync-dev-mod.sh",
     "pack": "node scripts/pack.mjs all dist"
   },
