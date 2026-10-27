@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "evolver-plugin",
+    "description": "EvoMap 出品的 Evolver：每次提问前召回一条验证过的策略，回合结束时按证据报告它是否奏效，会话结束后把验证过的工作沉淀为基因。"
+  }
+}

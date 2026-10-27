@@ -31,20 +31,20 @@ Every host also honours `EVOLVER_RECALL=off`, which turns recall off.
 
 From each host's reviewed standalone plugin; bold is where it differs from the default.
 
-| Point | WorkBuddy | Cursor | Antigravity | OpenCode | MCP client | Codex |
-|---|---|---|---|---|---|---|
-| Channel | hook | hook | hook | **plugin** | **mcp** | hook |
-| Prompt from | payload | payload | **transcript** | **message parts** | **`task` argument** | payload |
-| Session start | event | event | **owner-change** | **first prompt in the instance** | **connection** | event |
-| Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext; **a command blocks the prompt (`decision: block`)** |
-| Evidence | **transcript at turn end** | hook exit codes, **answer from afterAgentResponse** | **transcript step exit codes** | **`metadata.exit`** | **agent-reported** | hook output, **no Bash exit code**; edits from `apply_patch` patches |
-| Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop, **Interrupt aborts** |
-| Session end | event | event, **for its generation** | **none: the next session start reports and distills a session whose owner exited** | **deleted / dispose** | **connection close** | event; **before 0.145 the next session start reports and distills a session whose owner exited** |
-| Commands | **inline-script** | **intercept** | cli-only: `node <plugin>/bin/command.mjs antigravity evolver-status` | **prompt / TUI** | **tool** | **intercept, typed without a slash** |
-| Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/i`** |
-| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --ignore-user-config`, **hooks and plugins off, JSONL on stdout, empty folder** |
-| State | **plugin data folder** | default | default | default | default | default |
-| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`.agents/plugins/marketplace.json`) |
+| Point | WorkBuddy | Cursor | Antigravity | OpenCode | MCP client | Codex | DeepSeek Harness |
+|---|---|---|---|---|---|---|---|
+| Channel | hook | hook | hook | **plugin** | **mcp** | hook | **plugin** |
+| Prompt from | payload | payload | **transcript** | **message parts** | **`task` argument** | payload | **the `user` messages of a turn's first `agent/pre-step`** |
+| Session start | event | event | **owner-change** | **first prompt in the instance** | **connection** | event | **`agent/created` (`agent/session-start` before 0.2), or the first step in the process** |
+| Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext; **a command blocks the prompt (`decision: block`)** | **a `plugin:evolver` message appended to the step; a late recall joins the turn's next step** |
+| Evidence | **transcript at turn end** | hook exit codes, **answer from afterAgentResponse** | **transcript step exit codes** | **`metadata.exit`** | **agent-reported** | hook output, **no Bash exit code**; edits from `apply_patch` patches | **`tools/execute` results: bash `value.exitCode`, else its `[exit code: N]` marker** |
+| Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop, **Interrupt aborts** | **`turn/end` reason; `blocked` aborts** |
+| Session end | event | event, **for its generation** | **none: the next session start reports and distills a session whose owner exited** | **deleted / dispose** | **connection close** | event; **before 0.145 the next session start reports and distills a session whose owner exited** | **`session/disposed`, or the plugin's unload (headless and the TUI never dispose)** |
+| Commands | **inline-script** | **intercept** | cli-only: `node <plugin>/bin/command.mjs antigravity evolver-status` | **prompt / TUI** | **tool** | **intercept, typed without a slash** | **prompt: the dsh command registry, answered in its UI; `/evolver-evolve` a follow-up turn** |
+| Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/i`** | **self** |
+| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --ignore-user-config`, **hooks and plugins off, JSONL on stdout, empty folder** | **dsh's model service (`llm.stream`) on the session's route** |
+| State | **plugin data folder** | default | default | default | default | default | default |
+| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`.agents/plugins/marketplace.json`) | **`dist/dsh` on the `release` branch, as `@evomap/dsh-evolver` (`dsh plugin add -w <folder>`; npm not published yet)** |
 
 ## Adding a host
 
