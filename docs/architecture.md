@@ -96,7 +96,7 @@ an empty answer per event, whether an injection lasts the turn or one model call
 wait joins a running turn); where evidence comes from (tool hooks, or a transcript read from the turn's start); how
 a turn ends (its reason, `'unknown'` to wait, and how long to wait for a late end); how commands are typed
 (`intercept`, `inline-script`, `prompt`, `tool`, `cli-only`). The runtime executes what the profile declares: time
-budgets per event, the owner process (`self`, `parent`, or a named ancestor), the headless model (a CLI, an SDK
+budgets per event, the owner process (`self`, `spawner`, `parent`, or a named ancestor), the headless model (a CLI, an SDK
 call, the agent's own model in the session, or none) and the state directory, and what the host's standalone plugin
 left in it (adopted once, so a resumed session keeps counting turns and nothing undelivered is lost).
 `hosts/README.md` holds the matrix of every host against these points.
@@ -138,11 +138,15 @@ functions declared in the module's own file (`claude plugin validate` refuses `$
 spawn's loop is the relay's life, so the relay ends with the module, and a relay that died is started again by the
 next event. The module sends each event over `$.http.fetch` with that token, as the profile's host events, and
 applies the answers: `$.session.append` for a strategy, `$.ui.toast` for a notice, `{ text, context }` for a
-command, `$.prompt.submit` for `/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. In the
+command, `$.prompt.submit` for `/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. Text
+appended in `turn.start` never reaches the turn's first request, so a recall never waits there: the strategy is
+appended when it lands, only while its turn is still open (and is then kept out of the session's later recalls), and
+booked at the turn's next main-loop `turn.step` after the first; a turn that ends first books nothing. In the
 relay, the plugin channel runs as for any in-process host, with the same file state as every other host. The
 relay's model is the session's own: its distillations queue there, and the module pulls each one, runs it with
-`$.model.complete` outside the conversation and posts the answer back. The relay exits when the process that
-started it is gone.
+`$.model.complete` outside the conversation and posts the answer back. The relay's owner is the process that
+started it (`spawner`), Claude Code itself, and the relay exits once that is gone. A relay that does not start
+within 15 s is ended, and the next start waits longer after each failure.
 
 **Packing and publishing.** WorkBuddy copies only its plugin folder and loads every component folder at that
 folder's root, Antigravity installs a whole repo and loads its skills, commands and agents, OpenCode loads an npm

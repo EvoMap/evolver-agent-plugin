@@ -80,10 +80,18 @@ packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch.
 plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
 injections, undelivered reports), so nothing is lost on the way over.
 
-- **WorkBuddy / CodeBuddy:** uninstall `evolver@evomap-workbuddy`, then `/plugin marketplace add
-  EvoMap/evolver-agent-plugin` and `/plugin install evolver-plugin@evomap-workbuddy`; the marketplace installs
-  `dist/workbuddy` from the `release` branch. Its first session moves the old plugin's data folder
-  (`evolver-evomap-workbuddy`) into its own. WorkBuddy updates an installed plugin only
+- **WorkBuddy / CodeBuddy:** keep the old plugin's data when you remove it (WorkBuddy deletes a plugin's data
+  folder on uninstall otherwise), then replace its marketplace, which has the same name:
+
+  ```text
+  /plugin uninstall evolver@evomap-workbuddy --keep-data
+  /plugin marketplace remove evomap-workbuddy
+  /plugin marketplace add EvoMap/evolver-agent-plugin
+  /plugin install evolver-plugin@evomap-workbuddy
+  ```
+
+  The marketplace installs `dist/workbuddy` from the `release` branch, and the first session moves the old data
+  folder's files (`evolver-evomap-workbuddy`) into the new one. WorkBuddy updates an installed plugin only
   when its version changes, so a release meant to reach installs bumps the version in
   `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
   build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a

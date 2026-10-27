@@ -53,8 +53,8 @@ function streamOf(child) {
 }
 
 /** A Claude Code session over the packed module: `call(event, input, ran)` raises a hook as the engine does. */
-async function session(t, { options = { node_path: process.execPath } } = {}) {
-  const proxy = await fakeProxy({ distillAnswer: DRAFTED });
+async function session(t, { options = { node_path: process.execPath }, spawnOf, delays } = {}) {
+  const proxy = await fakeProxy({ distillAnswer: DRAFTED, delays });
   const project = realpathSync(mkdtempSync(join(tmpdir(), 'evolver-claude-code-project-')));
   mkdirSync(join(project, 'lib'));
   writeFileSync(join(project, 'lib', 'redis.js'), 'export const retries = 3;\n');
@@ -85,11 +85,11 @@ async function session(t, { options = { node_path: process.execPath } } = {}) {
       signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); });
     }) },
     process: {
-      spawn: ({ argv, env }) => {
+      spawn: spawnOf ?? (({ argv, env }) => {
         const child = spawn(argv[0], argv.slice(1), { env: { ...proxy.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
         children.push(child);
         return streamOf(child);
-      },
+      }),
     },
     model: { complete: async (request) => {
       seen.completions.push(request);
@@ -133,6 +133,7 @@ async function recalledTurn(cc, turnId = 't1') {
   const before = cc.seen.appended.length;
   await cc.call('turn.start', { text: PROMPT, turnId });
   await until(() => cc.seen.appended.length > before, 'the strategy to land');
+  await cc.step(turnId, 0);
   await cc.step(turnId, 1);
 }
 
@@ -236,4 +237,42 @@ test('a session end closes its open turn as aborted and reports the strategy it 
   await cc.call('session.end', captured.sessionEnd);
   const [report] = await until(() => reuseReports(cc.proxy).length > 0 && reuseReports(cc.proxy), 'the aborted report');
   assert.deepEqual([report.task_id, report.evidence.aborted], [`claude-code:${captured.session.id}:1`, true]);
+});
+
+test('a recall that lands after its turn ended is not added, and the next turn may recall it afresh', async (t) => {
+  const cc = await session(t, { delays: { '/asset/fetch': 800 } });
+  await cc.call('session.start', captured.sessionStart);
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await cc.call('turn.complete', { answer: 'Quick answer.', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' }, () => ({ text: '' }));
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.deepEqual(cc.seen.appended, []);
+  await recalledTurn(cc, 't2');
+  assert.equal(cc.seen.appended.length, 1);
+});
+
+test('a relay that never starts is ended after the wait, and not started again on every event', async (t) => {
+  const started = [];
+  // As the engine's spawn stream: `return()` ends the child at once, even while a read waits.
+  const silent = () => {
+    const stream = {
+      ended: false,
+      next: () => new Promise(() => {}),
+      return: async () => { stream.ended = true; return { done: true, value: undefined }; },
+      [Symbol.asyncIterator]() { return stream; },
+    };
+    started.push(stream);
+    return stream;
+  };
+  const cc = await session(t, { spawnOf: silent });
+  const before = Date.now();
+  await cc.call('session.start', captured.sessionStart);
+  assert.ok(Date.now() - before >= 14_000, 'the start waited for the relay');
+  assert.equal(started[0].ended, true, 'the silent relay was ended');
+  assert.ok(cc.seen.commands.length > 0, 'the commands registered anyway');
+  const next = Date.now();
+  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await cc.call('session.end', captured.sessionEnd);
+  assert.ok(Date.now() - next < 1_000, 'later events do not wait for a relay that failed to start');
+  assert.equal(started.length, 1);
 });

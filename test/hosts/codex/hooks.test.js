@@ -88,6 +88,7 @@ function session(id) {
       return runHook('PostToolUse', { ...PAYLOADS['PostToolUse.apply_patch'], ...tool('apply_patch', patch, { tool_response: PATCH_APPLIED }) });
     },
     bash: (command, output) => runHook('PostToolUse', { ...PAYLOADS['PostToolUse.Bash.passed'], ...tool('Bash', command, { tool_response: output }) }),
+    promptMidTurn: (prompt) => runHook('UserPromptSubmit', { ...PAYLOADS.UserPromptSubmit, ...base, turn_id: turnId(), prompt }),
     stop: (answer) => runHook('Stop', { ...PAYLOADS.Stop, ...base, turn_id: turnId(), last_assistant_message: answer }),
     interrupt: () => runHook('Interrupt', { ...PAYLOADS.Interrupt, ...base, turn_id: turnId() }),
     end: () => runHook('SessionEnd', { ...PAYLOADS.SessionEnd, ...base }),
@@ -146,6 +147,13 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   assert.ok(readdirSync(stateFile('')).every((name) => name.startsWith('codex-')), 'every state file carries the agent name');
 });
 
+test('evolver-evolve typed while a turn runs still hands that turn its checkpoint', posix, async () => {
+  const s = session('s-evolve-mid');
+  await s.prompt(PROMPT);
+  const answer = await s.promptMidTurn('evolver-evolve the retries');
+  assert.match(answer.hookSpecificOutput.additionalContext, /^Take a deliberate evolution step[\s\S]*Focus on: the retries/);
+});
+
 test('a command typed into the prompt box is answered and blocked: it opens no turn and recalls nothing', posix, async () => {
   const s = session('s-command');
   const fetches = posted('/asset/fetch').length;
@@ -185,8 +193,8 @@ test('the session end distills its candidate through codex exec, headless, on th
   const body = await waitFor(() => posted('/conversation/distill').find((entry) => entry.session_id === 'codex:s-done'));
   assert.deepEqual([body.platform, body.trigger, body.user_prompt], ['codex', 'session_end', PROMPT]);
   assert.deepEqual(body.distill_usage, { inputTokens: 900, cachedInputTokens: 0, outputTokens: 120, reasoningOutputTokens: 0 });
-  const run = codexRuns().find((entry) => entry.prompt.includes(`## Task\n${PROMPT}`));
-  assert.deepEqual(run.args.slice(0, 6), ['exec', '--ephemeral', '--skip-git-repo-check', '--ignore-rules', '--ignore-user-config', '--json']);
+  const run = codexRuns().find((entry) => entry.prompt?.includes(`## Task\n${PROMPT}`));
+  assert.deepEqual(run.args.slice(0, 5), ['exec', '--ephemeral', '--skip-git-repo-check', '--ignore-rules', '--json']);
   assert.deepEqual(run.args.slice(run.args.indexOf('-m'), run.args.indexOf('-m') + 2), ['-m', 'gpt-5.5']);
   assert.equal(run.headless, '1');
   await waitFor(() => !pending()['s-done']);

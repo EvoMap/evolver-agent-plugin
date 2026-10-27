@@ -180,9 +180,9 @@ async function startSession($: EngineInterface, options: PluginOptions): Promise
   if (answer.toast) $.ui.toast(answer.toast)
 }
 
-// A recall lands after `turn.start`, which holds no model call: the strategy is added to the conversation when it
-// lands and booked by the relay at the turn's next main-loop step, the first that carries it. A turn that ends first
-// books nothing.
+// A recall lands after `turn.start`, whose text never reaches the turn's first request: the strategy is added to the
+// conversation when it lands, while its turn is open, and booked by the relay at the turn's next main-loop step after
+// the first, the first that can carry it. A turn that ends first books nothing.
 async function addWhenLanded($: EngineInterface, options: PluginOptions, turnId: string, id: string): Promise<void> {
   const landed: Landed | null = await post($, options, '/late', { id })
   if (!landed) return
@@ -233,7 +233,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId === undefined) await quietly(bookCarried($, options, e.turnId))
+    if (e.agentId === undefined && e.index > 0) await quietly(bookCarried($, options, e.turnId))
     return yield* next(e)
   })
 
@@ -264,10 +264,10 @@ export const register: Register = (on, options) => {
     return { text: answer.text ?? '', ...(answer.context ? { context: answer.context } : {}), ...(answer.exitCode ? { exitCode: answer.exitCode } : {}) }
   }).catch(($, e, next) => next(e))
 
-  // Every plugin's `session.end` shares one short bound, so the relay only writes; one that is not running is not
-  // started for it, and the next session start settles what this one left.
+  // Every plugin's `session.end` shares one short bound, so the relay only writes; one that is not listening is neither
+  // started nor waited for, and the next session start settles what this one left.
   on('session.end', async ($, e, next) => {
-    if (relay) await quietly(raise($, options, 'session.end', { session_id: e.sessionId }))
+    if (current) await quietly(raise($, options, 'session.end', { session_id: e.sessionId }))
     promptOrigins.clear()
     carried.clear()
     return next(e)

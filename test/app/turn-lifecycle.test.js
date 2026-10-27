@@ -280,3 +280,27 @@ test('a correction that slips in while a re-judge reads its record still drops t
   await rejudged;
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
+
+test('a turn nobody typed carries on the task of the last one, so its candidate still says what it was for', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await end(ports, 's1');
+  await promptSubmitted(ports, { sessionId: 's1', prompt: '', ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/a.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
+  await end(ports, 's1');
+  assert.deepEqual([(await ports.candidates.read()).s1.turn, (await ports.candidates.read()).s1.prompt], [2, PROMPT]);
+});
+
+test('a strategy shown before any step carried it is offered by no later recall of the session, and not reported', async () => {
+  const { ports, queued } = memoryPorts();
+  const { late } = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, waitMs: 0, keepLate: true });
+  const landed = await late;
+  assert.equal(await landed.show(), true);
+  await end(ports, 's1');
+  assert.deepEqual(queued, []);
+  const again = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, waitMs: 0, keepLate: true });
+  assert.equal(await again.late, null);
+  await end(ports, 's1');
+  assert.equal(await landed.show(), false, 'its turn is over');
+});

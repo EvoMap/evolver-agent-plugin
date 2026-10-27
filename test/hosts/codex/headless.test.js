@@ -17,20 +17,33 @@ const ownerIn = (rows) => {
   return ownerProbeOf(codex.owner, { probe: (pid) => table.get(pid) ?? null, platform: 'darwin' }).current();
 };
 
-test('the distillation is one read-only codex exec on the session model, with hooks, plugins and the user config off', () => {
-  assert.deepEqual(codex.model.args({ model: 'gpt-5.5' }, 'PROMPT', { workdir: '/tmp/evolver-model-x' }), [
-    'exec', '--ephemeral', '--skip-git-repo-check', '--ignore-rules', '--ignore-user-config', '--json',
+test('the distillation is one read-only codex exec on the session model, with hooks, plugins and every MCP server off', () => {
+  assert.deepEqual(codex.model.args({ model: 'gpt-5.5' }, 'PROMPT', { workdir: '/tmp/evolver-model-x', preflight: ['github', 'docs'] }), [
+    'exec', '--ephemeral', '--skip-git-repo-check', '--ignore-rules', '--json',
     '--sandbox', 'read-only',
     '--disable', 'hooks', '--disable', 'plugins', '--disable', 'shell_tool', '--disable', 'apps', '--disable', 'multi_agent',
     '-c', 'web_search="disabled"',
+    '-c', 'mcp_servers.github.enabled=false', '-c', 'mcp_servers.docs.enabled=false',
     '-m', 'gpt-5.5',
     '-C', '/tmp/evolver-model-x',
     '-',
   ]);
-  assert.equal(codex.model.args({ model: 'gpt 5; rm -rf /' }, 'PROMPT', { workdir: '/w' }).includes('-m'), false, 'a model name no flag can carry runs on the default');
+  assert.equal(codex.model.args({ model: 'gpt 5; rm -rf /' }, 'PROMPT', { workdir: '/w', preflight: [] }).includes('-m'), false, 'a model name no flag can carry runs on the default');
+  assert.equal(codex.model.args({ model: 'gpt-5.5' }, 'PROMPT', { workdir: '/w', preflight: [] }).includes('--ignore-user-config'), false, 'the person\'s model provider stays');
   assert.equal(codex.model.input, undefined, 'the prompt goes on stdin, which `-` names');
   assert.equal(codex.model.workdir, 'empty');
   assert.deepEqual(codex.model.command.names, ['codex']);
+  assert.ok(codex.model.command.dirs({ HOME: '/h' }).includes('/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin'), 'Codex Desktop\'s CLI is off the PATH');
+});
+
+test('the MCP servers are listed under the same flags first; a listing that cannot be read runs no model', () => {
+  assert.deepEqual(codex.model.preflight.args.slice(-3), ['mcp', 'list', '--json']);
+  const parse = codex.model.preflight.parse;
+  assert.deepEqual(parse({ code: 0, stdout: fixture('mcp-list-0.164.json') }), ['demo'], 'as Codex 0.164 lists them');
+  assert.deepEqual(parse({ code: 0, stdout: '[{"name":"github","enabled":true},{"name":"off","enabled":false}]' }), ['github']);
+  assert.equal(parse({ code: 1, stdout: '' }), null);
+  assert.equal(parse({ code: 0, stdout: 'not json' }), null);
+  assert.equal(parse({ code: 0, stdout: '[{"name":"has space","enabled":true}]' }), null, 'a name no override can address');
 });
 
 test('the answer is the last agent message of the --json events and the usage that of the turn', () => {
@@ -56,12 +69,14 @@ test('the runner finds codex on PATH and runs it headless in an empty folder, th
   const scratch = mkdtempSync(join(tmpdir(), 'evolver-codex-headless-'));
   try {
     const log = join(scratch, 'calls.jsonl');
-    const env = { ...process.env, PATH: [FAKE_CODEX, dirname(process.execPath), process.env.PATH].join(delimiter), FAKE_CODEX_NODE: process.execPath, FAKE_CODEX_LOG: log };
+    const env = { ...process.env, PATH: [FAKE_CODEX, dirname(process.execPath), process.env.PATH].join(delimiter), FAKE_CODEX_NODE: process.execPath, FAKE_CODEX_LOG: log, FAKE_CODEX_MCP: '[{"name":"github","enabled":true}]' };
     const runner = modelRunnerOf(codex.model, env);
     const reply = await runner.complete({ model: 'gpt-5.5' }, '## Task\nadd a retry', AbortSignal.timeout(10_000));
     assert.equal(JSON.parse(reply.answer).title, 'Retry uploads');
     assert.deepEqual(reply.usage, { inputTokens: 900, cachedInputTokens: 0, outputTokens: 120, reasoningOutputTokens: 0 });
-    const [call] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    const [listing, call] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(listing.mcp, true);
+    assert.deepEqual(call.args.slice(call.args.indexOf('mcp_servers.github.enabled=false') - 1).slice(0, 2), ['-c', 'mcp_servers.github.enabled=false']);
     assert.equal(call.prompt, '## Task\nadd a retry');
     assert.equal(call.headless, '1');
     const workdir = call.args.at(-2);
@@ -73,8 +88,18 @@ test('the runner finds codex on PATH and runs it headless in an empty folder, th
   }
 });
 
-test('without a codex to run there is no headless model', () => {
-  assert.equal(modelRunnerOf(codex.model, { PATH: '/nonexistent' }), null);
+test('without a codex to run there is no headless model, and a listing that fails runs none', posix, async () => {
+  const nowhere = { ...codex.model, command: { ...codex.model.command, dirs: () => [] } };
+  assert.equal(modelRunnerOf(nowhere, { PATH: '/nonexistent' }), null);
+  const scratch = mkdtempSync(join(tmpdir(), 'evolver-codex-headless-'));
+  try {
+    const log = join(scratch, 'calls.jsonl');
+    const env = { ...process.env, PATH: [FAKE_CODEX, dirname(process.execPath), process.env.PATH].join(delimiter), FAKE_CODEX_NODE: process.execPath, FAKE_CODEX_LOG: log, FAKE_CODEX_MCP: 'fail' };
+    await assert.rejects(modelRunnerOf(codex.model, env).complete({ model: 'gpt-5.5' }, 'p', AbortSignal.timeout(10_000)), /no safe way to run the model/);
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line).mcp), [true], 'only the listing ran');
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test('the owner is the nearest ancestor named codex*, past the login shell Codex runs the hook in', () => {

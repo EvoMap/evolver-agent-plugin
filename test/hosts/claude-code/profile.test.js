@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/claude-code/profile.js';
+import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 import { endedTurnSummaryOf as summaryLineOf } from '../../../lib/turn-summary.js';
 
 const { captured, typed } = JSON.parse(readFileSync(new URL('../../fixtures/claude-code/events.json', import.meta.url), 'utf8'));
@@ -78,7 +79,8 @@ test('a turn that reused a strategy ends with the one-line summary; any other tu
 
 test('the relay runs under Claude Code: its owner is the process that started it, its model the session\'s', () => {
   assert.equal(profile.channel, 'relay');
-  assert.equal(profile.owner, 'parent');
+  assert.equal(profile.owner, 'spawner');
+  assert.equal(ownerProbeOf(profile.owner, { platform: 'win32' }).current(), process.ppid, 'on Windows too, where no process table is read');
   assert.deepEqual(profile.budgets, { prompt: 0 }, 'turn.start holds no model call, so every recall is a late one');
   assert.deepEqual(profile.model, { kind: 'sdk' });
   assert.equal(profile.payload.model({ model: captured.session.model }), 'claude-haiku-5-5');

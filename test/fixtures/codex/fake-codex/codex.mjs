@@ -2,6 +2,14 @@ import { appendFileSync } from 'node:fs';
 
 const GENE = { title: 'Retry uploads', summary: 'Retry a flaky upload with backoff.', strategy: '1. Measure. 2. Back off.', signals: ['retry'] };
 
+// `mcp list --json` answers FAKE_CODEX_MCP (a JSON listing; `fail` exits 1), and is logged like a run.
+if (process.argv.slice(2).includes('mcp')) {
+  appendFileSync(process.env.FAKE_CODEX_LOG, `${JSON.stringify({ args: process.argv.slice(2), mcp: true })}\n`);
+  if (process.env.FAKE_CODEX_MCP === 'fail') process.exit(1);
+  process.stdout.write(process.env.FAKE_CODEX_MCP ?? '[]');
+  process.exit(0);
+}
+
 let prompt = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { prompt += chunk; });

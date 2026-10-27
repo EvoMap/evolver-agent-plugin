@@ -108,15 +108,16 @@ node ~/.codex/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs code
 ## Session-end distillation
 
 When the session ends, a detached process runs Codex itself headless on the session's model —
-`codex exec --ephemeral --json --sandbox read-only --ignore-user-config --disable hooks --disable plugins --disable shell_tool …`
+`codex exec --ephemeral --json --sandbox read-only --disable hooks --disable plugins --disable shell_tool …`
 in an empty folder, with the prompt on stdin — to write a Gene from a digest of the candidate turn (task,
 commands, paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's
 `POST /conversation/distill`. Unless the Proxy verifies it, the answer is a draft, kept until you publish or discard
 it with `evolver-drafts`.
 
-`--ignore-user-config` keeps the MCP servers of your `config.toml` from starting outside the read-only sandbox. It
-also leaves out your model provider settings, so the distillation runs on Codex's default provider with your
-login: a session on another `model_provider` is not distilled. A candidate is tried three times, then given up.
+It runs on your own `config.toml`, so on the model provider your session used. The MCP servers in that config would
+run outside the read-only sandbox, so they are listed first (`codex mcp list --json`) and each is turned off by name;
+when they cannot be listed, the model is not run. Codex Desktop's own CLI is found inside the app when `codex` is not
+on the `PATH`. A candidate is tried three times, then given up.
 
 ## Reuse reports
 
