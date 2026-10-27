@@ -1,0 +1,25 @@
+{
+  "text": "{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}{\"title\":\"x\"}",
+  "stopReason": "end_turn",
+  "sessionId": "01a17c1b-de35-79c1-b733-a816594198e4",
+  "requestId": "2b28e3a6-fdaa-45e5-8573-6f0d8bbd5767",
+  "cwd": "/private/tmp/evolver-model-x",
+  "usage": {
+    "input_tokens": 90,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "output_tokens": 45,
+    "reasoning_tokens": 0,
+    "total_tokens": 135
+  },
+  "num_turns": 9,
+  "modelUsage": {
+    "fake-model": {
+      "inputTokens": 90,
+      "outputTokens": 45,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "modelCalls": 9
+    }
+  }
+}

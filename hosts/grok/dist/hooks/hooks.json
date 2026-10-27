@@ -1,0 +1,105 @@
+{
+  "description": "Evolver: strategy recall at the prompt, handed to the model at the turn's first tool result; reuse reports at turn and session end, and session-end distillation, with no tools in the model's context",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok SessionStart",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok UserPromptSubmit",
+            "timeout": 660
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(search_replace|write|hashline_edit|StrReplace|Write|EditNotebook|Delete)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok PostToolUseFailure",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok StopFailure",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopCancelled": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok StopCancelled",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/bin/hook.mjs\" grok SessionEnd",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}
