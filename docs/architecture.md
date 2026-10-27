@@ -14,7 +14,7 @@ them is in `hosts/README.md`):
 | Command | Purpose |
 |---|---|
 | `/evolver-status` | Proxy state, engine setup, the session's distillation candidate and waiting drafts. |
-| `/evolver-search <task or error text>` | Find the best matching strategy. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
+| `/evolver-search <task or error text>` | Find the best matching strategy or Recipe. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers: recall, reflect, record the lesson. |
@@ -106,7 +106,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 | Event | Use case | What it does |
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
-| Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
+| Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe's chain of them, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
 | Tool result | `toolFinished`, `beforeEdit` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. |
 | Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
@@ -176,9 +176,9 @@ lib/agent/             profiles, the canonical events, the driver
 lib/app/               use cases over ports
 lib/runtime/           the ports: file state and locks, processes, headless models, Proxy, engine setup
 lib/*.js, lib/turn/, lib/distill/, lib/session/
-                       host-neutral pure rules: recall ranking, relevance and redaction, reuse reports and their
-                       evidence, outbox, injection ledger, follow-up labels, retention, verification, savings,
-                       turn summary, distillation and drafts
+                       host-neutral pure rules: recall ranking, Recipe expansion, relevance and redaction, reuse
+                       reports and their evidence, outbox, injection ledger, follow-up labels, retention,
+                       verification, savings, turn summary, distillation and drafts
 scripts/               pack.mjs, publish-release-branch.sh
 ```
 
@@ -193,6 +193,17 @@ scripts/               pack.mjs, publish-release-branch.sh
   nothing. A strategy that would inject more than 4000 characters is passed over. Two off-topic hits still score
   exactly 2 (meta questions sharing words like `replay` and `review`), the same as an on-topic Redis fix, so the gate
   alone cannot separate them.
+- **Recipes.** A prompt is searched for Recipes (`POST /recipe/search`, five at most) alongside the text recall, and a
+  Recipe that fits is offered before a single strategy: an ordered chain says more than any one of its steps. Search
+  returns only a Recipe's title and description, so those carry the relevance gate. A Recipe of one step, or one whose
+  required steps the session has all seen, is passed over before its steps are fetched. The steps' assets are fetched
+  by id through `/asset/fetch`, priced per asset as any fetch is, and shown in order under a heading each. A Recipe
+  with a required step that comes back without strategy steps, or longer than 6000 characters, gives way to the next
+  one, then to a single strategy. Each step is a reused asset of its own: its id is booked in the injection ledger
+  under its own strategy text, kept out of the session's later recalls, reported when the turn ends and named in the
+  turn summary; the Recipe's own id is reported nowhere. A turn whose injection lasts one model call replays the
+  whole Recipe. Recall waits for both lookups; Recipe search took 0.9–3.5 s on live prompts, against 3–11 s for
+  text recall. A Proxy without Recipe search answers an error and recall goes on as before.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
   more than the fresh tokens (input, cache writes, output) the turn spent: evolver-core's estimator prices deriving a
   whole approach from scratch, which put ~72k against single questions that cost 5k.

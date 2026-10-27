@@ -40,7 +40,7 @@ const lines = () => {
   };
 };
 
-export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
+export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
   const sessions = new Map();
   const notes = lines();
   const edits = lines();
@@ -92,6 +92,8 @@ export function memoryPorts({ assets = [ASSET], distillAnswer = null, model = nu
     proxy: {
       request: async (method, path, body) => {
         requests.push({ method, path, body });
+        if (path === '/recipe/search') return { ok: true, data: { recipes } };
+        if (path === '/asset/fetch' && body?.asset_ids) return { ok: true, data: { assets: stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) } };
         if (path === '/asset/fetch') return { ok: true, data: { assets } };
         if (path === '/conversation/distill') return { ok: true, data: distillAnswer };
         return { ok: true, data: { recorded: true } };

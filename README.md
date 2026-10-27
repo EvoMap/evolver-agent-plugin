@@ -14,8 +14,8 @@ no tools for the model to call. Evolver ships as two projects for now, which wil
 
 Everything runs from the host's hooks or plugin API:
 
-- **Recall.** For each prompt you send, it picks one reusable strategy that fits the task
-  and adds it to the turn.
+- **Recall.** For each prompt you send, it picks one reusable strategy that fits the task,
+  or a Recipe (an ordered chain of them), and adds it to the turn.
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
   and roughly how many tokens the reused strategy saved.

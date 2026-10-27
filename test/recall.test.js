@@ -5,12 +5,17 @@ import { recallStrategy, promptTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
+  const searches = [];
   const proxyFetch = async (method, path, body) => {
+    if (path === '/recipe/search') {
+      searches.push(body);
+      return { ok: true, data: { recipes: [] } };
+    }
     calls.push({ method, path, body });
     if (recalled instanceof Error) throw recalled;
     return recalled === undefined ? { ok: false, error: 'nope' } : { ok: true, data: recalled };
   };
-  return { proxyFetch, calls };
+  return { proxyFetch, calls, searches };
 }
 
 // Every recalled asset must share terms with the prompt to be injected; this one
@@ -55,6 +60,7 @@ test('a bounded prompt reaches the Hub, and a trivial one never does', async () 
   const trivial = stubProxy({ assets: [ASSET] });
   assert.deepEqual(await recallStrategy(trivial.proxyFetch, 'hi'), { ids: [], text: '' });
   assert.equal(trivial.calls.length, 0);
+  assert.equal(trivial.searches.length, 0);
 });
 
 test('an asset already injected this session is passed over', async () => {
@@ -284,9 +290,10 @@ test('a strategy that would inject more than 4000 characters gives way to the ne
 });
 
 test('keys and tokens are stripped from the prompt before it leaves for recall', async () => {
-  const { proxyFetch, calls } = stubProxy({ assets: [] });
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const prompt = promptTextOf('upload retry fails with ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuv and ghp_abcdefghijklmnopqrstuvwxyz0123');
   await recallStrategy(proxyFetch, prompt);
   assert.doesNotMatch(calls[0].body.text, /sk-ant|ghp_/);
   assert.match(calls[0].body.text, /upload retry fails with/);
+  assert.equal(searches[0].q, calls[0].body.text, 'a Recipe search sends the same stripped text');
 });
