@@ -28,7 +28,7 @@ adapter that turns its hook events into that logic's calls.
 | WorkBuddy / CodeBuddy | Supported | `hosts/workbuddy`, command hooks; installs `dist/workbuddy` |
 | Cursor | Supported | `hosts/cursor`, command hooks; installs the repo root |
 | Antigravity | Supported | `hosts/antigravity`, command hooks; installs `dist/antigravity` |
-| OpenCode 1.19.4+ | Supported | `hosts/opencode`, an in-process plugin; the `@evomap/evolver-opencode` package |
+| OpenCode 1.19.4+ | Supported | `hosts/opencode`, an in-process plugin; installs `dist/opencode` |
 | Any MCP client without hooks (Kiro, openclaw, …) | Supported | `hosts/mcp-generic`, `node bin/mcp.mjs mcp-generic` over stdio |
 | Codex, Muse Code | Not yet | Need a command-hook adapter on Evolver's normalized event API |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
@@ -77,8 +77,9 @@ every tested push to `main` and commits the result to the `release` branch: `mai
   `agy plugin install evolver-agent-plugin/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
   Its commands run from a terminal: `node <installed plugin>/bin/command.mjs antigravity evolver-status` (or
   `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
-- **OpenCode:** `opencode plugin <release clone>/dist/opencode`, or the published `@evomap/evolver-opencode`; remove
-  the old `evolver-opencode-plugin` first, or every reuse is reported twice.
+- **OpenCode:** `opencode plugin <release clone>/dist/opencode` (the folder is the `@evomap/evolver-opencode`
+  package, not published to npm yet); remove the old `evolver-opencode-plugin` first, or every reuse is reported
+  twice.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 

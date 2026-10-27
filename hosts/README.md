@@ -44,7 +44,7 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/`** |
 | Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |
 | State | **plugin data folder** | default | default | default | default | default |
-| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **npm, or `dist/opencode` on the `release` branch** | **its MCP config** | `.codex-plugin` |
+| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | `.codex-plugin` |
 
 ## Adding a host
 

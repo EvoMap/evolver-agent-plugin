@@ -6,19 +6,20 @@ enters the model's context: no tools, no skill, no instructions.
 
 ## Install
 
-Requires OpenCode 1.19.4 or newer.
+Requires OpenCode 1.19.4 or newer. The package is not on npm yet; install the packed folder from the `release`
+branch of `EvoMap/evolver-agent-plugin` (or a local `npm run pack`), by its absolute path:
 
 ```bash
-opencode plugin @evomap/evolver-opencode        # add -g for every project
+git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
+opencode plugin "$PWD/evolver-agent-plugin/dist/opencode"        # add -g for every project
 ```
 
 OpenCode lists it in `opencode.json` (the server plugin: recall, reports, distillation) and in `tui.json` (the
-TUI plugin: the `/evolver-*` commands). Restart OpenCode afterwards. Without the npm package, use the packed folder
-from a clone of the `release` branch of `EvoMap/evolver-agent-plugin` (or a local `npm run pack`) instead:
-`opencode plugin /path/to/evolver-agent-plugin/dist/opencode`.
+TUI plugin: the `/evolver-*` commands). Restart OpenCode afterwards. Once `@evomap/evolver-opencode` is published,
+`opencode plugin @evomap/evolver-opencode` does the same.
 
-Options, in both files: `["@evomap/evolver-opencode", { "proxyPort": 19820 }]`, the Proxy port used when
-`~/.evolver/settings.json` names no URL, and `"assetPrimeEnabled": false` to turn recall off.
+Options go next to the plugin's entry in both files, `["<the entry OpenCode wrote>", { "proxyPort": 19820 }]`: the
+Proxy port used when `~/.evolver/settings.json` names no URL, and `"assetPrimeEnabled": false` to turn recall off.
 
 ## Commands
 
