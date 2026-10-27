@@ -57,6 +57,17 @@ function copied(from, to) {
   cpSync(from, to, { recursive: true });
 }
 
+const VERSION_FIELD = /("version"\s*:\s*")[^"]*(")/g;
+const isManifest = (target) => /(?:^|\/)(?:plugin|marketplace|package)\.json$/.test(target);
+
+// A release names its version once, in its tag: every manifest the host reads its version from gets it here.
+function stampVersion(out, targets, version) {
+  for (const target of targets.filter(isManifest)) {
+    const file = path.join(out, target);
+    writeFileSync(file, readFileSync(file, 'utf8').replace(VERSION_FIELD, `$1${version}$2`));
+  }
+}
+
 function patchJson(file, fields) {
   const value = JSON.parse(readFileSync(file, 'utf8'));
   writeFileSync(file, `${JSON.stringify({ ...value, ...fields }, null, 2)}\n`);
@@ -76,8 +87,11 @@ function assertReplaceable(out) {
   if (!isOwn) throw new Error(`Refusing to pack into ${resolved}: it is not empty and was not made by scripts/pack.mjs.`);
 }
 
-/** Writes `host`'s folder into `out`, replacing an earlier pack there, and returns the repo files it took. */
-export function pack(host, out) {
+/**
+ * Writes `host`'s folder into `out`, replacing an earlier pack there, and returns the repo files it took. With
+ * `version`, every manifest in the folder names that version.
+ */
+export function pack(host, out, { version = null } = {}) {
   const spec = packSpecOf(host);
   const files = closureOf([...spec.entries, ...profileFilesOf(host)]);
   assertReplaceable(out);
@@ -86,6 +100,7 @@ export function pack(host, out) {
   for (const [target, source] of Object.entries(spec.root ?? {})) copied(path.join(ROOT, source), path.join(out, target));
   if (!existsSync(path.join(out, 'package.json'))) writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(MODULE_PACKAGE, null, 2)}\n`);
   for (const [target, fields] of Object.entries(spec.patch ?? {})) patchJson(path.join(out, target), fields);
+  if (version) stampVersion(out, Object.keys(spec.root ?? {}), version);
   writeFileSync(path.join(out, PACKED_MARK), `${host}\n`);
   return files;
 }
@@ -97,16 +112,18 @@ export function packedHosts() {
 
 // `all` packs every such host into <output folder>/<host>, the layout the repo's marketplaces point at.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [host, out] = process.argv.slice(2);
-  if (!host || !out) {
-    console.error('Usage: node scripts/pack.mjs <host | all> <output folder>');
+  const [host, out, versionArgument] = process.argv.slice(2);
+  const version = versionArgument?.replace(/^--version=v?/, '') ?? null;
+  const isVersion = version === null || /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version);
+  if (!host || !out || !isVersion) {
+    console.error('Usage: node scripts/pack.mjs <host | all> <output folder> [--version=X.Y.Z]');
     process.exit(2);
   }
   const targets = host === 'all' ? packedHosts().map((name) => [name, path.resolve(out, name)]) : [[host, path.resolve(out)]];
   try {
     for (const [name, folder] of targets) {
-      pack(name, folder);
-      console.log(`Packed ${name} into ${folder}.`);
+      pack(name, folder, { version });
+      console.log(`Packed ${name}${version ? ` ${version}` : ''} into ${folder}.`);
     }
   } catch (error) {
     console.error(error.message);

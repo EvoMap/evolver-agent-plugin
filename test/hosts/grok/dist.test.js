@@ -58,7 +58,7 @@ test('the marketplace grok reads at the repository root installs dist/grok from 
   assert.ok(packedHosts().includes('grok'));
   assert.equal(entry.name, manifest.name);
   assert.equal(entry.name, 'evolver-plugin');
-  assert.equal(entry.version, manifest.version);
+  assert.equal('version' in entry, false, 'the packed manifest carries the release tag\'s version');
   assert.equal(marketplace.name, 'evomap');
 });
 
