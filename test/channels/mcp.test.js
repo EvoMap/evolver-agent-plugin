@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { PROMPT } from '../app/memory-ports.js';
+import { installFakeEvolver } from '../helpers/fake-evolver.js';
 import { fakeProxy } from '../helpers/fake-proxy.js';
 
 const SERVER = fileURLToPath(new URL('../../bin/mcp.mjs', import.meta.url));
@@ -96,4 +97,20 @@ test('closing the connection ends the session: what it left is written for the n
   for (let tries = 0; tries < 50 && !readdirSync(state).includes('mcp-generic-reports-queue.jsonl'); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   const queued = readFileSync(join(state, 'mcp-generic-reports-queue.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).report);
   assert.ok(queued.some((report) => report.evidence.aborted));
+});
+
+test('evolver_login answers the link and code, and tells the agent to show them to the person and approve nothing', async (t) => {
+  const isolated = await fakeProxy();
+  const fakeDir = join(isolated.env.HOME, 'fake-evolver');
+  const fake = installFakeEvolver(join(isolated.env.HOME, '.evolver', 'state', 'mcp-generic-engine'), fakeDir);
+  const client = await connected(t, { ...isolated.env, ...fake.env });
+  t.after(() => {
+    const starts = readdirSync(fakeDir).includes('starts') ? readFileSync(join(fakeDir, 'starts'), 'utf8').trim().split('\n') : [];
+    for (const line of starts) try { process.kill(Number(line.split(' ')[0]), 'SIGKILL'); } catch {}
+    isolated.close();
+  });
+  const { tools } = await client.listTools();
+  assert.match(tools.find((tool) => tool.name === 'evolver_login').description, /Show the link and code to the person verbatim; never open or approve it yourself\.$/);
+  const answer = textOf(await call(client, 'evolver_login'));
+  assert.match(answer, /^To sign in to the EvoMap Hub, open https:\/\/hub\.test\/device\?user_code=FAKE-CODE and enter the code FAKE-CODE\./);
 });
