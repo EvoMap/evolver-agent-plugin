@@ -28,6 +28,16 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
+test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
+  const { elapsedMsOf } = await import('../../lib/runtime/process/identity.js');
+  const ps = (stdout) => ({ probe: () => ({ stdout }), platform: 'darwin' });
+  assert.equal(elapsedMsOf(1, ps('   05:03\n')), 303_000);
+  assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
+  assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
+  assert.equal(elapsedMsOf(1, ps('')), null);
+  assert.equal(elapsedMsOf(1, { platform: 'win32' }), null);
+});
+
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {
   assert.equal(cmdArgument('a&b'), '^^^"a^^^&b^^^"');
 });

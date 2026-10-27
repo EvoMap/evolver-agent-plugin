@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, uptime } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -154,4 +154,23 @@ test('a start lock left by a killed process gives no run rather than a false one
   assert.equal(await world.signIn().joinOrStart(keepsLive), null);
   assert.ok(Date.now() - startedAt < 8_000);
   assert.deepEqual(startsOf(world.dir), []);
+});
+
+test('a run is running only while its pid is the process that started then: not after a reboot, a reuse or another user', posix, async (t) => {
+  const world = scratch(t);
+  const other = spawn('sleep', ['30'], { stdio: 'ignore' });
+  t.after(() => other.kill('SIGKILL'));
+  await new Promise((resolve) => other.once('spawn', resolve));
+  const prompt = '\nTo authorize this device:\n  1. open  https://hub.test/device?user_code=OLD-CODE\n  2. enter code:  OLD-CODE\n';
+  mkdirSync(join(world.dir, '.evolver', 'login'), { recursive: true });
+  writeFileSync(world.files.log, prompt);
+  const runOf = async (record) => {
+    writeFileSync(world.files.record, JSON.stringify(record));
+    return world.signIn().latest();
+  };
+  assert.equal((await runOf({ pid: other.pid, startedAt: Date.now() })).isRunning, true, 'the process that started then');
+  assert.equal((await runOf({ pid: other.pid, startedAt: Date.now() - 5 * 60_000 })).isRunning, false, 'a pid another process took over');
+  assert.equal((await runOf({ pid: other.pid, startedAt: Date.now() - uptime() * 1000 - 60_000 })).isRunning, false, 'a run from before the last boot');
+  assert.equal((await runOf({ pid: 1, startedAt: Date.now() })).isRunning, false, "another user's process");
+  assert.equal(signInOf(await runOf({ pid: other.pid, startedAt: Date.now() - 5 * 60_000 }), Date.now()).state, SIGN_IN.FAILED, 'its old code is not shown');
 });
