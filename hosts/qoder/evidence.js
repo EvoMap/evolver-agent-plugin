@@ -15,17 +15,16 @@ const BACKGROUNDED = 'backgrounded';
 
 const text = (value) => (typeof value === 'string' ? value : '');
 
-export const editedPathOf = (input) => text(input?.file_path) || text(input?.notebook_path);
+const editedPathOf = (input) => text(input?.file_path) || text(input?.notebook_path);
 
 const lineCount = (value) => (text(value) ? value.split('\n').length : 0);
 
 /** Lines an edit touched, removed plus written, as its input states them. */
-export const changedLinesOf = (input) => lineCount(input?.old_string) + lineCount(input?.new_string ?? input?.content ?? input?.new_source);
+const changedLinesOf = (input) => lineCount(input?.old_string) + lineCount(input?.new_string ?? input?.content ?? input?.new_source);
 
 function finishedShellNote(command, response, callId) {
   if (typeof response === 'string') return { kind: 'shell', command, exit: null, output: response };
   if (response?.kind === BACKGROUNDED) return { kind: 'shell', command, running: true, callId };
-  if (response?.interrupted === true) return { kind: 'tool', command };
   const exit = Number.isInteger(response?.exitCode) ? response.exitCode : null;
   return { kind: 'shell', command, exit, output: `${text(response?.stdout)}${response?.stderr ? `\n${response.stderr}` : ''}` };
 }

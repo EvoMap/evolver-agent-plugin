@@ -35,8 +35,8 @@ test('the prompt, the project and the session\'s model are read off the payload'
   assert.equal(qoder.payload.prompt(payload('UserPromptSubmit')), 'fix the readme so the checks pass');
   assert.equal(qoder.payload.projectDir(payload('SessionStart.startup')), '/Users/you/project');
   assert.equal(qoder.payload.projectDir(payload('Stop')), '/Users/you/project');
-  assert.deepEqual(qoder.payload.model(payload('Stop')), { model: 'default' }, 'a session with no model name yet names none');
-  assert.deepEqual(qoder.payload.model({ ...payload('Stop'), model: 'Auto' }), { model: 'Auto' });
+  assert.equal('model' in payload('Stop'), false, 'Stop names no model');
+  assert.deepEqual(qoder.payload.model(payload('Stop')), { model: 'default' }, 'the distillation runs on the person\'s default');
 });
 
 test('a subagent\'s event and the task notification Qoder submits for a background command are no turn of the person\'s', () => {
@@ -68,11 +68,9 @@ test('a background command has no verdict when its call returns, and counts as n
   assert.deepEqual(turnRecordOf([note]).commands, ['sleep 1; echo bg done']);
 });
 
-test('a failure with no exit code ran nothing, and an interrupted call has no verdict', () => {
+test('a failure with no exit code ran nothing', () => {
   const denied = { ...payload('PostToolUseFailure.Bash.exit1'), error: 'Permission to use Bash has been denied.' };
   assert.deepEqual(qoder.evidence.toolNote(denied, { hostEvent: 'PostToolUseFailure' }), { kind: 'tool', command: 'sh check.sh' });
-  const interrupted = { ...payload('PostToolUse.Bash.passed'), tool_response: { ...payload('PostToolUse.Bash.passed').tool_response, interrupted: true } };
-  assert.deepEqual(qoder.evidence.toolNote(interrupted, { hostEvent: 'PostToolUse' }), { kind: 'tool', command: 'sh check.sh 2>&1 | tail -5' });
 });
 
 test('a tool response given as text, as the Qoder IDE documents it, is judged by its output', () => {

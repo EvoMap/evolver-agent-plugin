@@ -2,8 +2,8 @@
 // Copyright (c) 2026 EvoMap
 
 // The distillation is one answer from Qoder CLI in print mode, on the person's own sign-in and default model: no
-// built-in tools, no MCP servers, no hooks (they would start this plugin again), one turn, nothing saved, the prompt on
-// stdin in an empty folder.
+// built-in tools, no hooks (they would start this plugin again), one turn, nothing saved, the prompt on stdin in an
+// empty folder. --strict-mcp-config offers no MCP tool, though user-level stdio servers still start.
 
 const HEADLESS_ARGS = Object.freeze([
   '-p', '--output-format', 'json',

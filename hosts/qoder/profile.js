@@ -46,11 +46,12 @@ export default defineProfile({
   payload: {
     turnId: (payload) => text(payload.request_set_id) || text(payload.parent_request_set_id) || null,
     isIgnored: (payload) => Boolean(payload.agent_id) || isHostPrompt(payload),
-    // Stop names the session's model once Qoder knows it; the distillation runs on the person's default either way.
-    model: (payload) => ({ model: text(payload.model) || 'default' }),
+    // Stop names no model, and the distillation runs on the person's default.
+    model: () => ({ model: 'default' }),
   },
   reply: {
-    // A blocked prompt reaches no model and leaves nothing in the conversation; the TUI draws the system message.
+    // A blocked prompt reaches no model, and the next request carries only a marker naming the command; the TUI draws
+    // the system message.
     command: (result) => ({ decision: 'block', reason: result.text, systemMessage: result.text }),
     // Qoder shows a Stop hook's systemMessage to the person only, and ignores what StopFailure and QueryEnd answer.
     turnEnd: (ended, hostEvent) => {
