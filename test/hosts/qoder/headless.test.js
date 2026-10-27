@@ -64,3 +64,16 @@ test('the runner finds qodercli on the PATH and gives it the prompt on stdin in 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('a signed-out qodercli exits 1, and the run fails with its sign-in hint rather than raw output', posix, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-qoder-headless-'));
+  try {
+    const env = {
+      HOME: home, PATH: [FAKE_QODERCLI, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
+      FAKE_QODER_NODE: process.execPath, FAKE_QODER_LOG: join(home, 'qodercli.log'), FAKE_QODER_SIGNED_OUT: '1',
+    };
+    await assert.rejects(modelRunnerOf(qoder.model, env).complete(null, 'Distill this turn.'), /^Error: qodercli gave no answer: Not logged in · Please run \/login$/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
