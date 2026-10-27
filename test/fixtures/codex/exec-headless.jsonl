@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a17b41-234d-7660-97de-2514627287b0"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: 15\r\n{\"error\":\"not found\"}\r\n0, url: ws://127.0.0.1:19911/v1/responses)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 404 Not Found: 15\r\n{\"error\":\"not found\"}\r\n0, url: ws://127.0.0.1:19911/v1/responses)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 404 Not Found: 15\r\n{\"error\":\"not found\"}\r\n0, url: ws://127.0.0.1:19911/v1/responses)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found: 15\r\n{\"error\":\"not found\"}\r\n0, url: ws://127.0.0.1:19911/v1/responses)"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: 15\r\n{\"error\":\"not found\"}\r\n0, url: ws://127.0.0.1:19911/v1/responses"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"title\":\"Null retries for flaky Redis\",\"summary\":\"Stop ioredis retrying per request in tests.\",\"strategy\":[\"Set maxRetriesPerRequest to null.\",\"Run the suite.\"],\"validation\":[\"node --test passes\"],\"signals\":[\"redis\",\"retries\"]}"}}
+{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":50,"reasoning_output_tokens":0}}

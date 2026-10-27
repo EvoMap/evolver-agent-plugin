@@ -1,0 +1,173 @@
+{
+  "SessionStart.startup": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "source": "startup"
+  },
+  "SessionStart.resume": {
+    "session_id": "01a17b34-4cf9-7bf3-993a-7b0be93e02db",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-33-07-01a17b34-4cf9-7bf3-993a-7b0be93e02db.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "source": "resume"
+  },
+  "UserPromptSubmit": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "UserPromptSubmit",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "prompt": "Write add.mjs with a test and run node --test."
+  },
+  "PreToolUse.apply_patch": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Add File: add.mjs\n+export const add = (a, b) => a + b;\n*** Add File: add.test.mjs\n+import test from 'node:test';\n+import assert from 'node:assert';\n+import { add } from './add.mjs';\n+test('add', () => assert.equal(add(2, 3), 5));\n*** End Patch\n"
+    },
+    "tool_use_id": "call_2"
+  },
+  "PostToolUse.apply_patch": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Add File: add.mjs\n+export const add = (a, b) => a + b;\n*** Add File: add.test.mjs\n+import test from 'node:test';\n+import assert from 'node:assert';\n+import { add } from './add.mjs';\n+test('add', () => assert.equal(add(2, 3), 5));\n*** End Patch\n"
+    },
+    "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nA add.mjs\nA add.test.mjs\n",
+    "tool_use_id": "call_2"
+  },
+  "PreToolUse.Bash": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "node --test"
+    },
+    "tool_use_id": "call_4"
+  },
+  "PostToolUse.Bash.passed": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "node --test"
+    },
+    "tool_response": "TAP version 13\n# Subtest: add\nok 1 - add\n  ---\n  duration_ms: 0.350083\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 55.516041\n",
+    "tool_use_id": "call_4"
+  },
+  "PostToolUse.Bash.exit3": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "node -e \"console.log('boom'); process.exit(3)\""
+    },
+    "tool_response": "boom\n",
+    "tool_use_id": "call_6"
+  },
+  "PostToolUse.Bash.waited": {
+    "session_id": "01a17b33-db94-72f2-8c37-d3ad9f1d09c9",
+    "turn_id": "01a17b33-dbd0-7cc3-a8ab-564e4482e85d",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-32-38-01a17b33-db94-72f2-8c37-d3ad9f1d09c9.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "sleep 2; node --test"
+    },
+    "tool_response": "TAP version 13\n# Subtest: add\nok 1 - add\n  ---\n  duration_ms: 0.487959\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 61.356458\n",
+    "tool_use_id": "call_2"
+  },
+  "PreToolUse.Bash.applyPatchHeredoc": {
+    "session_id": "01a17b33-db94-72f2-8c37-d3ad9f1d09c9",
+    "turn_id": "01a17b33-dbd0-7cc3-a8ab-564e4482e85d",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-32-38-01a17b33-db94-72f2-8c37-d3ad9f1d09c9.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: add.mjs\n@@\n-export const add = (a, b) => a + b;\n+export const add = (a, b) => Number(a) + Number(b);\n*** End Patch\nPATCH"
+    },
+    "tool_use_id": "call_6"
+  },
+  "PreToolUse.apply_patch.missingFile": {
+    "session_id": "01a17b33-db94-72f2-8c37-d3ad9f1d09c9",
+    "turn_id": "01a17b33-dbd0-7cc3-a8ab-564e4482e85d",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-32-38-01a17b33-db94-72f2-8c37-d3ad9f1d09c9.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Update File: missing.mjs\n@@\n-nothing\n+something\n*** End Patch\n"
+    },
+    "tool_use_id": "call_8"
+  },
+  "Stop": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "turn_id": "01a17b33-17ae-7f93-a0ea-d7608791f4bd",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "Stop",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "add works: node --test passed 1 test."
+  },
+  "Interrupt": {
+    "session_id": "01a17b34-4cf9-7bf3-993a-7b0be93e02db",
+    "turn_id": "01a17b34-4d4f-7db0-9c72-c0f8c4bc0b6d",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-33-07-01a17b34-4cf9-7bf3-993a-7b0be93e02db.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "Interrupt",
+    "model": "gpt-5.5",
+    "permission_mode": "bypassPermissions"
+  },
+  "SessionEnd": {
+    "session_id": "01a17b33-1759-7171-b4c0-2618b2cbe40e",
+    "transcript_path": "/Users/dev/.codex/sessions/2026/10/27/rollout-2026-10-27T10-31-48-01a17b33-1759-7171-b4c0-2618b2cbe40e.jsonl",
+    "cwd": "/Users/dev/project",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+  }
+}

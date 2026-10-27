@@ -1,0 +1,92 @@
+{
+  "description": "Evolver: strategy recall behind the prompt, reuse reports at turn and session end, and session-end distillation, with no tools in the model's context",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex SessionStart",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex SessionStart",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex UserPromptSubmit",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex UserPromptSubmit",
+            "timeout": 660
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex PreToolUse",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex PreToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex PostToolUse",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex PostToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex Stop",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex Interrupt",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex Interrupt",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/hook.mjs\" codex SessionEnd",
+            "command_windows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" codex SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
