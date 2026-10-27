@@ -265,5 +265,27 @@
     "permission_mode": "default",
     "prompt": "/evolver-plugin:evolver-search flaky redis retries",
     "request_set_id": "0261cd4e-8e2d-4b84-94c4-c46ccdb15fc6"
+  },
+  "QueryEnd.abort": {
+    "session_id": "4a69c20e-6c81-4d97-8c88-2a97ae3df79b",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/4a69c20e-6c81-4d97-8c88-2a97ae3df79b.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "QueryEnd",
+    "permission_mode": "yolo",
+    "request_set_id": "437085a0-3027-48c5-bc65-d7fd4b210f74",
+    "business_id": "437085a0-3027-48c5-bc65-d7fd4b210f74",
+    "model": "",
+    "reason": "abort"
+  },
+  "QueryEnd.end_turn": {
+    "session_id": "4a69c20e-6c81-4d97-8c88-2a97ae3df79b",
+    "transcript_path": "/Users/you/.qoder/projects/-Users-you-project/4a69c20e-6c81-4d97-8c88-2a97ae3df79b.jsonl",
+    "cwd": "/Users/you/project",
+    "hook_event_name": "QueryEnd",
+    "permission_mode": "yolo",
+    "request_set_id": "c087e7cd-11b9-448a-b22f-ab6dfde6934f",
+    "business_id": "c087e7cd-11b9-448a-b22f-ab6dfde6934f",
+    "model": "",
+    "reason": "end_turn"
   }
 }

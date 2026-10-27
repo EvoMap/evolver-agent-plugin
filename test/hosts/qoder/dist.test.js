@@ -23,6 +23,8 @@ const QODER_EVENTS = new Set([
   'SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact', 'Notification', 'ConfigChange', 'InstructionsLoaded', 'CwdChanged',
   'FileChanged', 'WorktreeCreate', 'WorktreeRemove', 'Elicitation', 'ElicitationResult', 'TaskCreated', 'TaskCompleted',
   'PermissionRequest', 'PermissionDenied', 'TeammateIdle', 'Setup',
+  // Undocumented, but sent once for every turn of the main agent, and the only hook an interrupted turn runs.
+  'QueryEnd',
 ]);
 
 let packed = null;

@@ -101,6 +101,9 @@ function session(id) {
     notification: () => runHook('UserPromptSubmit', { ...PAYLOADS['UserPromptSubmit.taskNotification'], ...base, request_set_id: `${id}-notification` }),
     stop: (answer) => runHook('Stop', { ...PAYLOADS.Stop, ...base, parent_request_set_id: turnId(), last_assistant_message: answer }),
     stopFailure: () => runHook('StopFailure', { ...PAYLOADS.StopFailure, ...base }),
+    queryEnd: (reason, requestSetId = turnId()) => runHook('QueryEnd', { ...PAYLOADS['QueryEnd.abort'], ...base, request_set_id: requestSetId, business_id: requestSetId, reason }),
+    background: (command) => runHook('PostToolUse', { ...PAYLOADS['PostToolUse.Bash.backgrounded'], ...call('Bash', { command, run_in_background: true }) }),
+    notificationStop: () => runHook('Stop', { ...PAYLOADS.Stop, ...base, parent_request_set_id: `${id}-notification`, last_assistant_message: 'The background run passed.' }),
     end: () => runHook('SessionEnd', { ...PAYLOADS.SessionEnd, ...base }),
   };
 }
@@ -203,7 +206,24 @@ test('a turn that failed on a model error is reported failed at StopFailure, and
   assert.equal(pending()['s-error'], undefined);
 });
 
-test('an interrupted turn runs no hook: the next prompt closes it as aborted', posix, async () => {
+test('an interrupted turn ends at its QueryEnd, so the task notification turn after it lends it no check', posix, async () => {
+  const s = session('s-esc');
+  await s.prompt(PROMPT);
+  await s.background('sleep 4; echo bg done');
+  assert.deepEqual(await s.queryEnd('abort'), {});
+  assert.deepEqual(await s.notification(), {});
+  await s.passing('node --test');
+  assert.deepEqual(await s.notificationStop(), {});
+  assert.deepEqual(await s.queryEnd('end_turn', 's-esc-notification'), {});
+  const report = await waitFor(() => reportOf('qoder:s-esc:1'));
+  assert.equal(report.evidence.aborted, true);
+  assert.equal(report.evidence.check, undefined, 'the notification turn\'s test is no evidence of the interrupted one');
+  assert.equal(report.outcome, 'failed');
+  await s.prompt('continue with the README');
+  assert.equal(sessionState('s-esc').turn, 2, 'the notification counted no turn');
+});
+
+test('an interrupted turn no hook closed is closed as aborted by the next prompt', posix, async () => {
   const s = session('s-cut');
   await s.prompt(PROMPT);
   await s.passing('npm test');

@@ -8,12 +8,22 @@ import { promptCommandOf } from './commands.js';
 import { editedFilesOf, toolNoteOf } from './evidence.js';
 import { headlessQodercli } from './headless.js';
 
-// A turn that failed on a model error ends with StopFailure; one the person interrupted ends with no hook, so the
-// next prompt closes it as aborted. A background command's completion comes back as a `<task-notification>` prompt
-// Qoder submits itself, which is no turn of the person's.
+// A turn that failed on a model error ends with StopFailure; one the person interrupted runs no Stop, only the
+// undocumented QueryEnd Qoder sends once for every turn of the main agent, with `reason: "abort"`. It must close the
+// turn at once: a background command's completion comes back as a `<task-notification>` prompt Qoder submits itself,
+// no turn of the person's, whose tool calls name no turn and would land in one still open. The next prompt is the
+// fallback for a turn no hook closed.
 
+const STOP = 'Stop';
 const STOP_FAILURE = 'StopFailure';
+const QUERY_END = 'QueryEnd';
+const QUERY_END_REASONS = Object.freeze({ abort: 'aborted', error: 'error' });
 const TASK_NOTIFICATION = /^<task-notification>/;
+
+function turnEndReasonOf(hostEvent, payload) {
+  if (hostEvent === QUERY_END) return QUERY_END_REASONS[payload.reason] ?? 'unknown';
+  return hostEvent === STOP_FAILURE ? 'error' : 'answer';
+}
 
 const text = (value) => (typeof value === 'string' ? value : '');
 const isHostPrompt = (payload) => TASK_NOTIFICATION.test(text(payload.prompt).trimStart());
@@ -28,8 +38,9 @@ export default defineProfile({
     PreToolUse: EVENTS.BEFORE_EDIT,
     PostToolUse: EVENTS.TOOL_RESULT,
     PostToolUseFailure: EVENTS.TOOL_RESULT,
-    Stop: EVENTS.TURN_END,
+    [STOP]: EVENTS.TURN_END,
     [STOP_FAILURE]: EVENTS.TURN_END,
+    [QUERY_END]: EVENTS.TURN_END,
     SessionEnd: EVENTS.SESSION_END,
   },
   payload: {
@@ -41,15 +52,15 @@ export default defineProfile({
   reply: {
     // A blocked prompt reaches no model and leaves nothing in the conversation; the TUI draws the system message.
     command: (result) => ({ decision: 'block', reason: result.text, systemMessage: result.text }),
-    // Qoder shows a Stop hook's systemMessage to the person only, and ignores what a StopFailure hook answers.
+    // Qoder shows a Stop hook's systemMessage to the person only, and ignores what StopFailure and QueryEnd answer.
     turnEnd: (ended, hostEvent) => {
-      const line = hostEvent === STOP_FAILURE ? null : endedTurnSummaryOf(ended, { reason: 'answer' });
+      const line = hostEvent === STOP ? endedTurnSummaryOf(ended, { reason: 'answer' }) : null;
       return line ? { systemMessage: line } : {};
     },
   },
   evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },
   turnEnd: {
-    reason: (payload, context) => (hostEventOf(payload, context) === STOP_FAILURE ? 'error' : 'answer'),
+    reason: (payload, context) => turnEndReasonOf(hostEventOf(payload, context), payload),
     unclosed: { settleMs: 0, as: 'aborted' },
   },
   commands: { entry: 'intercept', parse: (payload, hostEvent, { prompt }) => promptCommandOf(prompt) },

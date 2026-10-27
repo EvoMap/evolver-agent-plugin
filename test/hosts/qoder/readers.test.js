@@ -108,6 +108,16 @@ test('Stop ends a turn with its answer, StopFailure as an error, and a turn with
   assert.deepEqual(qoder.turnEnd.unclosed, { settleMs: 0, as: 'aborted' });
 });
 
+test('QueryEnd names its turn and ends it as aborted on an interrupt or as an error; after Stop it changes nothing', () => {
+  assert.equal(qoder.events.QueryEnd, 'turnEnd');
+  assert.equal(qoder.payload.turnId(payload('QueryEnd.abort')), payload('QueryEnd.abort').request_set_id);
+  assert.equal(qoder.turnEnd.reason(payload('QueryEnd.abort'), { hostEvent: 'QueryEnd' }), 'aborted');
+  assert.equal(qoder.turnEnd.reason({ ...payload('QueryEnd.abort'), reason: 'error' }, { hostEvent: 'QueryEnd' }), 'error');
+  assert.equal(qoder.turnEnd.reason(payload('QueryEnd.end_turn'), { hostEvent: 'QueryEnd' }), 'unknown', 'Stop already ended it');
+  assert.equal(qoder.turnEnd.reason({ ...payload('QueryEnd.end_turn'), reason: 'max_turns' }), 'unknown');
+  assert.deepEqual(qoder.reply.turnEnd({ record: { checks: [] }, strategies: ['[Evolution Memory] X (EvoMap network):'] }, 'QueryEnd'), {});
+});
+
 test('a strategy rides the prompt as additionalContext; a command blocks the prompt with its answer as the message', () => {
   assert.deepEqual(qoder.reply.context('1. Retry.', 'UserPromptSubmit'), { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: '1. Retry.' } });
   assert.deepEqual(qoder.reply.context('', 'UserPromptSubmit'), {});

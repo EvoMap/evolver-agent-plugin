@@ -117,6 +117,22 @@
         ]
       }
     ],
+    "QueryEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${QODER_PLUGIN_ROOT}/bin/hook.mjs",
+              "qoder",
+              "QueryEnd"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [
