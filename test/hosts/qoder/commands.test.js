@@ -28,9 +28,13 @@ test('a command is typed with a slash, with or without the namespace, and keeps 
   assert.deepEqual(parse('/evolver-evolve the\nretry'), { name: 'evolver-evolve', args: 'the\nretry' });
 });
 
+test('text after a command that takes none is dropped: Qoder would hand the model its hooks-are-off fallback', () => {
+  assert.deepEqual(parse('/evolver-status why is recall so slow?'), { name: 'evolver-status', args: '' });
+  assert.deepEqual(parse('/evolver-plugin:evolver-login now'), { name: 'evolver-login', args: '' });
+});
+
 test('a prompt that only looks like a command stays a prompt', () => {
   assert.equal(parse('evolver-status'), null, 'Qoder commands start with a slash');
-  assert.equal(parse('/evolver-status why is recall so slow?'), null, 'evolver-status takes no argument');
   assert.equal(parse('/other-plugin:evolver-status'), null);
   assert.equal(parse('/evolver-core is missing'), null);
   assert.equal(parse(PAYLOADS.UserPromptSubmit.prompt), null);
