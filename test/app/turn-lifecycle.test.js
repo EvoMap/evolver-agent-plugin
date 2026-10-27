@@ -7,6 +7,7 @@ import { sessionStarted } from '../../lib/app/session-start.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
 import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
+import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 
 const WAIT = { waitMs: 5_000 };
@@ -303,4 +304,12 @@ test('a strategy shown before any step carried it is offered by no later recall 
   assert.equal(await again.late, null);
   await end(ports, 's1');
   assert.equal(await landed.show(), false, 'its turn is over');
+});
+
+test('a prompt that cleans down to nothing (a bare link) is its own task, not the last turn\'s', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await end(ports, 's1');
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'https://example.com/issue/42', ...WAIT });
+  assert.equal(sessionOfStored(await ports.sessions.read('s1')).prompt, '');
 });

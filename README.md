@@ -84,7 +84,7 @@ injections, undelivered reports), so nothing is lost on the way over.
   folder on uninstall otherwise), then replace its marketplace, which has the same name:
 
   ```text
-  /plugin uninstall evolver@evomap-workbuddy --keep-data
+  /plugin uninstall evolver@evomap-workbuddy --keep-data   # again with --scope project where it was installed in a project
   /plugin marketplace remove evomap-workbuddy
   /plugin marketplace add EvoMap/evolver-agent-plugin
   /plugin install evolver-plugin@evomap-workbuddy

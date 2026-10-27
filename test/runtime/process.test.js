@@ -87,3 +87,12 @@ test('a CLI is looked up name by name, on PATH then in the host\'s folders, and 
   present.add('/usr/bin/tool.cmd');
   assert.equal(executableOf({ names: ['tool'] }, { ...options, platform: 'win32' }), null, 'a .cmd shim needs a shell');
 });
+
+test('on Windows an npm .cmd shim is found only for a CLI that allows one, after an .exe of the same name', async () => {
+  const { executableOf } = await import('../../lib/runtime/process/which.js');
+  const present = new Set(['/npm/codex.cmd', '/tools/codex.exe']);
+  const options = (PATH) => ({ env: { PATH }, platform: 'win32', exists: (file) => present.has(file), realPath: (file) => file });
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/npm')), { file: '/npm/codex.cmd', viaNode: false });
+  assert.equal(executableOf({ names: ['codex'] }, options('/npm')), null);
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/tools')), { file: '/tools/codex.exe', viaNode: false });
+});

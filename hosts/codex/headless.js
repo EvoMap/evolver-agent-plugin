@@ -41,7 +41,8 @@ function codexExecArguments(model, prompt, { workdir, preflight: mcpServers = []
   ];
 }
 
-// Codex Desktop ships its CLI inside the app, off the PATH; an npm install on Windows is a node script behind a shim.
+// Codex Desktop ships its CLI inside the app, off the PATH; an npm install on Windows is a `codex.cmd` shim, which the
+// prompt on stdin lets cmd.exe run.
 function desktopDirs(env) {
   const home = env.HOME || env.USERPROFILE || '';
   return [
@@ -91,7 +92,7 @@ function completionOf({ stdout, stderr }) {
 
 export const headlessCodex = Object.freeze({
   kind: 'cli',
-  command: Object.freeze({ names: ['codex'], dirs: desktopDirs, nodeScriptOnWindows: true }),
+  command: Object.freeze({ names: ['codex'], dirs: desktopDirs, windowsShims: true }),
   preflight: Object.freeze({ args: [...DISABLED_FEATURE_FLAGS, 'mcp', 'list', '--json'], parse: enabledMcpServersOf }),
   args: codexExecArguments,
   parse: completionOf,
