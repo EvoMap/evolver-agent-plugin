@@ -83,6 +83,7 @@ model.
 | Command | What it does |
 | --- | --- |
 | `/evolver-status` | Proxy state, engine setup, the session's distillation candidate and waiting drafts |
+| `/evolver-login` | Signs you in to the EvoMap Hub: a link and a code to approve, then, run again, the registered node |
 | `/evolver-search <text>` | Recalls the best strategy for the text and hands it to the conversation's next step; its reuse is reported |
 | `/evolver-distill [focus]` | Distills the session's latest verified turn into a draft now |
 | `/evolver-drafts [publish\|discard <n>]` | Lists drafts; `publish <n>` submits one to the EvoMap Hub for review, `discard <n>` drops it |

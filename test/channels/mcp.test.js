@@ -34,9 +34,9 @@ const textOf = (result) => result.content.map((part) => part.text).join('\n');
 const turnIdOf = (text) => /turn_id: (\S+)/.exec(text)?.[1];
 const call = (client, name, args = {}) => client.callTool({ name, arguments: args });
 
-test('an official MCP client sees exactly the six Evolver tools', async (t) => {
+test('an official MCP client sees exactly the seven Evolver tools', async (t) => {
   const { tools } = await (await connected(t)).listTools();
-  assert.deepEqual(tools.map((tool) => tool.name).sort(), ['evolver_distill', 'evolver_drafts', 'evolver_recall', 'evolver_report', 'evolver_search', 'evolver_status']);
+  assert.deepEqual(tools.map((tool) => tool.name).sort(), ['evolver_distill', 'evolver_drafts', 'evolver_login', 'evolver_recall', 'evolver_report', 'evolver_search', 'evolver_status']);
 });
 
 test('a recalled turn is reported under its turn_id, agent-reported, and its Gene becomes a draft', async (t) => {

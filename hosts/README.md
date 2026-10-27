@@ -12,7 +12,7 @@ a channel.
 | Point | Field | Default (hook channel) |
 |---|---|---|
 | Channel | `channel: 'hook' \| 'plugin' \| 'relay' \| 'mcp'`; `relay` is a plugin channel in a Node process that a host's module, which has no Node, starts and talks to over loopback HTTP (`bin/relay.mjs <host>`) | `hook` |
-| Events | `events: { hostEvent: canonicalEvent }`, onto `sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene` | — (MCP: its six tools) |
+| Events | `events: { hostEvent: canonicalEvent }`, onto `sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene` | — (MCP: its seven tools) |
 | Payload | `payload: { sessionId, turnId, prompt, projectDir, isIgnored, model, transcriptPath, gene, writtenFor }`, each `(payload, context)`; `context` has `env`, `transcriptSize()`, `transcriptSince(offset)`, and `turnStart` at a turn's end. `isIgnored` skips a subagent's event or any other that is no turn of the person's | Claude Code's field names |
 | Session start | `sessionStart: 'event' \| 'owner-change' \| 'connection'` | `event` |
 | Answer | `reply: { context, notice, empty, command, turnEnd, late?, lifetime: 'turn' \| 'call' }`, each `(value, hostEvent, payload)`; `lifetime: 'call'` replays the turn's strategy before every model call; `late(answer, late)` lets a host that can add context to a running turn take a recall slower than the wait (`late` resolves to `{ text, show, join }`: `show()` while the turn is open, for a host that adds it before a model step carries it; `join()` books it once one does) | `hookSpecificOutput.additionalContext`, `{}` |
