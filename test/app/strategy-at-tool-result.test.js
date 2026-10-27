@@ -75,7 +75,7 @@ test('two tool results of one batch, run at once, give the strategy to exactly o
 test('a strategy a command already booked into the turn is not handed over again, and stops waiting', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...HELD });
-  await adoptStrategy(ports, { sessionId: 's1', strategy: { assetId: ASSET.asset_id, text: 'found by evolver-search' } });
+  await adoptStrategy(ports, { sessionId: 's1', strategy: { ids: [ASSET.asset_id], text: 'found by evolver-search' } });
   assert.equal(await takeWaitingStrategy(ports, { sessionId: 's1' }), '');
   const session = await ports.sessions.read('s1');
   assert.equal(session.waiting, null);
@@ -104,8 +104,8 @@ test('a tool result that names another turn than the open one takes nothing', as
 
 test('a strategy waits only for the open turn it was recalled for', () => {
   const open = openedTurn(EMPTY_SESSION, { prompt: PROMPT });
-  const strategy = { assetId: ASSET.asset_id, text: 'steps' };
-  assert.deepEqual(withWaiting(open, strategy, 1).waiting, { turn: 1, ...strategy });
+  const strategy = { ids: [ASSET.asset_id], text: 'steps' };
+  assert.deepEqual(withWaiting(open, strategy, 1).waiting, { turn: 1, match: strategy });
   assert.equal(withWaiting({ ...open, open: false }, strategy, 1), undefined, 'a closed turn');
   assert.equal(withWaiting(openedTurn(open, { prompt: PROMPT }), strategy, 1), undefined, 'a newer turn');
 });

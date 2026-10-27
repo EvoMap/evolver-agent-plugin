@@ -84,7 +84,7 @@ test('the strategy answers as a synthetic text part, a notice as a toast, a sear
   assert.deepEqual(profile.reply.context(''), {});
   assert.deepEqual(profile.reply.notice('[Evolver] started'), { toast: '[Evolver] started' });
   assert.deepEqual(profile.reply.command({ ok: true, text: 'ran' }, 'tui.command', { command: 'evolver-status' }), { ok: true, text: 'ran' });
-  const searched = { ok: true, text: '1. Retry.', strategy: { assetId: 'sha256:a', text: '1. Retry.' } };
+  const searched = { ok: true, text: '1. Retry.', strategy: { ids: ['sha256:a'], text: '1. Retry.' } };
   assert.equal(profile.reply.command(searched, 'tui.command', { command: 'evolver-search' }).part.synthetic, true);
   assert.equal(profile.reply.command({ ok: false, text: 'none' }, 'tui.command', { command: 'evolver-search' }).part, undefined);
 });
