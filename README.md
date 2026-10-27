@@ -39,6 +39,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | Any MCP client without hooks (Kiro, openclaw, …) | Supported | `hosts/mcp-generic`, `node bin/mcp.mjs mcp-generic` over stdio |
 | Codex | Supported | `hosts/codex`, command hooks; installs `dist/codex` |
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
+| Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -77,7 +78,7 @@ claude plugin disable evolver-mods@evolver-mods
 
 ## Install (other hosts)
 
-Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Antigravity, OpenCode and DeepSeek Harness
+Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Grok, Antigravity, OpenCode and DeepSeek Harness
 install a folder packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
 plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
 injections, undelivered reports), so nothing is lost on the way over.
@@ -107,6 +108,19 @@ injections, undelivered reports), so nothing is lost on the way over.
   ```
 
   Then open `/hooks` in Codex, trust the Evolver hooks, and start a new thread.
+- **Grok CLI:** add this repository as a marketplace and install the plugin, trusting its hooks:
+
+  ```bash
+  grok plugin marketplace add EvoMap/evolver-agent-plugin
+  grok plugin install evolver-plugin --trust
+  ```
+
+  The marketplace (`.grok-plugin/marketplace.json`) installs `dist/grok` from the `release` branch; start a new
+  session afterwards. Grok's prompt hooks cannot add context, so the recalled strategy reaches the model at the
+  turn's first tool result, and a turn answered without any tool call does without it. Commands are typed into the
+  prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
+  Grok command. A release bumps `version` in `hosts/grok/dist/.grok-plugin/plugin.json` and
+  `.grok-plugin/marketplace.json` together; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
