@@ -90,10 +90,26 @@ test('a Recipe of optional steps that shows only seen ones is passed over', asyn
   assert.deepEqual(match.ids, ['sha256:gene']);
 });
 
-test('the next relevant Recipe is tried when the best one cannot be expanded', async () => {
+test('only the best Recipe is fetched; when it cannot be expanded the single strategy is used', async () => {
   const hollow = { ...RECIPE, id: 'rcp_hollow', success_rate: 0.99, steps: [{ asset_id: 'sha256:gone', position: 1 }, { asset_id: 'sha256:also-gone', position: 2 }] };
-  const match = await recallStrategy(proxy({ recipes: [hollow, RECIPE] }).proxyFetch, PROMPT);
-  assert.deepEqual(match.ids, ['sha256:retry', 'sha256:alert']);
+  const stub = proxy({ recipes: [hollow, RECIPE] });
+  const match = await recallStrategy(stub.proxyFetch, PROMPT);
+  assert.deepEqual(match.ids, ['sha256:gene']);
+  assert.equal(stub.stepFetches().length, 1, 'one step fetch per prompt, however many Recipes fit');
+});
+
+test('a Recipe still pending at the cutoff gives way to the single strategy that is ready', async () => {
+  let answerSearch;
+  const searched = new Promise((resolve) => { answerSearch = resolve; });
+  const proxyFetch = async (method, path, body) => {
+    if (path === '/recipe/search') return searched;
+    if (body?.asset_ids) return { ok: true, data: { assets: STEP_ASSETS } };
+    return { ok: true, data: { assets: [GENE] } };
+  };
+  const match = await recallStrategy(proxyFetch, PROMPT, { recipeCutoff: Promise.resolve() });
+  assert.deepEqual(match.ids, ['sha256:gene']);
+  answerSearch({ ok: true, data: [RECIPE] });
+  assert.deepEqual((await recallStrategy(proxy().proxyFetch, PROMPT, { recipeCutoff: new Promise(() => {}) })).ids, ['sha256:retry', 'sha256:alert'], 'one that lands first still wins');
 });
 
 test('a Proxy without Recipe search still recalls a single strategy', async () => {
