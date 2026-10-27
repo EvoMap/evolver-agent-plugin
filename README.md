@@ -71,13 +71,6 @@ every host's manifest, moves `release` one commit on, points the tag there and o
 release changes nothing; delete the tag, fix, and push it again. To
 try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
 
-Run one Evolver plugin, not several: if `evolver-mods@evolver-mods`, `evolver@evolver` or the earlier
-`evolver-agent-plugin@evolver-agent-plugin` is installed, uninstall it so that each reuse is reported only once:
-
-```bash
-claude plugin uninstall evolver-agent-plugin@evolver-agent-plugin
-claude plugin disable evolver-mods@evolver-mods
-```
 
 ## Install (other hosts)
 
