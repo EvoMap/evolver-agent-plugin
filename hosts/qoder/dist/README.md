@@ -39,9 +39,11 @@ in a git repository and open the claim link it prints while signed in to [evomap
 | `PostToolUse`, `PostToolUseFailure` (`Bash`, `PowerShell`, `Write`, `Edit`, `NotebookEdit`) | Notes the turn's commands with their exit codes, its checks (test, build, lint, type check) with pass or fail, and the files it edited. |
 | `Stop` | Reports every strategy recalled into the turn, shows a one-line summary when a strategy was reused, and makes the turn the session's distillation candidate when it ended on a passing check after editing files or running three commands. |
 | `StopFailure` | Ends the turn as an error (a model call failed): reports its strategies, judged by its last check, and keeps it from distillation. |
+| `QueryEnd` | Not in Qoder's documentation, but sent once at the end of every turn of the main agent. With `reason: "abort"` (the person interrupted the turn) it reports the turn's strategies as aborted, before any background command's `<task-notification>` turn can add its calls to it. |
 | `SessionEnd` | Closes a turn still open, reports what is left as aborted, and distills the session's candidate in the background. Keeps the session's turn counter, so a resumed session never repeats a task id. |
 
-An interrupted turn runs neither `Stop` nor `StopFailure`; the next prompt reports it as aborted.
+An interrupted turn runs neither `Stop` nor `StopFailure`, only `QueryEnd`; a turn no hook ended is reported as
+aborted by the next prompt.
 
 ## Commands
 
@@ -55,8 +57,8 @@ An interrupted turn runs neither `Stop` nor `StopFailure`; the next prompt repor
 | `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver` when it is not installed). |
 
 Qoder lists them as `/evolver-plugin:evolver-status` and so on; either form works. The `UserPromptSubmit` hook
-answers each one and blocks the prompt, so it reaches no model and leaves nothing in the conversation; the answer is
-shown as the hook's message. `/evolver-evolve` is the exception: it is meant for the agent, so the prompt goes on to
+answers each one and blocks the prompt, so it reaches no model; the answer is shown as the hook's message, and the
+next request carries only a marker naming the command. `/evolver-evolve` is the exception: it is meant for the agent, so the prompt goes on to
 the model with the checkpoint instruction as context. The prompt waits while a command runs: up to two minutes for
 `/evolver-distill`, ten for the engine commands.
 
@@ -73,7 +75,8 @@ When the session ends, a detached process runs Qoder CLI itself in print mode â€
 `qodercli -p --output-format json --tools "" --strict-mcp-config --settings '{"disableAllHooks":true}' --max-turns 1 --no-session-persistence`
 in an empty folder, with the prompt on stdin â€” to write a Gene from a digest of the candidate turn (task, commands,
 paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's `POST /conversation/distill`.
-It runs on your own sign-in and default model, with no tools, MCP servers or hooks. Unless the Proxy verifies the
+It runs on your own sign-in and default model, with no tools or hooks; MCP servers in your user settings still start,
+but none of their tools is offered to the model. Unless the Proxy verifies the
 Gene, the answer is a draft, kept until you publish or discard it with `/evolver-drafts`. A candidate is tried three
 times, then given up.
 

@@ -29,7 +29,7 @@ jobs:
       - run: npm run pack
 
   # The release branch is main plus the packed dist/, which the hosts' marketplaces install from (Claude Code,
-  # WorkBuddy, Codex and Grok) and Antigravity, OpenCode and DeepSeek Harness are installed from. Only a tested push to main moves it.
+  # WorkBuddy, Codex, Grok and Qoder) and Antigravity, OpenCode and DeepSeek Harness are installed from. Only a tested push to main moves it.
   release:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
