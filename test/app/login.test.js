@@ -144,7 +144,7 @@ test('a run quiet past the wait asks for another try; one past the device flow\'
 test('/evolver-status shows a sign-in waiting for approval, and otherwise points to /evolver-login', async () => {
   const world = loginWorld({ onStart: printsDeviceCode });
   const status = () => runCommand(world.ports, { sessionId: 's1', name: 'evolver-status' }).then((answer) => answer.text.split('\n').at(-1));
-  assert.equal(await status(), 'Hub sign-in: /evolver-login signs you in to the EvoMap Hub, or confirms that you are.');
+  assert.equal(await status(), 'Hub sign-in: /evolver-login signs you in to the EvoMap Hub; within about an hour of an approval it answers at once, after that it asks for a new one.');
   await world.login();
   assert.equal(await status(), `A sign-in to the EvoMap Hub waits for your approval: open ${URL} and enter the code ${CODE}.`);
 });
