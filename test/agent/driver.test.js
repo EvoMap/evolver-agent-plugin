@@ -162,3 +162,19 @@ test('a tool result of another turn than the open one is handed no strategy', as
   assert.deepEqual(await driver.handle('PostToolUse', { ...base, turn: 't1', tool_name: 'Read', tool_input: {} }), {});
   assert.ok((await driver.handle('PostToolUse', { ...base, turn: 't2', tool_name: 'Read', tool_input: {} })).hookSpecificOutput);
 });
+
+test('a session end waits for an open turn\'s end only as long as the host\'s session-end budget leaves', async () => {
+  const made = memoryPorts();
+  const profile = hookProfile({ turnEnd: { unclosed: { settleMs: 60_000, as: 'aborted' } }, budgets: { prompt: 8_000, sessionEnd: 1_500 } });
+  const { driver, queued } = driverOf(profile, made);
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  const { sleep } = made.ports.clock;
+  let waited = 0;
+  made.ports.clock.sleep = (ms) => {
+    waited += ms;
+    return sleep(ms);
+  };
+  assert.deepEqual(await driver.handle('SessionEnd', base), {});
+  assert.ok(waited <= 1_000, `it leaves the hook time to write (waited ${waited} ms)`);
+  assert.equal(queued[0].report.evidence.aborted, true);
+});
