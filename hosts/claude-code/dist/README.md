@@ -20,7 +20,7 @@ local build, run `npm run pack` in a checkout and add `dist/claude-code` as the 
 
 ## Commands
 
-`/evolver-status`, `/evolver-search <text>`, `/evolver-distill [focus]`, `/evolver-drafts [publish|discard <n>]`,
+`/evolver-status`, `/evolver-login`, `/evolver-search <text>`, `/evolver-distill [focus]`, `/evolver-drafts [publish|discard <n>]`,
 `/evolver-evolve [focus]`, and `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify`, which run the
 `evolver` CLI.
 

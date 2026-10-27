@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { pack } from '../../../scripts/pack.mjs';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
+import { installFakeEvolver } from '../../helpers/fake-evolver.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
 // The hooks as Codex runs them: each registered command through a shell, with PLUGIN_ROOT pointing at the folder
@@ -164,6 +165,22 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   assert.equal(posted('/asset/fetch').length, fetches);
   await verifiedTurn(s);
   assert.ok(await waitFor(() => reportOf('codex:s-command:1')), 'the command was no turn');
+});
+
+test('evolver-login typed into the prompt box answers the person: the link and code, then the node once approved', posix, async (t) => {
+  const registered = await fakeProxy({ status: { running: true, status: 'running', node_id: 'node_login', hub_auth_status: 'ok' } });
+  t.after(() => closeWhenSettled(registered));
+  const fake = installFakeEvolver(join(registered.env.HOME, '.evolver', 'state', 'codex-engine'), join(registered.env.HOME, 'fake-evolver'));
+  const loginEnv = { ...env, ...registered.env, ...fake.env, PATH: env.PATH, PLUGIN_ROOT: plugin };
+  const login = () => runHook('UserPromptSubmit', { ...PAYLOADS.UserPromptSubmit, session_id: 's-login', cwd: project, turn_id: 's-login-1', prompt: 'evolver-login' }, loginEnv);
+
+  const first = await login();
+  assert.equal(first.decision, 'block');
+  assert.equal(first.reason, 'To sign in to the EvoMap Hub, open https://hub.test/device?user_code=FAKE-CODE and enter the code FAKE-CODE. Evolver finishes signing in once you approve; then run /evolver-login again to confirm.');
+  assert.equal(first.hookSpecificOutput, undefined, 'nothing reaches the model');
+  writeFileSync(join(registered.env.HOME, 'fake-evolver', 'approved'), '');
+  await waitFor(() => existsSync(join(registered.env.HOME, 'fake-evolver', 'token')));
+  assert.equal((await login()).reason, 'Signed in to https://hub.test; node node_login registered.', 'the sign-in finished after the hook that started it exited');
 });
 
 test('an interrupted turn is reported aborted with the check it ran, and leaves no candidate', posix, async () => {

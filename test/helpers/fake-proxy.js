@@ -8,9 +8,9 @@ import { ASSET } from '../app/memory-ports.js';
 /**
  * A loopback Proxy that answers recall with one asset and records every request, plus a scratch HOME whose
  * settings name it as a current Proxy, so no test ever starts setting the engine up. `delays` holds a path's answer
- * back for that many milliseconds.
+ * back for that many milliseconds; `status` is what `/proxy/status` answers.
  */
-export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {} } = {}) {
+export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {}, status = { running: true, status: 'running', node_id: 'node_test' } } = {}) {
   const requests = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -18,7 +18,7 @@ export async function fakeProxy({ assets = [ASSET], distillAnswer = { ok: false,
     request.on('end', () => {
       requests.push({ method: request.method, path: request.url, body: body ? JSON.parse(body) : undefined });
       const answer = request.url === '/asset/fetch' ? { assets }
-        : request.url === '/proxy/status' ? { running: true, status: 'running', node_id: 'node_test' }
+        : request.url === '/proxy/status' ? status
           : request.url === '/conversation/distill' ? distillAnswer
             : { recorded: true };
       const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
