@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { waitBudgetOf } from '../../lib/runtime/budget.js';
+import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
@@ -46,6 +47,29 @@ test('a hook waits what is left of its budget, never less than a floor', () => {
   assert.equal(waitBudgetOf({ prompt: 660_000 }, 'prompt', { startedAt: 0, now: 0 }), 6_000);
   assert.equal(waitBudgetOf({ prompt: 1_000 }, 'prompt', { startedAt: 0, now: 0 }), 500);
   assert.equal(waitBudgetOf({}, 'prompt', { lifetime: 'resident' }), 6_000);
+});
+
+test('a session end waits for the last turn\'s end only as long as the host\'s session-end budget leaves', () => {
+  assert.equal(sessionEndWaitOf({ prompt: 5_000 }, 2_000, { startedAt: 0, now: 100 }), 2_000, 'no budget, no limit');
+  assert.equal(sessionEndWaitOf({ sessionEnd: 1_500 }, 2_000, { startedAt: 0, now: 100 }), 600);
+  assert.equal(sessionEndWaitOf({ sessionEnd: 1_500 }, 300, { startedAt: 0, now: 100 }), 300);
+  assert.equal(sessionEndWaitOf({ sessionEnd: 1_500 }, 2_000, { startedAt: 0, now: 1_000 }), 0);
+});
+
+test('a cli model may take its prompt from a file in its empty folder, and set variables for the run', async () => {
+  const runner = modelRunnerOf({
+    kind: 'cli',
+    command: () => node,
+    args: (model, prompt, { promptPath }) => ['-e', 'const fs=require("fs");process.stdout.write(JSON.stringify({text:fs.readFileSync(process.argv[1],"utf8"),cwd:process.cwd(),flag:process.env.HOST_HOOKS_ENABLED}))', promptPath],
+    parse: ({ stdout }) => ({ answer: JSON.parse(stdout) }),
+    workdir: 'empty',
+    promptFile: 'prompt.md',
+    env: { HOST_HOOKS_ENABLED: 'false' },
+  });
+  const { answer } = await runner.complete('m', 'the gene prompt', AbortSignal.timeout(5_000));
+  assert.equal(answer.text, 'the gene prompt');
+  assert.equal(answer.flag, 'false');
+  assert.equal(existsSync(answer.cwd), false, 'the folder and its prompt file are removed after the run');
 });
 
 test('a cli model declaration runs headless and parses its answer; none or in-session means no runner', async () => {

@@ -127,3 +127,54 @@ test('over MCP, only the report of the turn that became the candidate asks for a
   const second = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't2', outcome: 'failed', summary: 'Gave up.' });
   assert.equal(second.content[0].text, 'Reported.');
 });
+
+test('a host whose strategy lands at a tool result answers the prompt without it and the turn\'s first tool result with it', async () => {
+  const { driver, queued } = driverOf(hookProfile({ reply: { strategyAt: 'tool-result' } }));
+  assert.deepEqual(await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }), {});
+  const bash = { ...base, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { exit_code: 0 } };
+  const first = await driver.handle('PostToolUse', bash);
+  assert.equal(first.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.ok(first.hookSpecificOutput.additionalContext.endsWith('Apply them where they fit.'));
+  assert.deepEqual(await driver.handle('PostToolUse', bash), {});
+  await driver.handle('Stop', { ...base, last_assistant_message: 'Done.' });
+  assert.equal(queued[0].report.outcome, 'success');
+});
+
+test('by default the strategy rides the prompt, and a tool result answers nothing', async () => {
+  const { driver } = driverOf(hookProfile());
+  assert.equal(hookProfile().reply.strategyAt, 'prompt');
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  assert.deepEqual(await driver.handle('PostToolUse', { ...base, tool_name: 'Read', tool_input: {} }), {});
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'step' } }), /reply\.strategyAt must be one of prompt, tool-result/);
+});
+
+test('a host whose prompt answer reaches no model may not rely on it for a session-start notice or a late recall', () => {
+  const late = (answer) => answer;
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'tool-result' }, sessionStart: 'owner-change' }), /'tool-result' takes neither sessionStart 'owner-change' nor reply\.late/);
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'tool-result', late } }), /'tool-result' takes neither/);
+  assert.doesNotThrow(() => hookProfile({ reply: { late }, sessionStart: 'owner-change' }));
+});
+
+test('a tool result of another turn than the open one is handed no strategy', async () => {
+  const profile = hookProfile({ reply: { strategyAt: 'tool-result' }, payload: { turnId: (payload) => payload.turn ?? null } });
+  const { driver } = driverOf(profile);
+  await driver.handle('UserPromptSubmit', { ...base, turn: 't2', prompt: PROMPT });
+  assert.deepEqual(await driver.handle('PostToolUse', { ...base, turn: 't1', tool_name: 'Read', tool_input: {} }), {});
+  assert.ok((await driver.handle('PostToolUse', { ...base, turn: 't2', tool_name: 'Read', tool_input: {} })).hookSpecificOutput);
+});
+
+test('a session end waits for an open turn\'s end only as long as the host\'s session-end budget leaves', async () => {
+  const made = memoryPorts();
+  const profile = hookProfile({ turnEnd: { unclosed: { settleMs: 60_000, as: 'aborted' } }, budgets: { prompt: 8_000, sessionEnd: 1_500 } });
+  const { driver, queued } = driverOf(profile, made);
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  const { sleep } = made.ports.clock;
+  let waited = 0;
+  made.ports.clock.sleep = (ms) => {
+    waited += ms;
+    return sleep(ms);
+  };
+  assert.deepEqual(await driver.handle('SessionEnd', base), {});
+  assert.ok(waited <= 1_000, `it leaves the hook time to write (waited ${waited} ms)`);
+  assert.equal(queued[0].report.evidence.aborted, true);
+});
