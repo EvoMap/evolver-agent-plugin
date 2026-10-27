@@ -1,0 +1,41 @@
+{
+  "name": "evolver",
+  "version": "0.4.0",
+  "description": "Official Codex plugin for Evolver: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work at session end — all from hooks, with no tools in the model's context.",
+  "author": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "homepage": "https://evomap.ai",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "keywords": [
+    "evolver",
+    "evomap",
+    "gep",
+    "agent-evolution",
+    "self-evolution",
+    "codex"
+  ],
+  "interface": {
+    "displayName": "Evolver",
+    "shortDescription": "Recall proven strategies and learn from verified work, from hooks.",
+    "longDescription": "Evolver is EvoMap's GEP-powered self-evolution engine for AI agents. This Codex plugin runs entirely from hooks: before each prompt it recalls one proven strategy from the local Evolver Proxy and adds its steps to the turn, at turn end it reports how the strategy was reused (with the checks the turn ran as evidence), and when the session ends it distills the session's latest verified turn into a draft Gene through Codex itself, headless. It registers no tools and no skill, so nothing but the recalled steps enters the model's context. People reach Evolver by typing its evolver-* commands into the prompt box.",
+    "developerName": "EvoMap",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://evomap.ai",
+    "defaultPrompt": [
+      "Fix the failing test in this repo.",
+      "Add retry with backoff to the uploader."
+    ],
+    "brandColor": "#2F855A",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
+}

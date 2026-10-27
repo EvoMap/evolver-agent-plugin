@@ -1,0 +1,12 @@
+{
+  "bash.patchAndFailingTests": "Success. Updated the following files:\nA retry.mjs\nA retry.test.mjs\n✔ returns the first successful result without retrying (0.603667ms)\n✖ retries with exponential backoff and stops after success (0.86875ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\nℹ tests 5\nℹ pass 4\nℹ fail 1\n",
+  "bash.patchAndPassingTests": "Success. Updated the following files:\nM retry.mjs\n✔ returns the first successful result without retrying (0.519792ms)\n✔ retries with exponential backoff and stops after success (2.170125ms)\nℹ tests 5\nℹ pass 5\nℹ fail 0\n",
+  "bash.stillRunning": "Chunk ID: 4f2a1c\nWall time: 10.0021 seconds\nProcess running with session ID 7\nOriginal token count: 18\nOutput:\n▶ uploader\n  ✔ retries once (2.1ms)\n",
+  "bash.finishedFailing": "  ✖ gives up after three tries (3.4ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\nℹ tests 40\nℹ pass 39\nℹ fail 1\n",
+  "bash.finishedExited": "Chunk ID: 9b0e77\nWall time: 4.2010 seconds\nProcess exited with code 1\nOriginal token count: 9\nOutput:\nℹ tests 40\nℹ pass 40\n",
+  "bash.exitHeaderFailed": "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nall good",
+  "bash.exitHeaderPassed": "Exit code: 0\nWall time: 0.2 seconds\nOutput:\nℹ pass 3\nℹ fail 0",
+  "bash.timedOut": "command timed out after 10000 milliseconds\nℹ pass 1",
+  "apply_patch.failed": "Exit code: 1\nOutput:\napply_patch verification failed",
+  "patch.everyHeader": "*** Begin Patch\n*** Add File: src/lru.js\n+export const cache = new Map();\n*** Update File: src/old.js\n*** Move to: src/new.js\n@@\n-const a = 1;\n+const a = 2;\n*** Delete File: src/gone.js\n*** End Patch"
+}

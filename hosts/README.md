@@ -31,20 +31,20 @@ Every host also honours `EVOLVER_RECALL=off`, which turns recall off.
 
 From each host's reviewed standalone plugin; bold is where it differs from the default.
 
-| Point | WorkBuddy | Cursor | Antigravity | OpenCode | MCP client | Codex (later) |
+| Point | WorkBuddy | Cursor | Antigravity | OpenCode | MCP client | Codex |
 |---|---|---|---|---|---|---|
 | Channel | hook | hook | hook | **plugin** | **mcp** | hook |
 | Prompt from | payload | payload | **transcript** | **message parts** | **`task` argument** | payload |
 | Session start | event | event | **owner-change** | **first prompt in the instance** | **connection** | event |
-| Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext |
-| Evidence | **transcript at turn end** | hook exit codes, **answer from afterAgentResponse** | **transcript step exit codes** | **`metadata.exit`** | **agent-reported** | PostToolUse / rollout |
-| Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop / Interrupt / next prompt |
-| Session end | event | event, **for its generation** | **none: the next session start reports and distills a session whose owner exited** | **deleted / dispose** | **connection close** | event |
-| Commands | **inline-script** | **intercept** | cli-only: `node <plugin>/bin/command.mjs antigravity evolver-status` | **prompt / TUI** | **tool** | cli-only |
-| Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/`** |
-| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --disable hooks,plugins` |
+| Answer | additionalContext | **`{continue, additional_context}`** | **`injectSteps`, replayed each model call; `allow`/`stop` empty answers** | **synthetic part** | **tool result** | additionalContext; **a command blocks the prompt (`decision: block`)** |
+| Evidence | **transcript at turn end** | hook exit codes, **answer from afterAgentResponse** | **transcript step exit codes** | **`metadata.exit`** | **agent-reported** | hook output, **no Bash exit code**; edits from `apply_patch` patches |
+| Turn end | **`final_stop_reason`** | **`status`, 3 s settle** | **`terminationReason`, unknown waits** | **`error.name` / `finish`** | **report `outcome`** | Stop, **Interrupt aborts** |
+| Session end | event | event, **for its generation** | **none: the next session start reports and distills a session whose owner exited** | **deleted / dispose** | **connection close** | event; **before 0.145 the next session start reports and distills a session whose owner exited** |
+| Commands | **inline-script** | **intercept** | cli-only: `node <plugin>/bin/command.mjs antigravity evolver-status` | **prompt / TUI** | **tool** | **intercept, typed without a slash** |
+| Owner | parent | **ancestor path `/cursor/`** | **ancestor `agy` / `language_server`** | **self** | **self** | **ancestor `/^codex/i`** |
+| Headless model | `codebuddy -p`; **the agent writes the Gene when it cannot sign in** | `cursor-agent -p --mode ask` | `agy`, **stream-json on stdin, empty folder** | **SDK helper session** | **in-session** | `codex exec --ignore-user-config`, **hooks and plugins off, JSONL on stdout, empty folder** |
 | State | **plugin data folder** | default | default | default | default | default |
-| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | `.codex-plugin` |
+| Installed from | **`dist/workbuddy` on the `release` branch** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`.agents/plugins/marketplace.json`) |
 
 ## Adding a host
 
