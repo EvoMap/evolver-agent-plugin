@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runCommand } from '../../lib/app/commands/index.js';
-import { adoptStrategy, lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
+import { adoptStrategy, lastTurnOf, promptSubmitted, takeWaitingStrategy } from '../../lib/app/prompt.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { sessionOf } from '../../lib/session/state.js';
@@ -86,4 +86,15 @@ test('a searched Recipe is adopted step by step, so the turn end reports each st
   await adoptStrategy(ports, { sessionId: 's1', strategy: searched.strategy });
   const { reports } = await end(ports, 's1');
   assert.deepEqual(reports.map((report) => report.asset_id), [RETRIES, TEARDOWN]);
+});
+
+test('a Recipe held for the turn\'s first tool result is taken whole and books every step', async () => {
+  const { ports } = recipePorts();
+  const { injection } = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, holdForToolResult: true, ...WAIT });
+  assert.equal(injection, '');
+  assert.deepEqual(sessionOf(await ports.sessions.read('s1')).waiting.ids, [RETRIES, TEARDOWN]);
+  assert.match(await takeWaitingStrategy(ports, { sessionId: 's1' }), /^\[Evolution Memory\] Recipe: /);
+  const injected = await injectedOf(ports, 's1');
+  assert.deepEqual(Object.keys(injected), [RETRIES, TEARDOWN]);
+  assert.match(injected[RETRIES].strategyText, /^\[Evolution Memory\] Unbound redis retries \(EvoMap network\):/);
 });
