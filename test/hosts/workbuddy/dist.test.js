@@ -62,7 +62,8 @@ test('the packed folder is a marketplace of its own, for trying a local build: t
   assert.equal(json(`${DIST}/pack.json`).root['.codebuddy-plugin/marketplace.json'], `${DIST}/.codebuddy-plugin/marketplace.json`);
 });
 
-test('the plugin keeps the identity of the WorkBuddy plugin it replaces, so its data folder and install carry over', () => {
+test('the plugin is evolver-plugin in the marketplace the standalone one came from, and adopts that one\'s data folder', () => {
   const marketplace = json('.codebuddy-plugin/marketplace.json');
-  assert.equal(`${marketplace.plugins[0].name}@${marketplace.name}`, 'evolver@evomap-workbuddy');
+  assert.equal(`${marketplace.plugins[0].name}@${marketplace.name}`, 'evolver-plugin@evomap-workbuddy');
+  assert.deepEqual(profile.legacy[0], { folder: 'evolver-evomap-workbuddy' });
 });

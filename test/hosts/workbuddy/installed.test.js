@@ -37,7 +37,7 @@ before(async () => {
   proxy = await fakeProxy();
   plugin = installedPlugin();
   home = proxy.env.HOME;
-  data = join(home, '.workbuddy', 'plugins', 'data', 'evolver-evomap-workbuddy');
+  data = join(home, '.workbuddy', 'plugins', 'data', 'evolver-plugin-evomap-workbuddy');
   project = join(home, 'project');
   mkdirSync(project, { recursive: true });
   const { CODEBUDDY_SESSION_ID, CLAUDE_SESSION_ID, CODEBUDDY_PLUGIN_DATA, ...base } = proxy.env;

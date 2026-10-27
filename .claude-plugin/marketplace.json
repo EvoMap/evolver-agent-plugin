@@ -1,6 +1,6 @@
 {
   "name": "evolver-agent-plugin",
-  "description": "EvoMap marketplace for Evolver on Claude Code function hooks — per-prompt EvoMap strategy recall, edit signals, and evidence-backed reuse feedback, powered by the Genome Evolution Protocol (GEP).",
+  "description": "EvoMap marketplace for Evolver on Claude Code — per-prompt strategy recall, evidence-backed reuse reports and session-end distillation, powered by the Genome Evolution Protocol (GEP).",
   "owner": {
     "name": "EvoMap",
     "email": "team@evomap.ai",
@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "evolver-agent-plugin",
+      "name": "evolver-plugin",
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/EvoMap/evolver-agent-plugin.git",

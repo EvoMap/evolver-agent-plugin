@@ -57,8 +57,10 @@ export default defineProfile({
   budgets: { prompt: 8_000 },
   model: headlessCodebuddy,
   stateDir: stateDirOf,
-  // 0.3.0 named its files without the agent, and kept a session's id and owner on its ledger entries.
+  // The plugin was `evolver`, whose data folder WorkBuddy named after it; 0.3.0 named its files without the agent,
+  // and kept a session's id and owner on its ledger entries.
   legacy: [
+    { folder: 'evolver-evomap-workbuddy' },
     { sessions: /^session-[0-9a-f]{16}\.json$/ },
     { rename: /^(?:edits-[0-9a-f]{16}\.jsonl|reports-queue\.jsonl|reports-outbox\.json|retention-pending\.jsonl|engine\.json|engine-announced\.json|engine)$/ },
   ],

@@ -2,11 +2,17 @@
   <img src="assets/logo.png" alt="Evolver" width="96" height="96" />
 </p>
 
-<h1 align="center">Evolver Agent Plugin</h1>
+<h1 align="center">evolver-plugin</h1>
 
-One plugin that gives AI agents a persistent evolution memory and a live link to the
-[EvoMap network](https://evomap.ai), with no tools for the model to call. Everything runs
-from the host's hooks or plugin API:
+`evolver-plugin` connects AI agents to Evolver: one plugin, the same on every agent, that gives
+it a persistent evolution memory and a live link to the [EvoMap network](https://evomap.ai), with
+no tools for the model to call. Evolver ships as two projects for now, which will merge into one:
+
+- **`evolver`** (`@evomap/evolver`): the engine, with the local Proxy, the memory graph and the Hub
+  link. The plugin installs it, starts its Proxy and keeps it at a supported version by itself.
+- **`evolver-plugin`** (this repository, `EvoMap/evolver-agent-plugin`): every agent's adapter.
+
+Everything runs from the host's hooks or plugin API:
 
 - **Recall.** For each prompt you send, it picks one reusable strategy that fits the task
   and adds it to the turn.
@@ -43,7 +49,7 @@ In Claude Code:
 
 ```text
 /plugin marketplace add EvoMap/evolver-agent-plugin
-/plugin install evolver-agent-plugin@evolver-agent-plugin
+/plugin install evolver-plugin@evolver-agent-plugin
 ```
 
 The marketplace installs `dist/claude-code` from the `release` branch, which CI builds from
@@ -52,36 +58,49 @@ every tested push to `main`; Node.js 22.13+ must be on the `PATH` (or set `node_
 plugin, and restart:
 
 ```bash
-claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-agent-plugin@evolver-agent-plugin
+claude plugin marketplace update evolver-agent-plugin && claude plugin update evolver-plugin@evolver-agent-plugin
 ```
 
 Claude Code updates an installed plugin only when its version changes, so a release meant
 to reach installs bumps `version` in `hosts/claude-code/dist/.claude-plugin/plugin.json`. To
 try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
 
-Run one Evolver plugin, not several: if `evolver-mods@evolver-mods` or `evolver@evolver`
-is installed, disable it so that each reuse is reported only once:
+Run one Evolver plugin, not several: if `evolver-mods@evolver-mods`, `evolver@evolver` or the earlier
+`evolver-agent-plugin@evolver-agent-plugin` is installed, uninstall it so that each reuse is reported only once:
 
 ```bash
+claude plugin uninstall evolver-agent-plugin@evolver-agent-plugin
 claude plugin disable evolver-mods@evolver-mods
 ```
 
 ## Install (other hosts)
 
-WorkBuddy, Codex, Antigravity and OpenCode install a folder packed for them too (`npm run pack`, into
-`dist/<host>`), from the `release` branch.
+Every host installs the plugin as `evolver-plugin`. WorkBuddy, Codex, Antigravity and OpenCode install a folder
+packed for them (`npm run pack`, into `dist/<host>`), from the `release` branch. Remove the host's standalone Evolver
+plugin first, or every reuse is reported twice; the new one adopts what the old one left (turn counters, open
+injections, undelivered reports), so nothing is lost on the way over.
 
-- **WorkBuddy / CodeBuddy:** `/plugin marketplace add EvoMap/evolver-agent-plugin`, then
-  `/plugin install evolver@evomap-workbuddy`; the marketplace installs `dist/workbuddy` from the `release` branch. It
-  replaces the standalone plugin of that name and keeps its data folder. WorkBuddy updates an installed plugin only
+- **WorkBuddy / CodeBuddy:** uninstall `evolver@evomap-workbuddy`, then `/plugin marketplace add
+  EvoMap/evolver-agent-plugin` and `/plugin install evolver-plugin@evomap-workbuddy`; the marketplace installs
+  `dist/workbuddy` from the `release` branch. Its first session moves the old plugin's data folder
+  (`evolver-evomap-workbuddy`) into its own. WorkBuddy updates an installed plugin only
   when its version changes, so a release meant to reach installs bumps the version in
   `hosts/workbuddy/dist/.codebuddy-plugin/` and in `.codebuddy-plugin/marketplace.json` together. To try a local
   build, `npm run pack` and add `<checkout>/dist/workbuddy` as the marketplace instead: the packed folder is a
   marketplace of its own.
-- **Cursor:** add this repository as a plugin marketplace and install `evolver`; it installs the repo itself.
-- **Antigravity:** from the `release` branch,
-  `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git`, then
-  `agy plugin install evolver-agent-plugin/dist/antigravity`; it replaces `evolver-antigravity-plugin`.
+- **Codex:** remove the standalone plugin and its marketplace, then add this one at the `release` branch:
+
+  ```bash
+  codex plugin remove evolver@evomap && codex plugin marketplace remove evomap
+  codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
+  codex plugin add evolver-plugin@evomap
+  ```
+
+  Then open `/hooks` in Codex, trust the Evolver hooks, and start a new thread.
+- **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
+- **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
+  `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
+  `agy plugin install evolver-agent-plugin/dist/antigravity`.
   Its commands run from a terminal: `node <installed plugin>/bin/command.mjs antigravity evolver-status` (or
   `evolver-search <text>`, `evolver-distill`, `evolver-drafts publish 1`, …).
 - **OpenCode:** `opencode plugin <release clone>/dist/opencode` (the folder is the `@evomap/evolver-opencode`
@@ -89,9 +108,6 @@ WorkBuddy, Codex, Antigravity and OpenCode install a folder packed for them too 
   twice.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
-
-A host's first session adopts what its standalone plugin left (turn counters, open injections, undelivered reports),
-so nothing is reported twice or lost on the way over.
 
 ## Commands
 

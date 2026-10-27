@@ -19,7 +19,7 @@ import { fakeProxy } from '../../helpers/fake-proxy.js';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const FAKE_HOST = fileURLToPath(new URL('../../fixtures/antigravity/fake-host.mjs', import.meta.url));
 const FAKE_AGY = fileURLToPath(new URL('../../fixtures/antigravity/fake-agy.mjs', import.meta.url));
-const NAME = 'evolver-antigravity-plugin';
+const NAME = 'evolver-plugin';
 const DOCUMENTED_EVENTS = ['SessionStart', 'PreToolUse', 'PostToolUse', 'PreInvocation', 'PostInvocation', 'Stop'];
 const PASSED_RUN = 'The command exited with code 0.\nOutput:\nℹ tests 2\nℹ pass 2\nℹ fail 0\n';
 

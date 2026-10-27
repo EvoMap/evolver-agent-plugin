@@ -10,7 +10,7 @@
   },
   "plugins": [
     {
-      "name": "evolver",
+      "name": "evolver-plugin",
       "source": ".",
       "description": "Prompt-relevant strategy recall, turn-end reuse reports and session-end distillation, from hooks only — nothing in the model's context but the recalled steps.",
       "version": "3.0.0",

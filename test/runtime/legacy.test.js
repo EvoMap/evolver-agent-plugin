@@ -49,6 +49,22 @@ test('a ledger alone says how far its session got: the turn counts on from its l
   assert.equal((await stores.sessions.read('resumed')).turn, 5);
 });
 
+test('an older install\'s data folder beside this one is moved in first, then adopted; what this one has wins', async () => {
+  const parent = folder();
+  const old = join(parent, 'evolver-evomap-workbuddy');
+  const dir = join(parent, 'evolver-plugin-evomap-workbuddy');
+  mkdirSync(old);
+  write(old, 'reports-outbox.json', { k: { queuedAt: Date.now() } });
+  write(old, 'workbuddy-distill-drafts.json', [{ id: 'old' }]);
+  mkdirSync(dir);
+  write(dir, 'workbuddy-distill-drafts.json', [{ id: 'new' }]);
+  const stores = fileStoresOf({ dir, agent: 'workbuddy' });
+  stores.adoptLegacy([{ folder: 'evolver-evomap-workbuddy' }, { rename: /^reports-outbox\.json$/ }]);
+  assert.equal(existsSync(join(dir, 'workbuddy-reports-outbox.json')), true);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'workbuddy-distill-drafts.json'), 'utf8')), [{ id: 'new' }]);
+  assert.equal(existsSync(join(old, 'workbuddy-distill-drafts.json')), true, 'what was not moved stays where it was');
+});
+
 test('files an old plugin named without the agent are moved under its name, and never over a newer one', async () => {
   const dir = folder();
   write(dir, 'session-0123456789abcdef.json', { turn: 3 });

@@ -1,7 +1,9 @@
 # Architecture
 
-Reference for the plugin's commands, settings and troubleshooting, then how it is built and the design decisions
-behind its behaviour.
+Reference for `evolver-plugin`'s commands, settings and troubleshooting, then how it is built and the design
+decisions behind its behaviour. Evolver ships as two projects for now: `evolver` (`@evomap/evolver`, the engine:
+the local Proxy, the memory graph, the Hub link) and `evolver-plugin` (this repository, which connects every agent
+to it and keeps the engine installed and running). They will merge into one.
 
 ## Commands
 
@@ -46,8 +48,10 @@ State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every fi
   English word counts 1 and each shared pair of Chinese characters 0.5, so a short or off-topic prompt injects
   nothing by design. Engine reminders, markup and links are removed from the prompt first, and a strategy longer
   than 4000 characters is passed over.
-- **Every reuse is reported twice.** A host's standalone Evolver plugin is enabled too (`evolver-mods` on Claude
-  Code, `evolver@evomap` on Codex or WorkBuddy, `evolver-opencode-plugin`, …).
+- **Every reuse is reported twice.** A host's earlier Evolver plugin is enabled too: `evolver-mods` or
+  `evolver-agent-plugin` on Claude Code, `evolver@evomap` on Codex, `evolver@evomap-workbuddy` on WorkBuddy,
+  `evolver-antigravity-plugin`, `evolver-opencode-plugin`. The earlier `evolver-agent-plugin` 0.1.0 on Claude Code
+  kept its state in Claude Code's plugin store, which `evolver-plugin` does not read.
 - **A reuse report seems lost.** Reports wait in `<host>-reports-outbox.json` until the Proxy accepts them, retried
   at every turn end and session start for 8 days.
 - **No draft after a verified turn.** A turn is a candidate only when it answered, its last test, build, lint or
@@ -231,8 +235,9 @@ scripts/               pack.mjs, publish-release-branch.sh
   without line breaks; the turn summary stays there because it is a record of that turn, kept in the transcript.
 - Gating hooks (`prompt.submit`, `tool.call`) need a `.catch` from 2.1.293 on; its `next` is replay-safe, so a
   failure after `next` never runs the tool twice.
-- A marketplace-installed copy loads `modules` as `evolver-agent-plugin@evolver-agent-plugin`, tier `user`, the same
-  as a `--plugin-dir` copy; installed plugins' modules wait on the `tengu_plugin_hooks_modules` rollout flag first.
+- A marketplace-installed copy loads `modules` as `<plugin>@<marketplace>` (`evolver-plugin@evolver-agent-plugin`),
+  tier `user`, the same as a `--plugin-dir` copy; installed plugins' modules wait on the `tengu_plugin_hooks_modules`
+  rollout flag first.
 - `claude -p` on 2.1.308 runs a module's `session.start`, `prompt.submit` (origin `sdk`), `turn.start`,
   `turn.complete` and `session.end`, even when the model call fails (`reason: "error"`); the captured inputs are in
   `test/fixtures/claude-code/events.json`.

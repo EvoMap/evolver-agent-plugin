@@ -16,6 +16,7 @@ test('commands are inline scripts whose answer reaches the model', () => {
 test('a command turn is told apart typed, namespaced or as the host renders it', () => {
   assert.deepEqual(parse('/evolver-search  redis retries '), { name: 'evolver-search', args: 'redis retries' });
   assert.deepEqual(parse('/evolver:evolver-status'), { name: 'evolver-status', args: '' });
+  assert.deepEqual(parse('/evolver-plugin:evolver-status'), { name: 'evolver-status', args: '' });
   assert.deepEqual(parse(PAYLOADS.renderedCommand), { name: 'evolver-distill', args: '' });
   assert.equal(parse('用 Node 写一个 LRU 缓存'), null);
   assert.equal(parse('/compact'), null);
@@ -34,7 +35,7 @@ test('a command script finds its session in the shell the host runs it in', () =
 });
 
 test('state lives in the plugin data folder the host hands over, else in ~/.evolver/workbuddy-hooks', () => {
-  assert.equal(profile.stateDir({ CODEBUDDY_PLUGIN_DATA: '/data/evolver-evomap-workbuddy', HOME: '/h' }), '/data/evolver-evomap-workbuddy');
+  assert.equal(profile.stateDir({ CODEBUDDY_PLUGIN_DATA: '/data/evolver-plugin-evomap-workbuddy', HOME: '/h' }), '/data/evolver-plugin-evomap-workbuddy');
   assert.match(profile.stateDir({ HOME: '/h' }), /^[\\/]h[\\/]\.evolver[\\/]workbuddy-hooks$/);
 });
 

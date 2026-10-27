@@ -11,10 +11,11 @@ Requires Claude Code 2.1.286 or newer and Node.js 22.13 or newer on the `PATH`.
 
 ```text
 /plugin marketplace add EvoMap/evolver-agent-plugin
-/plugin install evolver-agent-plugin@evolver-agent-plugin
+/plugin install evolver-plugin@evolver-agent-plugin
 ```
 
-Restart Claude Code afterwards. Disable `evolver-mods` if it is installed, or every reuse is reported twice. To try a
+Restart Claude Code afterwards. Uninstall `evolver-agent-plugin@evolver-agent-plugin` and disable `evolver-mods` if
+either is installed, or every reuse is reported twice. To try a
 local build, run `npm run pack` in a checkout and add `dist/claude-code` as the marketplace instead.
 
 ## Commands
