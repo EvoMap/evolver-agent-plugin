@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runCommand } from '../../lib/app/commands/index.js';
-import { adoptStrategy, lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
+import { adoptStrategy, lastTurnOf, promptSubmitted, takeWaitingStrategy } from '../../lib/app/prompt.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { listedIdsOf, sessionOf } from '../../lib/session/state.js';
@@ -64,4 +64,13 @@ test('a searched Recipe adopted into the turn books every step for its end to re
   const searched = await runCommand(ports, { sessionId: 's1', name: 'evolver-search', args: 'flaky redis connection retries in tests' });
   await adoptStrategy(ports, { sessionId: 's1', strategy: searched.strategy });
   assert.deepEqual((await end(ports)).reports.map((report) => report.asset_id), STEP_IDS);
+});
+
+test('a Recipe held for the first tool result books every step there, not only the first', async () => {
+  const { ports } = withRecipe();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT, holdForToolResult: true });
+  assert.deepEqual(Object.keys((await sessionIn(ports)).injected), [], 'nothing is booked before a tool result');
+  const text = await takeWaitingStrategy(ports, { sessionId: 's1' });
+  assert.match(text, /^\[Evolution Memory\] Recipe: /);
+  assert.deepEqual(Object.keys((await sessionIn(ports)).injected), STEP_IDS);
 });
