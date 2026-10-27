@@ -158,3 +158,21 @@ test('a run finished long ago is not answered: a success after an `evolver logou
   assert.ok((await world.login()).text.includes(`enter the code ${CODE}.`), 'the first call after shows a fresh code');
   assert.equal(world.signIn.started.length, 2);
 });
+
+test('the whole answer comes within 45 s, the engine and Evolver sharing one deadline, and a cancel ends the wait', async () => {
+  const world = loginWorld({ status: null });
+  const startedAt = world.ports.clock.now();
+  const proxy = world.ports.proxy.request;
+  world.ports.proxy = { request: async (...args) => {
+    if (world.ports.clock.now() - startedAt >= 44_000) world.state.status = REGISTERED;
+    return proxy(...args);
+  } };
+  const answer = await world.login();
+  assert.ok(world.ports.clock.now() - startedAt <= 45_000, `answered after ${world.ports.clock.now() - startedAt} ms`);
+  assert.match(answer.text, /has not shown its code yet/);
+
+  const cancelled = loginWorld({ status: null });
+  const cancelledAt = cancelled.ports.clock.now();
+  await runCommand(cancelled.ports, { sessionId: 's1', name: 'evolver-login', signal: AbortSignal.abort() });
+  assert.equal(cancelled.ports.clock.now(), cancelledAt);
+});
