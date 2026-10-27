@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "evolver",
+      "name": "evolver-plugin",
       "source": {
         "source": "local",
         "path": "./dist/codex"

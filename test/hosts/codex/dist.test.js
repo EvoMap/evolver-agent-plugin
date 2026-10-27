@@ -60,7 +60,17 @@ test('the marketplace Codex reads at the repository root installs dist/codex, wh
   assert.ok(packedHosts().includes('codex'));
   assert.equal(entry.name, manifest.name);
   assert.deepEqual(entry.policy, { installation: 'AVAILABLE', authentication: 'ON_INSTALL' });
-  assert.equal(`${entry.name}@${marketplace.name}`, 'evolver@evomap', 'the identity of the standalone plugin it replaces');
+  assert.equal(`${entry.name}@${marketplace.name}`, 'evolver-plugin@evomap', 'its name on every host, in the marketplace the standalone plugin used');
+});
+
+test('the README installs evolver-plugin@evomap, after removing the standalone evolver@evomap, and names the new trust keys', () => {
+  const readme = readFileSync(at(`${DIST}/README.md`), 'utf8');
+  const removal = readme.indexOf('codex plugin remove evolver@evomap');
+  assert.ok(removal >= 0);
+  assert.ok(removal < readme.indexOf('codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release'), 'the standalone plugin goes first');
+  assert.match(readme, /^codex plugin add evolver-plugin@evomap$/m);
+  assert.match(readme, /hooks\.state\."evolver-plugin@evomap:hooks\/hooks\.json:user_prompt_submit:0:0"/);
+  assert.match(readme, /plugins\/cache\/evomap\/evolver-plugin\/<version>\/bin\/command\.mjs codex evolver-status/);
 });
 
 test('the manifest and the hook registration sit at the packed folder\'s root, where Codex looks for them', () => {

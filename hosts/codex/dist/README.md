@@ -10,20 +10,23 @@ model's context but the recalled steps, which end with `Apply them where they fi
 
 ## Install
 
-```bash
-codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
-codex plugin add evolver@evomap
-```
-
-Then open `/hooks` in Codex and trust the Evolver hooks, and start a new thread.
-
-**It replaces the standalone `evolver@evomap`** from `EvoMap/evolver-codex-plugin`. Remove that one first, or
-every reuse is reported twice:
+**First remove the standalone `evolver@evomap`** (from `EvoMap/evolver-codex-plugin`) if you have it: with both
+installed, every reuse is reported twice. Its marketplace is also named `evomap`, and Codex adds this one only once
+that one is gone:
 
 ```bash
 codex plugin remove evolver@evomap
 codex plugin marketplace remove evomap
 ```
+
+Then install `evolver-plugin`:
+
+```bash
+codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
+codex plugin add evolver-plugin@evomap
+```
+
+Then open `/hooks` in Codex, trust the Evolver hooks, and start a new thread.
 
 What the standalone plugin left in `~/.evolver/state` carries over: turn counters, undelivered reports,
 distillation candidates and the engine it installed. Its strategies still open are reported as aborted at the
@@ -34,8 +37,9 @@ first session start.
 Codex skips plugin hooks until you review them. Open `/hooks` after installing or updating the plugin and approve
 the Evolver hooks, in the Codex you run the plugin with: an older Codex lists only the events it knows, so the
 others stay untrusted for a newer one. Codex records each approval in `config.toml` as one table per hook, such as
-`[hooks.state."evolver@evomap:hooks/hooks.json:user_prompt_submit:0:0"]` (`trusted_hash`, and
-`trusted_content_hash` from 0.164 on): seven tables. After an update Codex shows the hooks as modified until you
+`[hooks.state."evolver-plugin@evomap:hooks/hooks.json:user_prompt_submit:0:0"]` (`trusted_hash`, and
+`trusted_content_hash` from 0.164 on): seven tables. The plugin's new name gives them new keys, so approvals you
+gave the standalone `evolver@evomap` do not carry over. After an update Codex shows the hooks as modified until you
 approve them again, which rewrites the same seven tables.
 
 ### Requirements
@@ -98,7 +102,7 @@ prompt box waits while a command runs: up to two minutes for `evolver-distill`, 
 The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest candidate:
 
 ```bash
-node ~/.codex/plugins/cache/evomap/evolver/<version>/bin/command.mjs codex evolver-status
+node ~/.codex/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs codex evolver-status
 ```
 
 ## Session-end distillation
@@ -124,10 +128,10 @@ and are retried for 8 days.
 ## Uninstall
 
 ```bash
-codex plugin remove evolver@evomap
+codex plugin remove evolver-plugin@evomap
 ```
 
-Local Evolver memory under `~/.evolver/` is left as it is. Codex keeps the seven `[hooks.state."evolver@evomap:…"]`
+Local Evolver memory under `~/.evolver/` is left as it is. Codex keeps the seven `[hooks.state."evolver-plugin@evomap:…"]`
 approval tables in `config.toml` after a removal; delete them by hand to forget the approvals.
 
 ## License
