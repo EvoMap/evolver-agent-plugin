@@ -22,7 +22,8 @@ test('the packed folder is the @evomap/dsh-evolver package dsh installs: its ent
   assert.equal(manifest.license, 'MIT');
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.peerDependencies, undefined);
-  assert.equal(relative(dir, main), 'hosts/dsh/dist/plugin.mjs');
+  assert.equal(relative(dir, main), 'plugin.mjs', 'the entry sits at the package root, where an installer looks for it');
+  assert.match(readFileSync(main, 'utf8'), /export \* from '\.\/hosts\/dsh\/dist\/plugin\.mjs';/);
   const patch = readFileSync(join(dir, manifest.dsh.bundle.patch), 'utf8');
   assert.match(patch, /^- insert:\n {4}- id: evolver\n {6}name: '@evomap\/dsh-evolver'$/m);
   for (const locale of ['en', 'zh-CN']) {

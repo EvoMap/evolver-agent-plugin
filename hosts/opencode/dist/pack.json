@@ -1,18 +1,26 @@
 {
-  "entries": ["hosts/opencode/dist/server.mjs", "hosts/opencode/dist/tui.mjs"],
+  "entries": [
+    "hosts/opencode/dist/server.mjs",
+    "hosts/opencode/dist/tui.mjs"
+  ],
   "root": {
+    "server.mjs": "hosts/opencode/dist/root/server.mjs",
+    "tui.mjs": "hosts/opencode/dist/root/tui.mjs",
     "package.json": "hosts/opencode/dist/package.json",
     "README.md": "hosts/opencode/dist/README.md",
     "LICENSE": "LICENSE"
   },
   "patch": {
     "package.json": {
-      "exports": {
-        "./server": "./hosts/opencode/dist/server.mjs",
-        "./tui": "./hosts/opencode/dist/tui.mjs",
-        "./package.json": "./package.json"
-      },
-      "files": ["hosts/", "lib/", "LICENSE", "README.md"]
+      "files": [
+        "server.mjs",
+        "tui.mjs",
+        ".evolver-packed",
+        "hosts/",
+        "lib/",
+        "LICENSE",
+        "README.md"
+      ]
     }
   }
 }
