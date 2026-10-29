@@ -54,10 +54,10 @@ evolver plugin install [--host <host>] [--scope user|project] [--root <dir>] [--
 | # | 缺口 | 证据 | 修在哪 |
 |---|---|---|---|
 | G1 | **Grok 缺 `--trust`。**不加时 Grok 只提示需要确认，不安装；evolver 随后报失败 | grok 1.0.70 实测："requires confirmation … re-run with --trust" | evolver |
-| G2 | **OpenCode 入口路径对不上。**<br>• evolver 期待 `dist/opencode/server.mjs`、`tui.mjs` 在包的根目录（`pluginBundle.ts:21`），实际在 `dist/opencode/hosts/opencode/dist/`，下载后被拒（"missing an entry module"）<br>• 就算找到入口，检查已装时要求 `server.mjs` 旁边有 `package.json`（`pluginInspection.ts:175-177`），也永远判断不出已装 | `origin/release` v1.0.0 的实际布局 | evolver：入口从 `package.json` 的 `exports` 读，不写死文件名 |
+| G2 | **OpenCode 入口路径对不上。**<br>• evolver 期待 `dist/opencode/server.mjs`、`tui.mjs` 在包的根目录（`pluginBundle.ts:21`），实际在 `dist/opencode/hosts/opencode/dist/`，下载后被拒（"missing an entry module"）<br>• 就算找到入口，检查已装时要求 `server.mjs` 旁边有 `package.json`（`pluginInspection.ts:175-177`），也永远判断不出已装 | `origin/release` v1.0.0 的实际布局 | plugin 仓库（#12）：包的根目录放转发入口 `server.mjs`、`tui.mjs`，`exports` 不再改写 |
 | G3 | **dsh：pnpm 缓存目录冲突。**命令行 `dsh` 用 PATH 上的 pnpm（本机 9），dsh 界面用自带的 pnpm 11。profile 被 11 装过后，9 会报 `ERR_PNPM_UNEXPECTED_STORE` | 本机实测；`web` profile 的 `node_modules/.modules.yaml`（JSON 格式）记录 `packageManager: pnpm@11.8.0`、`store/v11` | evolver：动手前先比对 |
-| G4 | **dsh：装好后校验不过。**<br>• evolver 要求包里有 `.evolver-packed`（`pluginInspection.ts:137`），但 `dist/dsh/package.json` 的 `files` 没把它包含进去，pnpm 不会装它<br>• evolver 要求根目录有 `plugin.mjs`（`:138`），实际入口是 `hosts/dsh/dist/plugin.mjs` | 本机 `~/.dsh/profiles/web/node_modules/@evomap/dsh-evolver` 里两样都没有 | plugin 仓库：`files` 加 `.evolver-packed`；evolver：入口从 `main`/`exports` 读 |
-| G5 | **单元测试按错误的布局写。**测试里假的包把 `server.mjs`、`plugin.mjs` 都放在根目录（`plugin.test.ts:35`），所以 G2、G4 测试照样全绿 | 同上 | evolver |
+| G4 | **dsh：装好后校验不过。**<br>• evolver 要求包里有 `.evolver-packed`（`pluginInspection.ts:137`），但 `dist/dsh/package.json` 的 `files` 没把它包含进去，pnpm 不会装它<br>• evolver 要求根目录有 `plugin.mjs`（`:138`），实际入口是 `hosts/dsh/dist/plugin.mjs` | 本机 `~/.dsh/profiles/web/node_modules/@evomap/dsh-evolver` 里两样都没有 | plugin 仓库（#12）：根目录放转发入口 `plugin.mjs`，`files` 加上它和 `.evolver-packed` |
+| G5 | **单元测试和真实布局脱节。**测试里假的包把 `server.mjs`、`plugin.mjs` 都放在根目录（`plugin.test.ts:35`），真实 `release` 却不是，所以 G2、G4 测试照样全绿 | 同上 | #12 让真实布局和测试一致；契约测试（G6）防止再脱节 |
 | G6 | **没有两仓之间的契约测试。**`--dry-run` 不下载、不执行宿主命令，拦不住布局变化 | `plugin.ts:16`、`pluginInstall.ts:37` | 两仓各加一个契约测试（见 5） |
 | G7 | **没发布。**npm 上 2.0.46（10-24）不带这个功能 | `npm view @evomap/evolver` | evolver 发版 |
 | G8 | **dsh 的独立旧插件冲突。**本机 `dsh-tui`、`headless`、`desktop` 三个 profile 里还装着 `@evomap/dsh-evolver` ^0.1.x；默认 profile 是 `dsh-tui`，必定撞上冲突检查（`pluginInspection.ts:207`） | 本机 profile 实际内容 | evolver：冲突时给出每个宿主具体的迁移命令 |
@@ -85,10 +85,11 @@ evolver plugin install [--host <host>] [--scope user|project] [--root <dir>] [--
   - 新增 `--trust`，表示用户本人同意信任插件的钩子。evolver 从不默认加上。
   - **只接受需要它的宿主**（宿主描述里新增 `requiresTrust: true`；Grok 确认需要，Qoder 待核实）。传给不需要的宿主就报 `invalid_arguments`，沿用"不悄悄忽略参数"的规则（`plugin.ts:77`）。
   - **动手前就检查：**需要信任却没加 `--trust`，在执行 `marketplace add` 之前就返回新状态 `trust_required`（退出码 2），并说明要加的参数。依据是宿主描述，不解析宿主的输出文字。
-- **G2 / G4 入口识别：**
-  - bundle 和 profile 宿主的入口文件，统一从包内 `package.json` 的 `main` / `exports`，或插件清单里声明的入口读取，不写死 `server.mjs`、`plugin.mjs`。
-  - 已装检查也按同一来源定位。
-  - plugin 仓库同时改 `dist/dsh/package.json`，把 `.evolver-packed` 加进 `files`。
+- **G2 / G4 入口位置：**在 plugin 仓库修（PR #12），evolver 现有的检查不用改。
+  - 两个包自己的 `package.json` 本来就声明入口在根目录，是打包时被改写成了 `hosts/<host>/dist/…`。
+  - 现在打包时在根目录放转发入口（OpenCode 的 `server.mjs`、`tui.mjs`，dsh 的 `plugin.mjs`），`exports` 保持指向根目录。
+  - `files` 加上这些入口和 `.evolver-packed`，pnpm 从 git 安装时就会保留它们。
+  - plugin 仓库新增 `test/packed-layout.test.js`，按 evolver 的检查逐个宿主验证打包结果。
 - **G3 dsh 缓存冲突：**
   - 执行任何 dsh 命令之前，读 profile 里 `node_modules/.modules.yaml` 记录的 pnpm 主版本和缓存目录，与 `dsh` 将要用的 pnpm 比较。
   - 不一致就返回新状态 `profile_store_mismatch`（退出码 2），提示"这个 profile 由 pnpm N 管理"，并给出两种做法：
@@ -96,7 +97,7 @@ evolver plugin install [--host <host>] [--scope user|project] [--root <dir>] [--
     - 用同一主版本的 pnpm 再试。
   - 不替用户重装整个 profile。
 - **G8 旧插件冲突：**冲突信息里给出该宿主该 profile 的确切迁移命令，例如 `dsh plugin --profile dsh-tui remove @evomap/dsh-evolver`，并提醒先确认旧插件的数据。仍然不自动删除。
-- **G5 / G6：**改正测试里的假包布局，并加两仓契约测试（见 5）。
+- **G5 / G6：**evolver 侧加一个默认跳过、按需开启的契约测试：拉取真实 `release`，跑真实的 `validateBundle` 和清单检查（见 5）。
 - **G7：**以上修完后发 evolver 版本；evolver-agent-plugin 的 README 加一句"也可以用 `evolver plugin install --host <h>`，需要 evolver ≥ 该版本"。
 
 ### 4.2 P1 生命周期
