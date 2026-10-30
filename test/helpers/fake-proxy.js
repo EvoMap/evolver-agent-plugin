@@ -34,7 +34,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.46' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.47' } }));
   return {
     requests,
     env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
