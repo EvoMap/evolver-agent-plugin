@@ -43,7 +43,7 @@ test('the recalled strategy is the only thing added to the prompt, behind it, as
   assert.match(part.id, /^prt_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
   assert.match(part.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(part.text.endsWith('Apply them where they fit.'));
-  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT });
+  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' } });
 });
 
 test('a verified turn reports its strategy with the last check and becomes the session candidate, on its model', async (t) => {
