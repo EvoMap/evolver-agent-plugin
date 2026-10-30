@@ -108,7 +108,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
-| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. |
+| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy`, `recallWhenStuck` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. Where a tool result's context reaches the model (`toolResultContext`, or a `tool-result` host), a failed test, build, lint or type-check recalls again, once per distinct failure and twice a turn at most, with a query built from its output and the turn's edits; a strategy that lands within the tool result's budget is added to that result and booked. |
 | Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
@@ -207,6 +207,15 @@ scripts/               pack.mjs, publish-tag.sh
   (turn end, correction, retention) and the turn summary go step by step; the Recipe's id is never reported. A
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional
   step the Hub did not return never brings it back.
+- **Task context.** Every recall sends `context` beside `text`: an object the Hub defines and the Proxy forwards
+  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (1500 characters, cleaned as
+  a prompt is), `trigger` is `turn_start` or `check_failed`, and `language` the touched files' languages. The Hub
+  judges each recalled asset's fit to the task with it, never recalls by it. The first 400 characters of a prompt are
+  often its boilerplate, and an error line alone names no task: an offline replay of 53 SWE runs fired on 15 failed
+  checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
+  pools that held it. A failed check's recall also counts terms an asset shares with the task in the local relevance
+  gate, since an error line rarely words a fix the way an asset does; a prompt's recall does not, or a follow-up like
+  "thanks" would pass on the task's terms.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
   more than the fresh tokens (input, cache writes, output) the turn spent: evolver-core's estimator prices deriving a
   whole approach from scratch, which put ~72k against single questions that cost 5k.

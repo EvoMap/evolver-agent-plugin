@@ -8,7 +8,7 @@ import { after, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { pack } from '../../../scripts/pack.mjs';
-import { PROMPT } from '../../app/memory-ports.js';
+import { ASSET, PROMPT } from '../../app/memory-ports.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
 // Claude Code loads the packed folder's `hooks/register.ts` with its engine as `$`. Here the module runs over a
@@ -53,8 +53,8 @@ function streamOf(child) {
 }
 
 /** A Claude Code session over the packed module: `call(event, input, ran)` raises a hook as the engine does. */
-async function session(t, { options = { node_path: process.execPath }, spawnOf, delays } = {}) {
-  const proxy = await fakeProxy({ distillAnswer: DRAFTED, delays });
+async function session(t, { options = { node_path: process.execPath }, spawnOf, delays, assets } = {}) {
+  const proxy = await fakeProxy({ distillAnswer: DRAFTED, delays, ...(assets && { assets }) });
   const project = realpathSync(mkdtempSync(join(tmpdir(), 'evolver-claude-code-project-')));
   mkdirSync(join(project, 'lib'));
   writeFileSync(join(project, 'lib', 'redis.js'), 'export const retries = 3;\n');
@@ -275,4 +275,32 @@ test('a relay that never starts is ended after the wait, and not started again o
   await cc.call('session.end', captured.sessionEnd);
   assert.ok(Date.now() - next < 1_000, 'later events do not wait for a relay that failed to start');
   assert.equal(started.length, 1);
+});
+
+const STUCK_ASSET = {
+  asset_id: 'sha256:' + 'b'.repeat(64),
+  short_title: 'Retry assertions after an unbounded retry budget',
+  summary: 'An AssertionError on retry counts after maxRetriesPerRequest is null means the test pins the old budget',
+  signals_match: ['AssertionError', 'maxRetriesPerRequest', 'retries'],
+  strategy: ['Read the assertion that pins the retry count', 'Compare it with the client option the change set', 'Update the expectation, not the client', 'Rerun the failing test before the suite'],
+};
+
+test('a failed check recalls for its output and hands the strategy to the model in the call\'s result context', async (t) => {
+  const cc = await session(t, { assets: [ASSET, STUCK_ASSET] });
+  await cc.call('session.start', captured.sessionStart);
+  await recalledTurn(cc);
+  await cc.call('tool.call', { tool: 'Edit', file_path: join(cc.project, 'lib', 'redis.js'), old_string: 'retries = 3', new_string: 'maxRetriesPerRequest = null', tool_use_id: 'e1' }, () => ({ ref: 1, text: 'The file has been updated.' }));
+
+  const failed = await cc.call('tool.call', { tool: 'Bash', command: 'npm test', tool_use_id: 'c1' }, () => ({ ref: 2, isError: true, text: 'AssertionError: expected 3 to equal null' }));
+  const passed = await cc.call('tool.call', { tool: 'Bash', command: 'npm test', tool_use_id: 'c2' }, () => ({ ref: 3, text: '# pass 3\n# fail 0' }));
+
+  assert.equal(failed.context.length, 1);
+  assert.match(failed.context[0], /^\[Evolution Memory\] Retry assertions after an unbounded retry budget[\s\S]*Apply them where they fit\.$/);
+  assert.equal(failed.text, 'AssertionError: expected 3 to equal null');
+  assert.equal(passed.context, undefined);
+  const stuckRecall = cc.proxy.requests.find((request) => request.body?.context?.trigger === 'check_failed');
+  assert.deepEqual(stuckRecall.body, {
+    text: 'changed: maxRetriesPerRequest | AssertionError: expected 3 to equal null | files: redis.js',
+    context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
+  });
 });

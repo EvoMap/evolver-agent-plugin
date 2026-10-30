@@ -43,6 +43,7 @@ const lines = () => {
   const byKey = new Map();
   return {
     append: async (key, line) => byKey.set(key, [...(byKey.get(key) ?? []), line]),
+    read: async (key) => byKey.get(key) ?? [],
     take: async (key) => {
       const taken = byKey.get(key) ?? [];
       byKey.delete(key);
@@ -79,6 +80,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     notes: {
       append: (id, note) => notes.append(id, note),
+      read: (id) => notes.read(id),
       take: async (id) => {
         const { lines: taken, commit } = await notes.take(id);
         return { notes: taken, commit };
