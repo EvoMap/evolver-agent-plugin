@@ -40,7 +40,7 @@ export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer, 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const home = mkdtempSync(join(tmpdir(), 'evolver-opencode-home-'));
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url: `http://127.0.0.1:${server.address().port}`, version: '2.0.46' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url: `http://127.0.0.1:${server.address().port}`, version: '2.0.47' } }));
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   Object.assign(process.env, { HOME: home, USERPROFILE: home });
   t.after(() => {

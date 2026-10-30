@@ -19,7 +19,7 @@ them is in `hosts/README.md`):
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers: recall, reflect, record the lesson. |
-| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed), ten minutes at most. |
+| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.47` when it is not installed), ten minutes at most. |
 
 ## Configuration
 
@@ -165,7 +165,7 @@ hosts read at fixed paths. Claude Code's, WorkBuddy's, Codex's, Grok's and Qoder
 `git-subdir` source, since a marketplace itself is read from `main`; the marketplace entries name no version, so each host reads the
 stamped one from the packed manifest; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
-**Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
+**Engine.** When no Proxy of `2.0.47` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.
 
 ## Layout
