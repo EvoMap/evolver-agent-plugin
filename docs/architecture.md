@@ -180,7 +180,7 @@ lib/agent/             profiles, the canonical events, the driver
 lib/app/               use cases over ports
 lib/runtime/           the ports: file state and locks, processes, headless models, Proxy, engine setup
 lib/*.js, lib/turn/, lib/distill/, lib/session/
-                       host-neutral pure rules: recall ranking, Recipe expansion, relevance and redaction, reuse
+                       host-neutral pure rules: recall ranking, Recipe expansion, redaction, reuse
                        reports and their evidence, outbox, injection ledger, follow-up labels, retention,
                        verification, savings, turn summary, distillation and drafts
 scripts/               pack.mjs, publish-tag.sh
@@ -193,13 +193,16 @@ scripts/               pack.mjs, publish-tag.sh
   word-matching gate of its own: counting words a prompt shares with an asset dropped on-topic Chinese prompts, since
   a Han bigram weighed half a Latin word, and every asset described in another language than the prompt. Before
   recall, `<system-reminder>` blocks, markup and links are stripped from the prompt, so a session notification
-  recalls nothing. A strategy that would inject more than 4000 characters is passed over. A Recipe search still
-  checks the terms a Recipe's title and description share with the prompt (`lib/relevance.js`), until it carries the
-  Hub's verdict too.
+  recalls nothing. A strategy that would inject more than 4000 characters is passed over. A Recipe, likewise, is
+  taken only from an answer the Hub judged (below).
 - **Recipes.** A Recipe is an ordered chain of strategies. Each prompt is searched for Recipes
-  (`POST /recipe/search`) alongside the text recall, both at once, and a fitting Recipe comes before a single
-  strategy. It must pass the relevance gate on its title and description, which is all a search returns about it;
-  its steps' assets are then fetched by id through `/asset/fetch`, billed per asset as any fetch is, and shown in
+  (`POST /recipe/search`, with the same `context` as the text recall) alongside the text recall, both at once, and a
+  fitting Recipe comes before a single strategy. Recipe search alone has no relevance floor, and a few shared words
+  let chains about unrelated work through (screening 45 SWE-bench Pro tasks, 32 got one), so a Recipe is taken only
+  from an answer the Hub judged against the task (`context_fit: {judged, kept}`, evomap-hub#4022), best fit first;
+  an unjudged answer, as from a Proxy that drops the context, offers none, and a recall with no task searches none.
+  `/evolver-search` judges against the person's own words (`trigger: search`). The best Recipe's steps' assets are
+  then fetched by id through `/asset/fetch`, billed per asset as any fetch is, and shown in
   order under one heading each. A Recipe missing a required step, left with fewer than two, or longer than 6000
   characters is passed over for the next one, then for a single strategy. Each step is booked in the injection
   ledger under its own asset id and its own text, read as a single strategy of the step's name, so every report

@@ -1,5 +1,7 @@
 // In-memory ports: the use cases run against these without a filesystem, a process or a network.
 
+import { recipeSearchAnswer } from '../helpers/recipe-search.js';
+
 export const ASSET = {
   asset_id: 'sha256:' + 'a'.repeat(64),
   short_title: 'Fix flaky Redis connection retries',
@@ -115,7 +117,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     proxy: {
       request: async (method, path, body) => {
         requests.push({ method, path, body });
-        if (path === '/recipe/search') return { ok: true, data: recipes };
+        if (path === '/recipe/search') return { ok: true, data: recipeSearchAnswer(typeof recipes === 'function' ? recipes(body) : recipes, body) };
         if (path === '/asset/fetch' && body?.asset_ids) return { ok: true, data: { assets: stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) } };
         if (path === '/asset/fetch') return { ok: true, data: { assets: recalledFor(assets, body) } };
         if (path === '/conversation/distill') return { ok: true, data: distillAnswer };
