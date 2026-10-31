@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { after, before, test } from 'node:test';
 
@@ -16,7 +17,7 @@ const profile = defineProfile({
   commands: {
     entry: 'inline-script',
     sessionOf: (env) => env.TEST_SESSION_ID ?? null,
-    scriptAnswer: (result, script) => `${result.text}\n[${script.session_id} script ${script.script.endsWith('bin/command.mjs')} nonce ${script.nonce.length}]`,
+    scriptAnswer: (result, script) => `${result.text}\n[${script.session_id} script ${script.script.endsWith(join('bin', 'command.mjs'))} nonce ${script.nonce.length}]`,
   },
 });
 

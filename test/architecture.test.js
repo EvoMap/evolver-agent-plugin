@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -13,7 +13,7 @@ const SOURCE = /\.m?js$/;
 function filesUnder(dir) {
   if (!existsSync(join(root, dir))) return [];
   return readdirSync(join(root, dir)).flatMap((name) => {
-    const path = join(dir, name);
+    const path = `${dir}/${name}`;
     const stat = lstatSync(join(root, path));
     if (stat.isDirectory()) return filesUnder(path);
     return stat.isFile() && SOURCE.test(path) ? [path] : [];
@@ -23,7 +23,7 @@ function filesUnder(dir) {
 const sourceOf = (file) => readFileSync(join(root, file), 'utf8');
 const importsOf = (file) => importsIn(sourceOf(file)).map(({ specifier }) => specifier);
 const hostOf = (path) => /^hosts\/([^/]+)\//.exec(path)?.[1] ?? null;
-const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)) : specifier);
+const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)).split(sep).join('/') : specifier);
 
 // A host's `dist/` and `bin/` are entries: the glue a host loads, which reaches the plugin only through a channel.
 const ENTRY = /^(?:bin\/|hosts\/[^/]+\/dist\/)/;

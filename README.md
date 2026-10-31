@@ -41,6 +41,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
+| MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -125,6 +126,17 @@ injections, undelivered reports), so nothing is lost on the way over.
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
   Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
+- **MiniMax Code:** run `node scripts/install-minimax.mjs install` from a checkout,
+  then run `mcode plugin enable evolver-plugin@local --json` and start a
+  new task. The data root defaults to `~/.minimax`; keep the same `MINIMAX_DATA_DIR` for a separate profile.
+  A release checkout installs its versioned `dist/minimax` bundle; `--version X.Y.Z` builds the current sources explicitly.
+  The checkout's manifest is `.minimax-plugin/plugin.json`; source stays in `hosts/minimax/`.
+  This is a local installation: MiniMax's current public Marketplace submission format excludes hooks.
+  Use `evolver-status`, `evolver-drafts` and `evolver-evolve` in chat; `evolver-status recall off` and
+  `evolver-status auto-distill off` save preferences. Longer commands run as background jobs; use
+  `evolver-status jobs`, `evolver-status job <id>` or `evolver-status cancel <id>` to inspect or cancel them.
+  [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
+  configuration copies and recovery when a host exits without `SessionEnd`.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.

@@ -88,6 +88,30 @@ test('a process shutting down stops a leftover\'s model call without counting a 
   assert.deepEqual([s1.attempts, s1.claimedBy ?? null], [0, null]);
 });
 
+test('a transient candidate watch read failure is retried without crashing the model run', async t => {
+  const { ports, requests } = await withCandidate();
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const reply = Promise.withResolvers(), started = Promise.withResolvers();
+  ports.model = { complete: () => { started.resolve(); return reply.promise; } };
+  const setInterval = globalThis.setInterval, read = ports.candidates.read;
+  let check;
+  t.mock.method(globalThis, 'setInterval', callback => { check = callback; return setInterval(() => {}, 60_000); });
+  const running = distillLeftovers(ports);
+  t.after(async () => {
+    ports.candidates.read = read;
+    reply.resolve({ answer: JSON.stringify(GENE) });
+    await running;
+  });
+  await started.promise;
+  ports.candidates.read = async () => { throw Object.assign(new Error('fixture read denial'), { code: 'EBUSY' }); };
+  await assert.doesNotReject(check());
+  assert.equal(requests.some(request => request.path === '/conversation/distill'), false);
+  ports.candidates.read = read;
+  reply.resolve({ answer: JSON.stringify(GENE) });
+  assert.equal((await running)[0].status, 'drafted');
+  assert.equal(requests.filter(request => request.path === '/conversation/distill').length, 1);
+});
+
 test('the model may decline, which settles the candidate without calling the Proxy', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering({ skip: 'routine edit' }) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });

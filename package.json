@@ -10,12 +10,13 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test --test-timeout=120000 \"test/**/*.test.js\"",
+    "test:minimax": "node --test --test-concurrency=4 --test-timeout=120000 \"test/*.test.js\" \"test/app/*.test.js\" \"test/runtime/*.test.js\" \"test/hosts/minimax/*.test.js\" test/channels/hook.test.js test/channels/script.test.js test/channels/mcp.test.js",
     "validate": "node scripts/pack.mjs claude-code dist/claude-code && claude plugin validate dist/claude-code",
     "dev:sync": "bash scripts/sync-dev-mod.sh",
     "pack": "node scripts/pack.mjs all dist"
   },
   "devDependencies": {
-    "@evomap/evolver-core": "2.0.38"
+    "@evomap/evolver-core": "2.0.47"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
