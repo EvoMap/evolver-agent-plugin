@@ -49,7 +49,7 @@ test('a shell run is a check with its verdict; a background run has none yet; a 
 test('an edit names the file it wrote, hashed before it runs; a read is only a path', () => {
   const note = (call, ran) => profile.evidence.toolNote({ ...SESSION, call, result: resultOf(ran) }, context('tool.call'));
   assert.deepEqual(note(typed.edit, typed.editDone), { kind: 'edit', paths: ['/proj/add.js'], lines: 2 });
-  assert.deepEqual(note(typed.write, typed.editDone), { kind: 'edit', paths: ['/proj/add.test.js'], lines: 2 });
+  assert.deepEqual(note(typed.write, typed.editDone), { kind: 'edit', paths: ['/proj/add.test.js'], lines: 2, identifiers: ['test', 'node'] });
   assert.equal(note(typed.edit, { isError: true, text: 'old_string not found' }), null);
   assert.deepEqual(note(typed.read, { text: '# readme' }), { kind: 'tool', paths: ['/proj/README.md'] });
   assert.deepEqual(profile.evidence.editedFiles({ ...SESSION, call: typed.edit }, context('tool.call.before')), ['/proj/add.js']);

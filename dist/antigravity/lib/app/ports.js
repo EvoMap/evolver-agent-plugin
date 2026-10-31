@@ -20,6 +20,7 @@
  *
  * @typedef {object} TurnNotes          What the turn's tool calls did, as they finished.
  * @property {(sessionId: string, note: object) => Promise<void>} append
+ * @property {(sessionId: string) => Promise<object[]>} read
  * @property {(sessionId: string) => Promise<{ notes: object[], commit: () => Promise<void> }>} take
  * @property {(sessionId: string) => Promise<void>} clear
  *

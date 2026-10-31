@@ -2,12 +2,12 @@
 // Copyright (c) 2026 EvoMap
 
 import { withoutCandidate } from '../distill/candidate.js';
-import { promptTextOf, recallStrategy } from '../recall.js';
+import { promptTextOf, recallStrategy, taskTextOf } from '../recall.js';
 import { correctionReportsOf, followUpLabelOf } from '../session/follow-ups.js';
 import { correctedSession, joinedWaiting, listedIdsOf, openedTurn, sessionOf, withInjection, withShown, withWaiting } from '../session/state.js';
 import { TASKS } from './ports.js';
 
-const CLOSING = 'Apply them where they fit.';
+export const CLOSING = 'Apply them where they fit.';
 // A Recipe still pending this close to the hook's deadline gives way to the single strategy, which needs the rest to be booked.
 const RECIPE_MARGIN_MS = 300;
 const LATE_RECIPE_WAIT_MS = 6_000;
@@ -32,7 +32,8 @@ async function labelFollowUp({ sessions, candidates, reports, scheduler }, sessi
 /** A recall's match when it brings a strategy (`{ ids, text, stepTexts? }`, a Recipe's steps or one asset), else null. */
 const strategyOf = (match) => (match?.ids?.length && match.text ? match : null);
 
-async function booked({ sessions, clock }, sessionId, { turn, match, onlyWhileOpen = false }) {
+/** Books a recalled strategy into `turn` and answers its text, '' when it brings none or books nothing new. */
+export async function booked({ sessions, clock }, sessionId, { turn, match, onlyWhileOpen = false }) {
   if (!strategyOf(match)) return '';
   let added = false;
   await sessions.update(sessionId, (stored) => {
@@ -61,10 +62,12 @@ async function waitForToolResult({ sessions }, sessionId, { turn, match }) {
 }
 
 async function recalled(ports, sessionId, { turn, prompt, waitMs, keepLate, holdForToolResult }) {
-  const listedIds = listedIdsOf(sessionOf(await ports.sessions.read(sessionId)));
+  const session = sessionOf(await ports.sessions.read(sessionId));
+  const listedIds = listedIdsOf(session);
+  const context = session.task ? { task: session.task, trigger: 'turn_start' } : null;
   const proxyFetch = (method, path, body) => ports.proxy.request(method, path, body);
   const recipeCutoff = ports.clock.sleep(waitMs > 0 ? Math.max(0, waitMs - RECIPE_MARGIN_MS) : LATE_RECIPE_WAIT_MS);
-  const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { listedIds, closingOf: () => CLOSING, recipeCutoff });
+  const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { context, listedIds, closingOf: () => CLOSING, recipeCutoff });
   const TIMED_OUT = Symbol('timed out');
   const match = waitMs > 0 ? await Promise.race([recall, ports.clock.sleep(waitMs).then(() => TIMED_OUT)]) : TIMED_OUT;
   if (match !== TIMED_OUT && holdForToolResult) {
@@ -95,7 +98,7 @@ export async function promptSubmitted(ports, { sessionId, prompt, turnId = null,
   if (!isCommand) await labelFollowUp(ports, sessionId, prompt);
   await ports.notes.clear(sessionId);
   const opened = await ports.sessions.update(sessionId, (stored) =>
-    openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, pid: ports.owner.current(), isCommand }));
+    openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, task: taskTextOf(prompt), pid: ports.owner.current(), isCommand }));
   const wantsRecall = !isCommand && ports.settings?.recall !== false;
   const { injection, late } = wantsRecall ? await recalled(ports, sessionId, { turn: opened.turn, prompt, waitMs, keepLate, holdForToolResult }) : { injection: '' };
   return { turn: opened.turn, injection, ...(late && { late }) };

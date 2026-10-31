@@ -19,7 +19,7 @@ them is in `hosts/README.md`):
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers: recall, reflect, record the lesson. |
-| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed), ten minutes at most. |
+| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.47` when it is not installed), ten minutes at most. |
 
 ## Configuration
 
@@ -108,7 +108,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
-| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. |
+| Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy`, `recallWhenStuck` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. Where a tool result's context reaches the model (`toolResultContext`, or a `tool-result` host), a failed test, build, lint or type-check recalls again, once per distinct failure and twice a turn at most, with a query built from its output and the turn's edits; a strategy that lands within the tool result's budget is added to that result and booked. |
 | Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
@@ -161,12 +161,11 @@ packs with the tag's version stamped into every host's manifest (`scripts/pack.m
 `scripts/publish-tag.sh` moves the `release` branch one commit on, the tagged source plus `dist/`, and re-points the
 tag at it, in one atomic push. A tag off `main`, or older than what `release` holds, is refused; a re-run changes
 nothing. The repo root keeps only the marketplace manifests the
-hosts read at fixed paths. Claude Code's, WorkBuddy's, Grok's and Qoder's install `dist/<host>` from `release` through a
+hosts read at fixed paths. Claude Code's, WorkBuddy's, Codex's, Grok's and Qoder's install `dist/<host>` from `release` through a
 `git-subdir` source, since a marketplace itself is read from `main`; the marketplace entries name no version, so each host reads the
-stamped one from the packed manifest; Codex adds the marketplace at
-`--ref release`; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
+stamped one from the packed manifest; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
-**Engine.** When no Proxy of `2.0.44` or newer answers, a session start installs or upgrades `@evomap/evolver` under
+**Engine.** When no Proxy of `2.0.47` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.
 
 ## Layout
@@ -208,6 +207,15 @@ scripts/               pack.mjs, publish-tag.sh
   (turn end, correction, retention) and the turn summary go step by step; the Recipe's id is never reported. A
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional
   step the Hub did not return never brings it back.
+- **Task context.** Every recall sends `context` beside `text`: an object the Hub defines and the Proxy forwards
+  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (1500 characters, cleaned as
+  a prompt is), `trigger` is `turn_start` or `check_failed`, and `language` the touched files' languages. The Hub
+  judges each recalled asset's fit to the task with it, never recalls by it. The first 400 characters of a prompt are
+  often its boilerplate, and an error line alone names no task: an offline replay of 53 SWE runs fired on 15 failed
+  checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
+  pools that held it. A failed check's recall also counts terms an asset shares with the task in the local relevance
+  gate, since an error line rarely words a fix the way an asset does; a prompt's recall does not, or a follow-up like
+  "thanks" would pass on the task's terms.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
   more than the fresh tokens (input, cache writes, output) the turn spent: evolver-core's estimator prices deriving a
   whole approach from scratch, which put ~72k against single questions that cost 5k.

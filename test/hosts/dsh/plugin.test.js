@@ -40,7 +40,7 @@ test('the recalled strategy joins the step that carries the prompt, behind it, a
   assert.ok(Object.isFrozen(strategy));
   assert.match(strategy.content[0].text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(strategy.content[0].text.endsWith('Apply them where they fit.'));
-  assert.deepEqual(fetches(proxy)[0].body, { text: PROMPT });
+  assert.deepEqual(fetches(proxy)[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' } });
   const later = await dsh.preStep(agent, { turn: 1, step: 2, messages: [] });
   assert.deepEqual(later.messages, [], 'a later step of the turn adds nothing');
 });

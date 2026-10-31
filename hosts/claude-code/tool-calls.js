@@ -11,6 +11,8 @@ const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
 const LABEL_MAX_CHARS = 80;
 
+import { identifiersAddedBy } from '../../lib/stuck-query.js';
+
 const text = (value) => (typeof value === 'string' ? value : '');
 
 export const editedPath = (call) => text(call?.file_path) || text(call?.notebook_path);
@@ -21,6 +23,12 @@ const lineCount = (value) => (text(value) ? value.split('\n').length : 0);
 export function changedLinesOf(call) {
   const edits = Array.isArray(call?.edits) ? call.edits : [call];
   return edits.reduce((total, edit) => total + lineCount(edit?.old_string) + lineCount(edit?.new_string ?? edit?.content ?? edit?.new_source), 0);
+}
+
+/** Identifiers an edit call introduced, across every edit a MultiEdit carries. */
+export function addedIdentifiersOf(call) {
+  const edits = Array.isArray(call?.edits) ? call.edits : [call];
+  return [...new Set(edits.flatMap((edit) => identifiersAddedBy(edit?.old_string, edit?.new_string ?? edit?.content ?? edit?.new_source)))];
 }
 
 /**
@@ -47,7 +55,9 @@ export function toolNoteOf({ call, result }) {
     return { kind: 'shell', command, exit: result?.isError ? 1 : 0, output: text(result?.text), label: checkLabelOf(call) };
   }
   if (EDIT_TOOL_NAMES.includes(call.tool) && editedPath(call)) {
-    return result?.isError ? null : { kind: 'edit', paths: [editedPath(call)], lines: changedLinesOf(call) };
+    if (result?.isError) return null;
+    const identifiers = addedIdentifiersOf(call);
+    return { kind: 'edit', paths: [editedPath(call)], lines: changedLinesOf(call), ...(identifiers.length > 0 && { identifiers }) };
   }
   const paths = PATH_KEYS.map((key) => text(call[key])).filter(Boolean);
   return command || paths.length > 0 ? { kind: 'tool', ...(command && { command }), paths } : null;

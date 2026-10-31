@@ -14,8 +14,9 @@ import { editedFilesOf, toolNoteOf } from './tool-calls.js';
 // nobody typed (a task notification) is recalled for nothing but its work still counts; a subagent's turn end is not
 // the session's. `turn.start` holds no model call, so a recall gains nothing by waiting there: every strategy is a
 // late one, added when it lands and booked by the first model step that carries it (budget 0). The
-// module applies the answers: `append` adds hidden text to the conversation, `toast` and `submit` show a notice and
-// send a prompt, `text` and `context` answer a command.
+// module applies the answers: `append` adds hidden text to the conversation (to a `tool.call`, as that call's result
+// context, which the model reads next), `toast` and `submit` show a notice and send a prompt, `text` and `context`
+// answer a command.
 
 const text = (value) => (typeof value === 'string' ? value : '');
 
@@ -55,6 +56,7 @@ export default defineProfile({
     },
     late: (answer, late) => ({ ...answer, late }),
     lifetime: 'turn',
+    toolResultContext: true,
   },
   evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },
   turnEnd: {

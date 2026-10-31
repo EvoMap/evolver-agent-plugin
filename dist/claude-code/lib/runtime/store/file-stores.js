@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { OUTBOX_TTL_MS, withQueued } from '../../report-outbox.js';
 import { ABSENT } from '../../retention.js';
-import { appendStateLine, readState, removeState, takeStateLines, updateState, withLock, writeState } from './file-lock.js';
+import { appendStateLine, readState, readStateLines, removeState, takeStateLines, updateState, withLock, writeState } from './file-lock.js';
 import { adoptLegacyIn } from './legacy.js';
 
 // Every store port over files in one directory. Each file carries the agent's name, `<agent>-<kind>`, so no other
@@ -30,6 +30,7 @@ export function contentHashOf(file) {
 function linesStore(target) {
   return {
     append: async (value) => appendStateLine(target, value),
+    read: async () => readStateLines(target),
     take: async () => {
       const { lines, commit } = takeStateLines(target);
       return { lines, commit: async () => commit() };
@@ -70,6 +71,7 @@ export function fileStoresOf({ dir, agent }) {
 
   const notes = {
     append: (sessionId, note) => linesStore(sessionFile('turn', sessionId, 'jsonl')).append(note),
+    read: (sessionId) => linesStore(sessionFile('turn', sessionId, 'jsonl')).read(),
     take: async (sessionId) => {
       const { lines, commit } = await linesStore(sessionFile('turn', sessionId, 'jsonl')).take();
       return { notes: lines, commit };

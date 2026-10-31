@@ -15,17 +15,19 @@ This package replaces the standalone `@evomap/dsh-evolver` (from `EvoMap/evolver
 **Remove that first** in every profile that has it: pnpm may keep an installed package's source when you add another,
 and with both loaded every reuse is reported twice.
 
-The package is not on npm yet. Install the packed folder from the `release` branch of `EvoMap/evolver-agent-plugin`
-(or a local `npm run pack`), by its absolute path, into each profile you use (`dst` runs `dsh-tui`):
+The package is not on npm yet. Install it from the `dist/dsh` folder of the `release` branch of
+`EvoMap/evolver-agent-plugin` into each profile you use (`dst` runs `dsh-tui`):
 
 ```bash
-git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
 dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
-dsh plugin --profile dsh-tui add -w "$PWD/evolver-agent-plugin/dist/dsh"
+dsh plugin --profile dsh-tui add -w "github:EvoMap/evolver-agent-plugin#release&path:dist/dsh"
 ```
 
-Repeat the last two lines with `--profile web` and `--profile headless`, then restart dsh. dsh links the folder, so
-keep the clone: `git pull` in it updates the plugin at the next start.
+Repeat both lines with `--profile web` and `--profile headless`, then restart dsh. In dsh's plugin screen, paste
+`github:EvoMap/evolver-agent-plugin#release&path:dist/dsh`, not the repository URL: the repository root is not a dsh
+plugin, and dsh refuses it ("no bundle declared"). If pnpm asks to allow the package's build, add the key it prints
+under `allowBuilds` in the profile's `pnpm-workspace.yaml` and run the command again. To try a local build instead,
+`npm run pack` and add the absolute path of `dist/dsh` with `-w`.
 
 **DSH Desktop** owns its `desktop` profile, so run its bundled CLI with its own pnpm, as for the standalone plugin.
 On macOS:

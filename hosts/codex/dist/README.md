@@ -22,7 +22,7 @@ codex plugin marketplace remove evomap
 Then install `evolver-plugin`:
 
 ```bash
-codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
+codex plugin marketplace add EvoMap/evolver-agent-plugin
 codex plugin add evolver-plugin@evomap
 ```
 

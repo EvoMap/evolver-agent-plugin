@@ -9,8 +9,10 @@ import { unreportedAssets, withInjected, withReported } from '../injected-ledger
 export const EMPTY_SESSION = Object.freeze({
   turn: 0, turnId: null, open: false, turnStart: null, prompt: '', isCommand: false, strategy: '',
   labelable: [], injected: {}, pid: null, startedUnder: null, settling: null, turnIds: [], correctedTurn: 0, shown: [],
-  waiting: null,
+  waiting: null, task: '', stuckQueries: [],
 });
+
+const MAX_STUCK_RECALLS_PER_TURN = 2;
 
 const MAX_SHOWN = 50;
 
@@ -24,9 +26,10 @@ export const sessionOf = (stored) => ({ ...EMPTY_SESSION, ...stored });
 /**
  * The session's next turn. A turn nobody typed a prompt for (`prompt` null) carries on the last turn's task. A host
  * that numbers its own turns (`hostTurn`) keeps the count at least there, so a session resumed after its state was
- * gone never repeats a task id.
+ * gone never repeats a task id. The session's `task` is its first typed prompt, kept for the Hub to judge each later
+ * recall's fit against; a resumed session keeps the task it had.
  */
-export function openedTurn(session, { turnId = null, turnStart = null, hostTurn = null, prompt = null, pid = null, isCommand = false }) {
+export function openedTurn(session, { turnId = null, turnStart = null, hostTurn = null, prompt = null, task = '', pid = null, isCommand = false }) {
   return {
     ...session,
     turn: Math.max(session.turn + 1, Number.isInteger(hostTurn) ? hostTurn : 0),
@@ -41,7 +44,19 @@ export function openedTurn(session, { turnId = null, turnStart = null, hostTurn 
     settling: null,
     labelable: isCommand ? session.labelable : [],
     waiting: null,
+    task: session.task || (isCommand ? '' : task),
+    stuckQueries: [],
   };
+}
+
+/**
+ * The session with `query` claimed for a recall after a failed check of `turn`; undefined when that turn is no longer
+ * open, the turn recalled for this failure already, or it recalled for as many failures as a turn may.
+ */
+export function withStuckQuery(session, query, turn) {
+  const isOpen = session.open && session.turn === turn;
+  if (!isOpen || session.stuckQueries.includes(query) || session.stuckQueries.length >= MAX_STUCK_RECALLS_PER_TURN) return undefined;
+  return { ...session, stuckQueries: [...session.stuckQueries, query] };
 }
 
 const isOpenTurn = (session, turnId) => session.open && (!turnId || !session.turnId || turnId === session.turnId);
@@ -147,5 +162,5 @@ export const isEarlierTurn = (session, turnId) => Boolean(turnId) && turnId !== 
 
 /** What an ended session keeps: its turn counter, owner and ledger, so a resume neither repeats a task id nor re-injects. */
 export function endedSession(session) {
-  return { ...EMPTY_SESSION, turn: session.turn, pid: session.pid, injected: session.injected, turnIds: session.turnIds, shown: session.shown };
+  return { ...EMPTY_SESSION, turn: session.turn, pid: session.pid, injected: session.injected, turnIds: session.turnIds, shown: session.shown, task: session.task };
 }

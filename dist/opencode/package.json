@@ -1,11 +1,11 @@
 {
   "name": "@evomap/evolver-opencode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Evolver for OpenCode: recalls a proven strategy behind each prompt, reports its reuse at turn end, and distills verified work outside the conversation.",
   "type": "module",
   "exports": {
-    "./server": "./hosts/opencode/dist/server.mjs",
-    "./tui": "./hosts/opencode/dist/tui.mjs",
+    "./server": "./server.mjs",
+    "./tui": "./tui.mjs",
     "./package.json": "./package.json"
   },
   "keywords": [
@@ -33,6 +33,9 @@
     "opencode": ">=1.19.4"
   },
   "files": [
+    "server.mjs",
+    "tui.mjs",
+    ".evolver-packed",
     "hosts/",
     "lib/",
     "LICENSE",

@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // A managed engine whose `evolver login` prints the device prompt, waits for an `approved` (or `denied`) file in
-// `dir`, then answers as Evolver 2.0.46 does; with a token kept from an earlier approval it answers at once. Each
+// `dir`, then answers as Evolver 2.0.47 does; with a token kept from an earlier approval it answers at once. Each
 // start is logged to `<dir>/starts`, with its pid.
 const LOGIN = String.raw`
 const fs = require('node:fs');
@@ -37,7 +37,7 @@ export function installFakeEvolver(prefix, dir) {
   const packageDir = join(prefix, 'node_modules', '@evomap', 'evolver');
   mkdirSync(join(packageDir, 'bin'), { recursive: true });
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@evomap/evolver', version: '2.0.46', bin: { evolver: 'bin/evolver.js' } }));
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: '@evomap/evolver', version: '2.0.47', bin: { evolver: 'bin/evolver.js' } }));
   writeFileSync(join(packageDir, 'bin', 'evolver.js'), LOGIN);
   return { env: { FAKE_EVOLVER_DIR: dir } };
 }

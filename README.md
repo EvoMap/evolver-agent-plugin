@@ -103,11 +103,11 @@ injections, undelivered reports), so nothing is lost on the way over.
 
   The marketplace (`.qoder-plugin/marketplace.json`) installs `dist/qoder` from the `release` branch; start a new
   session or run `/plugins reload`. Commands are typed as `/evolver-status` and answered as a blocked prompt.
-- **Codex:** remove the standalone plugin and its marketplace, then add this one at the `release` branch:
+- **Codex:** remove the standalone plugin and its marketplace, then add this one:
 
   ```bash
   codex plugin remove evolver@evomap && codex plugin marketplace remove evomap
-  codex plugin marketplace add EvoMap/evolver-agent-plugin --ref release
+  codex plugin marketplace add EvoMap/evolver-agent-plugin
   codex plugin add evolver-plugin@evomap
   ```
 
@@ -134,16 +134,17 @@ injections, undelivered reports), so nothing is lost on the way over.
   package, not published to npm yet); remove the old `evolver-opencode-plugin` first, or every reuse is reported
   twice.
 - **DeepSeek Harness:** each dsh profile loads its own plugins; for every profile you use (`dsh-tui`, `web`,
-  `headless`), remove the standalone `@evomap/dsh-evolver` first, then add the packed folder from a clone of the
-  `release` branch, and restart dsh:
+  `headless`), remove the standalone `@evomap/dsh-evolver` first, then add `dist/dsh` from the `release` branch, and
+  restart dsh:
 
   ```bash
-  git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git
   dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
-  dsh plugin --profile dsh-tui add -w "$PWD/evolver-agent-plugin/dist/dsh"
+  dsh plugin --profile dsh-tui add -w "github:EvoMap/evolver-agent-plugin#release&path:dist/dsh"
   ```
 
-  The folder is the `@evomap/dsh-evolver` package (shown in dsh as `evolver-plugin`), not on npm yet.
+  In dsh's own plugin screen, paste `github:EvoMap/evolver-agent-plugin#release&path:dist/dsh` rather than the
+  repository URL: the repository root is not a dsh plugin. The folder is the `@evomap/dsh-evolver` package (shown in
+  dsh as `evolver-plugin`), not on npm yet.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 

@@ -185,7 +185,7 @@ test('without an engine of its own or an evolver on PATH, the sign-in runs npx o
   const signIn = hubSignInOf({ files: world.files, enginePrefix: join(world.dir, 'no-engine'), env: { ...world.env, PATH: bin } });
   await signIn.joinOrStart(keepsLive);
   const [line] = await until(() => startsOf(world.dir).length > 0 && startsOf(world.dir), 'npx');
-  assert.equal(line.split(' ').slice(1).join(' '), '-y @evomap/evolver@2.0.46 login');
+  assert.equal(line.split(' ').slice(1).join(' '), '-y @evomap/evolver@2.0.47 login');
   assert.equal((statSync(world.files.log).mode & 0o777).toString(8), '600', 'the log is the person\'s alone');
   await until(async () => (await signIn.latest()).output.includes('NPX-CODE'), 'its output');
 });

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-export const MIN_EVOLVER_VERSION = '2.0.44';
+export const MIN_EVOLVER_VERSION = '2.0.47';
 // The release this plugin was last verified against end to end.
-export const VERIFIED_EVOLVER_VERSION = '2.0.46';
+export const VERIFIED_EVOLVER_VERSION = '2.0.47';
 
 export function versionOf(text) {
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(text ?? ''));

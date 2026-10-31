@@ -241,8 +241,8 @@ export const register: Register = (on, options) => {
     await quietly(raise($, options, 'tool.call.before', { call: e }))
     const ran = await next(e)
     const result = { text: typeof ran.text === 'string' ? ran.text : '', isError: ran.isError === true, denied: ran.deny !== undefined }
-    await quietly(raise($, options, 'tool.call', { call: e, result }))
-    return ran
+    const answer = await quietly(raise($, options, 'tool.call', { call: e, result }))
+    return answer?.append && ran.deny === undefined ? { ...ran, context: [...(ran.context ?? []), answer.append] } : ran
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {

@@ -24,7 +24,7 @@ const COMMON = Object.freeze({
   budgets: Object.freeze({}),
   stateDir: defaultStateDir,
   legacy: Object.freeze([]),
-  reply: Object.freeze({ strategyAt: STRATEGY_AT.PROMPT }),
+  reply: Object.freeze({ strategyAt: STRATEGY_AT.PROMPT, toolResultContext: false }),
   payload: Object.freeze({ transcriptPath: (payload) => payload.transcript_path ?? null, gene: (payload) => payload.gene, writtenFor: (payload) => Number(payload.written_for), hostTurn: () => null }),
   commands: Object.freeze({ entry: COMMAND_ENTRIES.CLI_ONLY, parse: typedFromPrompt, scriptArgs: (text) => text, scriptAnswer: (result) => result.text }),
 });
