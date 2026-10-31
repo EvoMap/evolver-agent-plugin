@@ -15,6 +15,15 @@ export const ASSET = {
 
 export const PROMPT = 'fix the flaky redis connection retries in our tests';
 
+/**
+ * The assets a Hub would answer a text recall with: those whose signals the text names. The plugin keeps whatever the
+ * Hub answers, so a fake that answered every recall with every asset would inject into any prompt.
+ */
+export function recalledFor(assets, body) {
+  const text = String(body?.text ?? '').toLowerCase();
+  return assets.filter((asset) => !Array.isArray(asset.signals_match) || asset.signals_match.some((signal) => text.includes(signal)));
+}
+
 export const RECIPE = {
   id: 'rcp_redis',
   title: 'Stabilise flaky redis connection retries',
@@ -108,7 +117,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
         requests.push({ method, path, body });
         if (path === '/recipe/search') return { ok: true, data: recipes };
         if (path === '/asset/fetch' && body?.asset_ids) return { ok: true, data: { assets: stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) } };
-        if (path === '/asset/fetch') return { ok: true, data: { assets } };
+        if (path === '/asset/fetch') return { ok: true, data: { assets: recalledFor(assets, body) } };
         if (path === '/conversation/distill') return { ok: true, data: distillAnswer };
         return { ok: true, data: { recorded: true } };
       },
