@@ -298,7 +298,7 @@ test('a failed check recalls for its output and hands the strategy to the model 
   assert.match(failed.context[0], /^\[Evolution Memory\] Retry assertions after an unbounded retry budget[\s\S]*Apply them where they fit\.$/);
   assert.equal(failed.text, 'AssertionError: expected 3 to equal null');
   assert.equal(passed.context, undefined);
-  const stuckRecall = cc.proxy.requests.find((request) => request.body?.context?.trigger === 'check_failed');
+  const stuckRecall = cc.proxy.requests.find((request) => request.path === '/asset/fetch' && request.body?.context?.trigger === 'check_failed');
   assert.deepEqual(stuckRecall.body, {
     text: 'changed: maxRetriesPerRequest | AssertionError: expected 3 to equal null | files: redis.js',
     context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
