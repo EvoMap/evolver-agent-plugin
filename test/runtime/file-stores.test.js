@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { readState } from '../../lib/runtime/store/file-lock.js';
+import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
 const dirs = [];
@@ -42,6 +43,68 @@ test('the outbox takes queued reports and keeps what each delivery attempt settl
   assert.equal(seen[0].sentAt, 5);
 });
 
+test('an unreadable or invalid draft table is preserved and never passed to an update as empty', async t => {
+  for (const failure of ['EBUSY', 'EACCES', 'invalid-json', 'wrong-shape']) {
+    const { dir, stores: cursor } = stores();
+    const target = join(dir, 'cursor-distill-drafts.json');
+    const original = failure === 'invalid-json' ? '[unfinished' : failure === 'wrong-shape' ? '{}' : '[{"title":"keep this draft"}]';
+    writeFileSync(target, original);
+    const originalRead = fs.readFileSync;
+    t.mock.method(fs, 'readFileSync', (file, ...args) => {
+      if (file === target && ['EBUSY', 'EACCES'].includes(failure)) throw Object.assign(new Error('fixture read denial'), { code: failure });
+      return originalRead(file, ...args);
+    });
+    let mutated = false;
+    await assert.rejects(cursor.drafts.update(drafts => { mutated = true; return [...drafts, { title: 'new draft' }]; }), failure);
+    assert.equal(mutated, false, failure);
+    t.mock.restoreAll();
+    assert.equal(fs.readFileSync(target, 'utf8'), original, failure);
+    assert.equal(existsSync(`${target}.lock`), false, failure);
+  }
+  const { stores: cursor } = stores();
+  assert.deepEqual(await cursor.drafts.read(), [], 'an absent table is still a fresh store');
+  await cursor.drafts.update(() => [{ title: 'first draft' }]);
+  assert.deepEqual(await cursor.drafts.read(), [{ title: 'first draft' }]);
+});
+
+test('a failed draft replacement preserves the previous file, releases its lock and removes its temporary file', async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  await cursor.drafts.update(() => [{ title: 'keep this draft' }]);
+  const before = fs.readFileSync(target, 'utf8');
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === target) throw Object.assign(new Error('fixture replacement denial'), { code: 'EPERM' });
+    return rename(from, to);
+  });
+  await assert.rejects(cursor.drafts.update(drafts => [...drafts, { title: 'new draft' }]), { code: 'EPERM' });
+  t.mock.restoreAll();
+  assert.equal(fs.readFileSync(target, 'utf8'), before);
+  assert.deepEqual(readdirSync(dir), ['cursor-distill-drafts.json']);
+  await cursor.drafts.update(drafts => [...drafts, { title: 'retry succeeded' }]);
+  assert.deepEqual(await cursor.drafts.read(), [{ title: 'keep this draft' }, { title: 'retry succeeded' }]);
+});
+
+test('a transient replacement denial retries while readers can still see the previous drafts', async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  const previous = [{ title: 'keep this draft' }];
+  await cursor.drafts.update(() => previous);
+  const rename = fs.renameSync;
+  let attempts = 0;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === target) {
+      assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), previous);
+      if (++attempts === 1) throw Object.assign(new Error('fixture sharing denial'), { code: 'EBUSY' });
+    }
+    return rename(from, to);
+  });
+  await cursor.drafts.update(drafts => [...drafts, { title: 'new draft' }]);
+  assert.equal(attempts, 2);
+  assert.deepEqual(await cursor.drafts.read(), [...previous, { title: 'new draft' }]);
+  assert.deepEqual(readdirSync(dir), ['cursor-distill-drafts.json']);
+});
+
 test('retention takes only an earlier session\'s entries in the same project, with each file\'s hash now', async () => {
   const { dir, stores: cursor } = stores();
   const file = join(dir, 'edited.js');
@@ -60,9 +123,53 @@ test('parallel processes updating one state file through the lock lose no update
   const lock = new URL('../../lib/runtime/store/file-lock.js', import.meta.url).href;
   const script = `import { updateState } from ${JSON.stringify(lock)};
 for (let i = 0; i < 25; i += 1) updateState(${JSON.stringify(target)}, {}, (state) => ({ count: (state.count ?? 0) + 1 }));`;
-  const run = () => new Promise((resolve) => spawn(process.execPath, ['--input-type=module', '-e', script]).on('close', resolve));
-  await Promise.all([run(), run(), run(), run()]);
+  const run = () => new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script]);
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('close', code => resolve({ code, stderr }));
+  });
+  const results = await Promise.all([run(), run(), run(), run()]);
+  assert.deepEqual(results.map(result => result.code), [0, 0, 0, 0], results.map(result => result.stderr).join('\n'));
   assert.equal(readState(target, {}).count, 100);
+});
+
+test('transient sharing denial retries admission before mutating; failed admission never writes unlocked', t => {
+  const { dir } = stores();
+  const target = join(dir, 'counter.json');
+  const originalWrite = fs.writeFileSync;
+  let denied = false;
+  t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+    if (file === `${target}.lock` && !denied) { denied = true; throw Object.assign(new Error('sharing violation'), { code: 'EPERM' }); }
+    return originalWrite(file, ...args);
+  });
+  updateState(target, {}, state => { assert.equal(existsSync(`${target}.lock`), true); return { count: (state.count ?? 0) + 1 }; });
+  assert.equal(readState(target, {}).count, 1);
+  t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+    if (file === `${target}.lock`) throw Object.assign(new Error('unavailable volume'), { code: 'EROFS' });
+    return originalWrite(file, ...args);
+  });
+  assert.throws(() => updateState(target, {}, () => assert.fail('no lock was held')), { code: 'ELOCKED' });
+  assert.equal(readState(target, {}).count, 1);
+});
+
+test('transient sharing denial while releasing a state lock leaves no orphaned lock', t => {
+  for (const operation of ['readFileSync', 'rmSync']) {
+    const { dir } = stores();
+    const target = join(dir, 'counter.json'), lock = `${target}.lock`;
+    const original = fs[operation];
+    let denied = false;
+    t.mock.method(fs, operation, (file, ...args) => {
+      if (file === lock && !denied) { denied = true; throw Object.assign(new Error('sharing violation'), { code: 'EPERM' }); }
+      return original(file, ...args);
+    });
+    updateState(target, {}, state => ({ count: (state.count ?? 0) + 1 }));
+    assert.equal(denied, true);
+    assert.equal(existsSync(lock), false, operation);
+    updateState(target, {}, state => ({ count: state.count + 1 }));
+    assert.equal(readState(target, {}).count, 2);
+    t.mock.restoreAll();
+  }
 });
 
 test('a session file outlives the outbox: a session resumed within a month still counts its turns on', async () => {

@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax SessionStart", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax SessionStart", "timeout": 10}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax UserPromptSubmit", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax UserPromptSubmit", "timeout": 10}]}],
+    "PreToolUse": [{"matcher": "edit|write", "hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax PreToolUse", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax PreToolUse", "timeout": 10}]}],
+    "PostToolUse": [{"matcher": "bash|edit|write", "hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax PostToolUse", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax PostToolUse", "timeout": 10}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax Stop", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax Stop", "timeout": 10}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "node \"$PLUGIN_ROOT/bin/hook.mjs\" minimax SessionEnd", "commandWindows": "node \"%PLUGIN_ROOT%\\bin\\hook.mjs\" minimax SessionEnd", "timeout": 10}]}]
+  }
+}

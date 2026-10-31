@@ -1,0 +1,13 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "root": {
+    ".minimax-plugin/plugin.json": ".minimax-plugin/plugin.json",
+    "hooks/hooks.json": "hosts/minimax/dist/hooks/hooks.json",
+    "README.md": "hosts/minimax/dist/README.md",
+    "assets/logo.png": "assets/logo.png",
+    "LICENSE": "LICENSE"
+  },
+  "patch": {
+    ".minimax-plugin/plugin.json": { "hooks": ["hooks/hooks.json"] }
+  }
+}

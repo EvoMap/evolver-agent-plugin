@@ -11,7 +11,7 @@ import { EDIT_TOOLS } from '../../../hosts/antigravity/evidence.js';
 import profile from '../../../hosts/antigravity/profile.js';
 import { pack } from '../../../scripts/pack.mjs';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
-import { fakeProxy } from '../../helpers/fake-proxy.js';
+import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
 
 // The hooks as Antigravity runs them: the registration's own shell commands, through `sh -c`, from a stand-in
 // language server, against the plugin installed (as a link) in the folder Antigravity installs to.
@@ -149,7 +149,7 @@ test('a hook command runs only a copy in an install folder, never one in its wor
 
 test('a whole turn through the installed hooks: the strategy before each call, allow on edits, the report at Stop', async (t) => {
   const proxy = await fakeProxy();
-  t.after(() => proxy.close());
+  t.after(() => closeProxyWhenSettled(proxy));
   install(proxy.env.HOME, '.gemini/config/plugins');
   const host = antigravity(t, proxy.env);
   const s = conversation(host, proxy.env.HOME, 's-e2e');
@@ -182,7 +182,7 @@ test('a whole turn through the installed hooks: the strategy before each call, a
 
 test('a killed session\'s open strategy is reported aborted at the first model call of the next session', async (t) => {
   const proxy = await fakeProxy({ assets: [] });
-  t.after(() => proxy.close());
+  t.after(() => closeProxyWhenSettled(proxy));
   install(proxy.env.HOME, '.gemini/config/plugins');
   const dead = spawnSync(process.execPath, ['-e', '']).pid;
   const digest = createHash('sha256').update('s-killed').digest('hex').slice(0, 16);
@@ -200,7 +200,7 @@ test('a killed session\'s open strategy is reported aborted at the first model c
 
 test('the candidate of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', async (t) => {
   const proxy = await fakeProxy({ assets: [] });
-  t.after(() => proxy.close());
+  t.after(() => closeProxyWhenSettled(proxy));
   const home = proxy.env.HOME;
   install(home, '.gemini/config/plugins');
   mkdirSync(join(home, 'bin'), { recursive: true });
