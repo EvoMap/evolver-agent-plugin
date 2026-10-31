@@ -47,8 +47,7 @@ State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every fi
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
   Proxy relays as HTTP 400. The Hub judges each recalled asset's fit to the session's task and returns only those
   that fit, so an off-topic prompt usually recalls nothing; the plugin adds no word-matching gate of its own. Engine
-  reminders, markup and links are removed from the prompt first, and a strategy longer than 4000 characters is
-  passed over.
+  reminders, markup and links are removed from the prompt first. A long strategy is shortened, not passed over.
 - **Every reuse is reported twice.** A host's earlier Evolver plugin is enabled too: `evolver-mods` or
   `evolver-agent-plugin` on Claude Code, `evolver@evomap` on Codex, `evolver@evomap-workbuddy` on WorkBuddy,
   `evolver-antigravity-plugin`, `evolver-opencode-plugin`, or the npm `@evomap/dsh-evolver` in a dsh profile. The earlier `evolver-agent-plugin` 0.1.0 on Claude Code
@@ -193,7 +192,10 @@ scripts/               pack.mjs, publish-tag.sh
   word-matching gate of its own: counting words a prompt shares with an asset dropped on-topic Chinese prompts, since
   a Han bigram weighed half a Latin word, and every asset described in another language than the prompt. Before
   recall, `<system-reminder>` blocks, markup and links are stripped from the prompt, so a session notification
-  recalls nothing. A strategy that would inject more than 4000 characters is passed over. A Recipe, likewise, is
+  recalls nothing. Lengths are in estimated tokens, not characters (a Han character about one, Latin text about four
+  characters to one), so a Chinese strategy is not cut four times shorter than an English one: each line keeps 100
+  tokens, and a strategy longer than 1000 keeps its first line, its `Safety boundary:` lines and as many others as
+  fit, then names how many lines of which asset it left out. A Recipe, likewise, is
   taken only from an answer the Hub judged (below).
 - **Recipes.** A Recipe is an ordered chain of strategies. Each prompt is searched for Recipes
   (`POST /recipe/search`, with the same `context` as the text recall) alongside the text recall, both at once, and a
@@ -203,8 +205,11 @@ scripts/               pack.mjs, publish-tag.sh
   an unjudged answer, as from a Proxy that drops the context, offers none, and a recall with no task searches none.
   `/evolver-search` judges against the person's own words (`trigger: search`). The best Recipe's steps' assets are
   then fetched by id through `/asset/fetch`, billed per asset as any fetch is, and shown in
-  order under one heading each. A Recipe missing a required step, left with fewer than two, or longer than 6000
-  characters is passed over for the next one, then for a single strategy. Each step is booked in the injection
+  order under one heading each, within 2000 tokens: a step that needs less than an even share keeps all its lines,
+  and a longer one is shortened as a single strategy is, rather than the chain being dropped whole. A Recipe missing a
+  required step, left with fewer than two, or with a step whose first line does not fit its share is passed over for
+  the next one, then for a single strategy; the recall's trace says which (`passed_over`) and how many steps were
+  shortened (`shortened`). Each step is booked in the injection
   ledger under its own asset id and its own text, read as a single strategy of the step's name, so every report
   (turn end, correction, retention) and the turn summary go step by step; the Recipe's id is never reported. A
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional

@@ -272,15 +272,21 @@ test('engine reminders, markup and links are not matched, and a bare reminder re
   assert.equal(calls.length, 0);
 });
 
-test('a strategy that would inject more than 4000 characters gives way to the next', async () => {
-  const long = Array.from({ length: 12 }, (step, index) => `${'x'.repeat(380)} step ${index}.`);
-  const { proxyFetch } = stubProxy({
-    assets: [
-      { asset_id: 'sha256:transcript', asset_type: 'Capsule', similarity: 0.99, strategy: long },
-      { asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: ['Read it.', 'Apply it.', 'Check it.', 'Record it.'] },
-    ],
-  });
-  assert.deepEqual((await recallStrategy(proxyFetch, 'add a retry to the uploader')).ids, ['sha256:fits']);
+test('a strategy longer than its budget keeps its opening and safety lines and names what it left out', async () => {
+  const long = [...Array.from({ length: 12 }, (step, index) => `${'x'.repeat(380)} step ${index}.`), 'Safety boundary: never touch prod.'];
+  const { proxyFetch } = stubProxy({ assets: [{ asset_id: 'sha256:long', asset_type: 'Gene', similarity: 0.99, strategy: long }] });
+  const match = await recallStrategy(proxyFetch, 'add a retry to the uploader');
+  assert.deepEqual(match.ids, ['sha256:long']);
+  assert.match(match.text, /^\[Evolution Memory\] .*\n1\. x{380} step 0\.\n/);
+  assert.match(match.text, /\. Safety boundary: never touch prod\.\n\(\d+ more lines of sha256:long left out for length\.\)\n/);
+  assert.ok(!match.text.includes('step 11.'));
+});
+
+test('a line is capped by tokens, so a Chinese line keeps as much meaning as an English one', async () => {
+  const chinese = '紫'.repeat(150);
+  const { proxyFetch } = stubProxy({ assets: [{ asset_id: 'sha256:zh', asset_type: 'Gene', strategy: [chinese, '读', '改', '验'] }] });
+  const match = await recallStrategy(proxyFetch, '帮我排一个紫微斗数命盘');
+  assert.match(match.text, new RegExp(`\\n1\\. ${'紫'.repeat(100)}\\n`));
 });
 
 test('keys and tokens are stripped from the prompt before it leaves for recall', async () => {
