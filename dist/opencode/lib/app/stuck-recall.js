@@ -29,8 +29,7 @@ function contextOf(session, paths) {
  * prompt's opening: the open turn recalls once per distinct failure, two at most, with a query built from that output
  * and what the turn touched (lib/stuck-query.js), the session's task beside it. Answers the strategy to add to the
  * failed call's result, booked into the turn, or '' when none lands within `waitMs`; a slower one is dropped, since
- * the agent has moved on by then. An error line rarely words a fix the way an asset does, so the local relevance gate
- * counts terms the asset shares with the task too.
+ * the agent has moved on by then.
  */
 export async function recallWhenStuck(ports, { sessionId, turnId = null, note, waitMs }) {
   if (ports.settings?.recall === false || !isFailedCheck(note)) return '';
@@ -42,7 +41,6 @@ export async function recallWhenStuck(ports, { sessionId, turnId = null, note, w
   const proxyFetch = (method, path, body) => ports.proxy.request(method, path, body);
   const recall = recallStrategy(proxyFetch, query, {
     context: contextOf(session, record.paths),
-    relevantTo: `${query} ${session.task}`,
     listedIds: listedIdsOf(session),
     closingOf: () => CLOSING,
   });

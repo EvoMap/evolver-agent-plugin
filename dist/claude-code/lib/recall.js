@@ -3,7 +3,6 @@
 
 import { expandedRecipe, rankedRecipes, recipeSearchRequestOf, stepFetchRequestOf } from './recipe.js';
 import { withoutSecrets } from './redact.js';
-import { MIN_RELEVANCE, relevanceOf, sharedTerms } from './relevance.js';
 
 // `/asset/fetch` with text and no ids recalls whole assets in one round trip.
 // No limit is sent: the Hub's default for a text recall (two assets) applies,
@@ -100,23 +99,16 @@ function similarityOf(asset) {
 
 // A Proxy's similarity score is advisory — the same question scored 0.88 asked
 // one way and 0.40 another — and a Proxy that reports none must not filter
-// everything out, so the floor applies only where a score exists. Relevance to
-// the prompt gates every candidate and breaks ties; the Hub's own order is not
-// trusted, since it weighs more than this prompt.
-function rankedCandidates(text, assets, listedIds, minSimilarity) {
+// everything out, so the floor applies only where a score exists. Whether an
+// asset fits the task is the Hub's call, made by a model with the task as
+// context; counting words the prompt shares with an asset dropped on-topic
+// Chinese prompts and every asset described in another language, so the Hub's
+// order stands where no score reorders it.
+function rankedCandidates(assets, listedIds, minSimilarity) {
   return assets
     .filter((asset) => !listedIds.has(asset.asset_id))
     .filter((asset) => typeof asset.similarity !== 'number' || asset.similarity >= minSimilarity)
-    .map((asset) => ({ asset, relevance: relevanceOf(sharedTerms(text, asset)) }))
-    .filter(({ relevance }) => relevance >= MIN_RELEVANCE)
-    .sort((left, right) => similarityOf(right.asset) - similarityOf(left.asset) || right.relevance - left.relevance)
-    .map(({ asset }) => asset);
-}
-
-function bestRelevanceOf(text, assets, listedIds) {
-  return assets
-    .filter((asset) => !listedIds.has(asset.asset_id))
-    .reduce((best, asset) => Math.max(best, relevanceOf(sharedTerms(text, asset))), 0);
+    .sort((left, right) => similarityOf(right) - similarityOf(left));
 }
 
 async function proxyData(proxyFetch, { method, path, body }) {
@@ -153,9 +145,9 @@ async function recalledRecipe(proxyFetch, text, { listedIds, closingOf }) {
 
 const recipeBy = (recipe, cutoff) => (cutoff ? Promise.race([recipe, cutoff.then(() => null)]) : recipe);
 
-function singleStrategyOf(text, recalled, { listedIds, minSimilarity, closingOf }) {
+function singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) {
   const assets = recalledAssets(recalled);
-  const ranked = rankedCandidates(text, assets, listedIds, minSimilarity);
+  const ranked = rankedCandidates(assets, listedIds, minSimilarity);
   for (const candidate of ranked) {
     const steps = strategySteps(candidate);
     if (steps.length < MIN_STRATEGY_STEPS) continue;
@@ -164,10 +156,10 @@ function singleStrategyOf(text, recalled, { listedIds, minSimilarity, closingOf 
     const injected = [headingOf(name), ...numbered(steps), '', closingOf(candidate.asset_id)].join('\n');
     if (injected.length > MAX_INJECTED_CHARS) continue;
 
-    const trace = { outcome: 'injected', recalled: assets.length, eligible: ranked.length, name, relevance: relevanceOf(sharedTerms(text, candidate)) };
+    const trace = { outcome: 'injected', recalled: assets.length, eligible: ranked.length, name };
     return { match: { ids: [candidate.asset_id], name, text: injected }, trace };
   }
-  return { match: null, trace: { outcome: 'skipped', recalled: assets.length, eligible: ranked.length, bestRelevance: bestRelevanceOf(text, assets, listedIds) } };
+  return { match: null, trace: { outcome: 'skipped', recalled: assets.length, eligible: ranked.length } };
 }
 
 // Picks one strategy for the prompt, or none. A fitting Recipe says more than
@@ -177,11 +169,10 @@ function singleStrategyOf(text, recalled, { listedIds, minSimilarity, closingOf 
 // rather than an error: recall must never cost the turn. Only the steps are
 // injected — a summary tells the model something exists, the steps are what it
 // can reuse. `onTrace` hears how the decision was made, so it can be shown or
-// kept without reaching the model. A single strategy must share terms with
-// `relevantTo`, the recall text unless the caller widens it.
+// kept without reaching the model.
 const defaultClosing = (assetId) => `Apply it where it fits. Evolver reports how the reuse of ${assetId} went when this turn ends.`;
 
-export async function recallStrategy(proxyFetch, text, { context = null, relevantTo = text, listedIds = new Set(), minSimilarity = DEFAULT_MIN_SIMILARITY, onTrace = (_trace) => {}, closingOf = defaultClosing, recipeCutoff = null } = {}) {
+export async function recallStrategy(proxyFetch, text, { context = null, listedIds = new Set(), minSimilarity = DEFAULT_MIN_SIMILARITY, onTrace = (_trace) => {}, closingOf = defaultClosing, recipeCutoff = null } = {}) {
   if (text.length < MIN_PROMPT_CHARS) {
     onTrace({ outcome: 'short' });
     return EMPTY_MATCH;
@@ -191,7 +182,7 @@ export async function recallStrategy(proxyFetch, text, { context = null, relevan
   // `recipeCutoff`, so a slow Recipe search never costs the turn the strategy it would have had without Recipes.
   const recipe = recalledRecipe(proxyFetch, text, { listedIds, closingOf });
   const recalled = await proxyData(proxyFetch, textRecallOf(text, context));
-  const single = recalled ? singleStrategyOf(relevantTo, recalled, { listedIds, minSimilarity, closingOf }) : null;
+  const single = recalled ? singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) : null;
   const chain = await (single?.match ? recipeBy(recipe, recipeCutoff) : recipe);
   if (chain) {
     onTrace({ outcome: 'injected', kind: 'recipe', name: chain.match.name, steps: chain.match.ids.length, relevance: chain.relevance });

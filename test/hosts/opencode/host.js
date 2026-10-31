@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ASSET, PROMPT } from '../../app/memory-ports.js';
+import { ASSET, PROMPT, recalledFor } from '../../app/memory-ports.js';
 
 export { ASSET, PROMPT };
 
@@ -17,7 +17,7 @@ export const GENE = JSON.stringify({ title: 'Stabilise Redis retries', summary: 
 const DRAFTED = { ok: true, distill_id: 'distill_1', quality: { ok: true, score: 0.9 }, gene: { asset_id: 'sha256:gene' }, capsule: { asset_id: 'sha256:capsule', summary: 'Retry Redis deterministically.' } };
 
 function defaultAnswer(path, body, assets) {
-  if (path === '/asset/fetch') return { assets };
+  if (path === '/asset/fetch') return { assets: recalledFor(assets, body) };
   if (path === '/proxy/status') return { running: true, status: 'running', node_id: 'node_test' };
   if (path === '/conversation/distill') return DRAFTED;
   return { recorded: true };

@@ -3,17 +3,17 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ASSET } from '../app/memory-ports.js';
+import { ASSET, recalledFor } from '../app/memory-ports.js';
 
 /**
- * A loopback Proxy that answers recall with one asset and records every request, plus a scratch HOME whose
+ * A loopback Proxy that answers recall with the assets the text names (`recalledFor`) and records every request, plus a scratch HOME whose
  * settings name it as a current Proxy, so no test ever starts setting the engine up. A Recipe search answers
  * `recipes`, and a fetch by ids the `stepAssets` it names. `delays` holds a path's answer back for that many
  * milliseconds; `status` is what `/proxy/status` answers.
  */
 export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {}, status = { running: true, status: 'running', node_id: 'node_test' } } = {}) {
   const requests = [];
-  const fetched = (body) => (body?.asset_ids ? stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) : assets);
+  const fetched = (body) => (body?.asset_ids ? stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) : recalledFor(assets, body));
   const server = createServer((request, response) => {
     let body = '';
     request.on('data', (chunk) => { body += chunk; });

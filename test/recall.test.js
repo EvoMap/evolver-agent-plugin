@@ -18,10 +18,6 @@ function stubProxy(recalled) {
   return { proxyFetch, calls, searches };
 }
 
-// Every recalled asset must share terms with the prompt to be injected; this one
-// describes itself in the terms of the prompt the tests send.
-const ON_TOPIC = { signals_match: ['upload retry'] };
-
 const ASSET = {
   asset_id: 'sha256:abc',
   asset_type: 'Gene',
@@ -64,7 +60,7 @@ test('a bounded prompt reaches the Hub, and a trivial one never does', async () 
 
 test('an asset already injected this session is passed over', async () => {
   const { proxyFetch } = stubProxy({
-    assets: [ASSET, { ...ON_TOPIC, asset_id: 'sha256:next', asset_type: 'Capsule', payload: { strategy: ['Drain the queue first.', 'Replay the dead letters.', 'Re-enable the consumer.', 'Watch the depth.'] } }],
+    assets: [ASSET, { asset_id: 'sha256:next', asset_type: 'Capsule', payload: { strategy: ['Drain the queue first.', 'Replay the dead letters.', 'Re-enable the consumer.', 'Watch the depth.'] } }],
   });
 
   const { ids, text } = await recallStrategy(proxyFetch, 'add a retry to the uploader', {
@@ -95,8 +91,8 @@ test('a failing Proxy, an empty recall, and a strategy-less asset inject nothing
 test('an asset with no strategy gives way to the next one in the same answer', async () => {
   const { proxyFetch, calls } = stubProxy({
     assets: [
-      { ...ON_TOPIC, asset_id: 'sha256:prose', asset_type: 'Gene', similarity: 0.98, summary: 'Nothing to reuse here.' },
-      { ...ON_TOPIC, asset_id: 'sha256:usable', asset_type: 'Gene', similarity: 0.71, strategy: ['Use the one that carries steps.', 'Then the next.', 'Then the next.', 'Then the last.'] },
+      { asset_id: 'sha256:prose', asset_type: 'Gene', similarity: 0.98, summary: 'Nothing to reuse here.' },
+      { asset_id: 'sha256:usable', asset_type: 'Gene', similarity: 0.71, strategy: ['Use the one that carries steps.', 'Then the next.', 'Then the next.', 'Then the last.'] },
     ],
   });
 
@@ -127,9 +123,9 @@ test('the similarity line is configurable, and a Proxy that omits the score stil
 test('the best-scoring asset wins, whatever order the Hub listed them in', async () => {
   const { proxyFetch } = stubProxy({
     assets: [
-      { ...ON_TOPIC, asset_id: 'sha256:middling', asset_type: 'Gene', similarity: 0.62, strategy: ['Middling.', 'Middling.', 'Middling.', 'Middling.'] },
-      { ...ON_TOPIC, asset_id: 'sha256:closest', asset_type: 'Gene', similarity: 0.94, strategy: ['Take the closest match.', 'Then the next.', 'Then the next.', 'Then the last.'] },
-      { ...ON_TOPIC, asset_id: 'sha256:weak', asset_type: 'Gene', similarity: 0.51, strategy: ['Weak.', 'Weak.', 'Weak.', 'Weak.'] },
+      { asset_id: 'sha256:middling', asset_type: 'Gene', similarity: 0.62, strategy: ['Middling.', 'Middling.', 'Middling.', 'Middling.'] },
+      { asset_id: 'sha256:closest', asset_type: 'Gene', similarity: 0.94, strategy: ['Take the closest match.', 'Then the next.', 'Then the next.', 'Then the last.'] },
+      { asset_id: 'sha256:weak', asset_type: 'Gene', similarity: 0.51, strategy: ['Weak.', 'Weak.', 'Weak.', 'Weak.'] },
     ],
   });
 
@@ -141,8 +137,8 @@ test('the best-scoring asset wins, whatever order the Hub listed them in', async
 test('an unscored asset is still usable, but never outranks a scored one', async () => {
   const { proxyFetch } = stubProxy({
     assets: [
-      { ...ON_TOPIC, asset_id: 'sha256:unscored', asset_type: 'Gene', strategy: ['Unmeasured.', 'Unmeasured.', 'Unmeasured.', 'Unmeasured.'] },
-      { ...ON_TOPIC, asset_id: 'sha256:scored', asset_type: 'Gene', similarity: 0.55, strategy: ['Prefer the measured match.', 'Then the next.', 'Then the next.', 'Then the last.'] },
+      { asset_id: 'sha256:unscored', asset_type: 'Gene', strategy: ['Unmeasured.', 'Unmeasured.', 'Unmeasured.', 'Unmeasured.'] },
+      { asset_id: 'sha256:scored', asset_type: 'Gene', similarity: 0.55, strategy: ['Prefer the measured match.', 'Then the next.', 'Then the next.', 'Then the last.'] },
     ],
   });
 
@@ -152,7 +148,6 @@ test('an unscored asset is still usable, but never outranks a scored one', async
 test('a named gene is announced by its name, and its hash only where it gets used', async () => {
   const { proxyFetch } = stubProxy({
     assets: [{
-      ...ON_TOPIC,
       asset_id: 'sha256:named', asset_type: 'Gene', similarity: 0.9,
       short_title: 'Chinese Social Media Writing Template',
       nl_summary: 'A long explanation that has no business being in front of the model on every turn.'.repeat(3),
@@ -171,7 +166,7 @@ test('a named gene is announced by its name, and its hash only where it gets use
 
 test('an asset with neither a name nor a description falls back to its type', async () => {
   const { proxyFetch } = stubProxy({
-    assets: [{ ...ON_TOPIC, asset_id: 'sha256:plain', asset_type: 'Capsule', similarity: 0.9, strategy: ['Do it.', 'Do it.', 'Do it.', 'Do it.'] }],
+    assets: [{ asset_id: 'sha256:plain', asset_type: 'Capsule', similarity: 0.9, strategy: ['Do it.', 'Do it.', 'Do it.', 'Do it.'] }],
   });
 
   const { text } = await recallStrategy(proxyFetch, 'add a retry to the uploader');
@@ -237,8 +232,8 @@ test('a strategy too thin to reuse gives way to one that fits', async () => {
   const fits = ['Read the plan.', 'Apply it.', 'Check it.', 'Record it.'];
   const { proxyFetch, calls } = stubProxy({
     assets: [
-      { ...ON_TOPIC, asset_id: 'sha256:thin', asset_type: 'Gene', similarity: 0.99, strategy: ['Try harder.', 'Ship it.', 'Hope.'] },
-      { ...ON_TOPIC, asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: fits },
+      { asset_id: 'sha256:thin', asset_type: 'Gene', similarity: 0.99, strategy: ['Try harder.', 'Ship it.', 'Hope.'] },
+      { asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: fits },
     ],
   });
 
@@ -251,7 +246,7 @@ test('a strategy too thin to reuse gives way to one that fits', async () => {
 
 test('a long strategy is injected whole, with no upper bound on its steps', async () => {
   const { proxyFetch } = stubProxy({
-    assets: [{ ...ON_TOPIC, asset_id: 'sha256:long', asset_type: 'Capsule', similarity: 0.95, strategy: Array.from({ length: 21 }, (step, index) => `Pipeline step ${index}.`) }],
+    assets: [{ asset_id: 'sha256:long', asset_type: 'Capsule', similarity: 0.95, strategy: Array.from({ length: 21 }, (step, index) => `Pipeline step ${index}.`) }],
   });
 
   const { ids, text } = await recallStrategy(proxyFetch, 'add a retry to the uploader');
@@ -260,7 +255,7 @@ test('a long strategy is injected whole, with no upper bound on its steps', asyn
 });
 
 test('four steps is the least a strategy needs', async () => {
-  const four = stubProxy({ assets: [{ ...ON_TOPIC, asset_id: 'sha256:four', asset_type: 'Gene', strategy: ['a.', 'b.', 'c.', 'd.'] }] });
+  const four = stubProxy({ assets: [{ asset_id: 'sha256:four', asset_type: 'Gene', strategy: ['a.', 'b.', 'c.', 'd.'] }] });
   assert.deepEqual((await recallStrategy(four.proxyFetch, 'add a retry to the uploader')).ids, ['sha256:four']);
 });
 
@@ -281,8 +276,8 @@ test('a strategy that would inject more than 4000 characters gives way to the ne
   const long = Array.from({ length: 12 }, (step, index) => `${'x'.repeat(380)} step ${index}.`);
   const { proxyFetch } = stubProxy({
     assets: [
-      { ...ON_TOPIC, asset_id: 'sha256:transcript', asset_type: 'Capsule', similarity: 0.99, strategy: long },
-      { ...ON_TOPIC, asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: ['Read it.', 'Apply it.', 'Check it.', 'Record it.'] },
+      { asset_id: 'sha256:transcript', asset_type: 'Capsule', similarity: 0.99, strategy: long },
+      { asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: ['Read it.', 'Apply it.', 'Check it.', 'Record it.'] },
     ],
   });
   assert.deepEqual((await recallStrategy(proxyFetch, 'add a retry to the uploader')).ids, ['sha256:fits']);
@@ -296,4 +291,13 @@ test('keys and tokens are stripped from the prompt before it leaves for recall',
     assert.doesNotMatch(sent, /sk-ant|ghp_/);
     assert.match(sent, /upload retry fails with/);
   }
+});
+
+test('what the Hub answers is injected, in any language, without sharing a word with the prompt', async () => {
+  const prompt = '帮我规划一下新开的小红书账号，前三个月该怎么做内容';
+  const chinese = { asset_id: 'sha256:zh', short_title: '为小红书账号建立从账号分类到赛道定位的运营流程', strategy: ['先给账号分类。', '再定 3+1 赛道。', '按赛道排内容日历。', '每周复盘数据。'] };
+  const english = { asset_id: 'sha256:en', short_title: 'Guide Xiaohongshu operations from account setup to growth', strategy: ['Pick the niche.', 'Plan a weekly calendar.', 'Post at peak hours.', 'Review the metrics weekly.'] };
+
+  assert.deepEqual((await recallStrategy(stubProxy({ assets: [chinese] }).proxyFetch, prompt)).ids, ['sha256:zh']);
+  assert.deepEqual((await recallStrategy(stubProxy({ assets: [english] }).proxyFetch, prompt)).ids, ['sha256:en']);
 });
