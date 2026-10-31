@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { MIN_RELEVANCE, relevanceOf, sharedTerms } from './relevance.js';
-
 const SEARCH_LIMIT = 5;
 const MIN_RECIPE_STEPS = 2;
 const MAX_RECIPE_CHARS = 6000;
@@ -21,10 +19,6 @@ function orderedStepsOf(recipe) {
   return steps.filter((step) => !seen.has(step.assetId) && seen.add(step.assetId));
 }
 
-// A Recipe's title and description are all search returns about it, so they pass the same relevance gate a single
-// strategy's own description does.
-const relevanceTo = (text, recipe) => relevanceOf(sharedTerms(text, { short_title: recipe.title, summary: recipe.description }));
-
 // Only required steps decide: an optional step the Hub did not return stays unlisted once the chain is booked, and
 // must not bring the chain back, fetched and billed again, at every later prompt.
 function hasUnlistedStep(steps, listedIds) {
@@ -32,13 +26,20 @@ function hasUnlistedStep(steps, listedIds) {
   return (required.length > 0 ? required : steps).some((step) => !listedIds.has(step.assetId));
 }
 
-/** The Recipes of a search answer that fit `text` and offer a step the session has not seen, best first. */
-export function rankedRecipes(text, data, listedIds) {
+const isJudged = (data) => Number.isFinite(data?.context_fit?.judged);
+
+/**
+ * The Recipes of a search answer the Hub judged to fit the caller's task, offering a step the session has not seen,
+ * best fit first; none from an unjudged answer. Recipe search alone has no relevance floor, and a few shared words
+ * let chains about unrelated work through, so only the Hub's judgement against the task admits one.
+ */
+export function rankedRecipes(data, listedIds) {
+  if (!isJudged(data)) return [];
   return recipesOf(data)
-    .map((recipe) => ({ recipe, steps: orderedStepsOf(recipe), relevance: relevanceTo(text, recipe) }))
-    .filter(({ steps, relevance }) => steps.length >= MIN_RECIPE_STEPS && relevance >= MIN_RELEVANCE)
-    .filter(({ steps }) => hasUnlistedStep(steps, listedIds))
-    .sort((left, right) => right.relevance - left.relevance || (Number(right.recipe.success_rate) || 0) - (Number(left.recipe.success_rate) || 0));
+    .filter((recipe) => Number.isFinite(recipe.context_fit))
+    .map((recipe) => ({ recipe, steps: orderedStepsOf(recipe), fit: recipe.context_fit }))
+    .filter(({ steps }) => steps.length >= MIN_RECIPE_STEPS && hasUnlistedStep(steps, listedIds))
+    .sort((left, right) => right.fit - left.fit || (Number(right.recipe.success_rate) || 0) - (Number(left.recipe.success_rate) || 0));
 }
 
 const numbered = (lines) => lines.map((line, index) => `${index + 1}. ${line}`);
@@ -77,8 +78,8 @@ export function expandedRecipe({ recipe, steps }, stepsById, { listedIds, closin
   };
 }
 
-export function recipeSearchRequestOf(text) {
-  return { method: 'POST', path: '/recipe/search', body: { q: text, limit: SEARCH_LIMIT } };
+export function recipeSearchRequestOf(text, context) {
+  return { method: 'POST', path: '/recipe/search', body: { q: text, limit: SEARCH_LIMIT, context } };
 }
 
 export function stepFetchRequestOf(steps) {

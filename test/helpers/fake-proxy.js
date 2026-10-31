@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ASSET, recalledFor } from '../app/memory-ports.js';
+import { recipeSearchAnswer } from './recipe-search.js';
 
 /**
- * A loopback Proxy that answers recall with the assets the text names (`recalledFor`) and records every request, plus a scratch HOME whose
- * settings name it as a current Proxy, so no test ever starts setting the engine up. A Recipe search answers
- * `recipes`, and a fetch by ids the `stepAssets` it names. `delays` holds a path's answer back for that many
- * milliseconds; `status` is what `/proxy/status` answers.
+ * A loopback Proxy that answers recall with the assets the text names (`recalledFor`) and records every request,
+ * plus a scratch HOME whose settings name it as a current Proxy, so no test ever starts setting the engine up. A
+ * Recipe search answers `recipes` as the Hub does (judged when it carries a context), and a fetch by ids the
+ * `stepAssets` it names. `delays` holds a path's answer back for that many milliseconds; `status` is what
+ * `/proxy/status` answers.
  */
 export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {}, status = { running: true, status: 'running', node_id: 'node_test' } } = {}) {
   const requests = [];
@@ -21,7 +23,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       const parsed = body ? JSON.parse(body) : undefined;
       requests.push({ method: request.method, path: request.url, body: parsed });
       const answer = request.url === '/asset/fetch' ? { assets: fetched(parsed) }
-        : request.url === '/recipe/search' ? recipes
+        : request.url === '/recipe/search' ? recipeSearchAnswer(recipes, parsed)
         : request.url === '/proxy/status' ? status
           : request.url === '/conversation/distill' ? distillAnswer
             : { recorded: true };

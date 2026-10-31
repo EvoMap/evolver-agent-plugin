@@ -59,7 +59,8 @@ test('a late Recipe, once shown, keeps every step out of later recalls, and join
 });
 
 test('a searched Recipe adopted into the turn books every step for its end to report', async () => {
-  const { ports } = withRecipe();
+  const keptForTheSearchOnly = (request) => (request.context?.trigger === 'search' ? [RECIPE] : []);
+  const { ports } = memoryPorts({ recipes: keptForTheSearchOnly, stepAssets: RECIPE_STEPS });
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'explain the build', ...WAIT });
   const searched = await runCommand(ports, { sessionId: 's1', name: 'evolver-search', args: 'flaky redis connection retries in tests' });
   await adoptStrategy(ports, { sessionId: 's1', strategy: searched.strategy });

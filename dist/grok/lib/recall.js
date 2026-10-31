@@ -134,13 +134,14 @@ function readableStepsOf(data) {
   }));
 }
 
-async function recalledRecipe(proxyFetch, text, { listedIds, closingOf }) {
-  const found = await proxyData(proxyFetch, recipeSearchRequestOf(text));
-  const [best] = rankedRecipes(text, found, listedIds);
+async function recalledRecipe(proxyFetch, text, { context, listedIds, closingOf }) {
+  if (!context) return null;
+  const found = await proxyData(proxyFetch, recipeSearchRequestOf(text, context));
+  const [best] = rankedRecipes(found, listedIds);
   if (!best) return null;
   const fetched = await proxyData(proxyFetch, stepFetchRequestOf(best.steps));
   const expanded = expandedRecipe(best, readableStepsOf(fetched), { listedIds, closing: closingOf(best.recipe.id) });
-  return expanded ? { match: expanded, relevance: best.relevance } : null;
+  return expanded ? { match: expanded, fit: best.fit } : null;
 }
 
 const recipeBy = (recipe, cutoff) => (cutoff ? Promise.race([recipe, cutoff.then(() => null)]) : recipe);
@@ -180,12 +181,12 @@ export async function recallStrategy(proxyFetch, text, { context = null, listedI
 
   // Both start at once. A Recipe is preferred, but once a single strategy is ready it waits for the Recipe only until
   // `recipeCutoff`, so a slow Recipe search never costs the turn the strategy it would have had without Recipes.
-  const recipe = recalledRecipe(proxyFetch, text, { listedIds, closingOf });
+  const recipe = recalledRecipe(proxyFetch, text, { context, listedIds, closingOf });
   const recalled = await proxyData(proxyFetch, textRecallOf(text, context));
   const single = recalled ? singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) : null;
   const chain = await (single?.match ? recipeBy(recipe, recipeCutoff) : recipe);
   if (chain) {
-    onTrace({ outcome: 'injected', kind: 'recipe', name: chain.match.name, steps: chain.match.ids.length, relevance: chain.relevance });
+    onTrace({ outcome: 'injected', kind: 'recipe', name: chain.match.name, steps: chain.match.ids.length, fit: chain.fit });
     return chain.match;
   }
   if (!single) {

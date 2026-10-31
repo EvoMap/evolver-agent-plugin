@@ -286,7 +286,7 @@ test('a strategy that would inject more than 4000 characters gives way to the ne
 test('keys and tokens are stripped from the prompt before it leaves for recall', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const prompt = promptTextOf('upload retry fails with ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuv and ghp_abcdefghijklmnopqrstuvwxyz0123');
-  await recallStrategy(proxyFetch, prompt);
+  await recallStrategy(proxyFetch, prompt, { context: { task: prompt, trigger: 'turn_start' } });
   for (const sent of [calls[0].body.text, searches[0].q]) {
     assert.doesNotMatch(sent, /sk-ant|ghp_/);
     assert.match(sent, /upload retry fails with/);
