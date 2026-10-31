@@ -24,7 +24,7 @@ test('/evolver-search hands its strategy to the conversation, and the turn that 
   const proxy = await startProxy(t);
   const dsh = await startDsh();
   const agent = await dsh.createAgent();
-  await dsh.preStep(agent, { turn: 1, step: 1, messages: [{ ...DSH.preStep.prompt.messages[0], content: [{ type: 'text', text: 'look at the redis client' }] }] });
+  await dsh.preStep(agent, { turn: 1, step: 1, messages: [{ ...DSH.preStep.prompt.messages[0], content: [{ type: 'text', text: 'look at the build script' }] }] });
   const result = await dsh.command(agent, 'evolver-search', ' fix the flaky redis connection retries');
   assert.equal(result.kind, 'success');
   assert.match(result.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);

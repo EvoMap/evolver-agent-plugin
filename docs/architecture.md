@@ -45,10 +45,10 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
 
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
-  Proxy relays as HTTP 400. A strategy is also skipped when its relevance to your prompt is below 2: each shared
-  English word counts 1 and each shared pair of Chinese characters 0.5, so a short or off-topic prompt injects
-  nothing by design. Engine reminders, markup and links are removed from the prompt first, and a strategy longer
-  than 4000 characters is passed over.
+  Proxy relays as HTTP 400. The Hub judges each recalled asset's fit to the session's task and returns only those
+  that fit, so an off-topic prompt usually recalls nothing; the plugin adds no word-matching gate of its own. Engine
+  reminders, markup and links are removed from the prompt first, and a strategy longer than 4000 characters is
+  passed over.
 - **Every reuse is reported twice.** A host's earlier Evolver plugin is enabled too: `evolver-mods` or
   `evolver-agent-plugin` on Claude Code, `evolver@evomap` on Codex, `evolver@evomap-workbuddy` on WorkBuddy,
   `evolver-antigravity-plugin`, `evolver-opencode-plugin`, or the npm `@evomap/dsh-evolver` in a dsh profile. The earlier `evolver-agent-plugin` 0.1.0 on Claude Code
@@ -188,15 +188,14 @@ scripts/               pack.mjs, publish-tag.sh
 
 ## Design decisions
 
-- **Relevance gate.** The local Proxy's text recall reports no similarity, and the Hub's raw order put off-topic
-  genes behind short follow-ups. A candidate must share terms with the prompt through its title, summary and
-  `signals_match`: Latin words are stemmed and weigh 1, Han bigrams weigh 0.5, generic task words and the host's own
-  name (`claude`, `code`) nothing, and 2 passes. Measured on live recalls, every hit that scored 1.5 was off-topic
-  and on-topic ones scored 2 or more; the samples are in `test/fixtures/recall-live.json`. Before matching,
-  `<system-reminder>` blocks, markup and links are stripped from the prompt, so a session notification recalls
-  nothing. A strategy that would inject more than 4000 characters is passed over. Two off-topic hits still score
-  exactly 2 (meta questions sharing words like `replay` and `review`), the same as an on-topic Redis fix, so the gate
-  alone cannot separate them.
+- **Fit is the Hub's call.** Every recall carries the session's task as `context`, and the Hub has a model judge
+  each recalled asset's fit to that task before it answers. The plugin keeps what the Hub answers and adds no
+  word-matching gate of its own: counting words a prompt shares with an asset dropped on-topic Chinese prompts, since
+  a Han bigram weighed half a Latin word, and every asset described in another language than the prompt. Before
+  recall, `<system-reminder>` blocks, markup and links are stripped from the prompt, so a session notification
+  recalls nothing. A strategy that would inject more than 4000 characters is passed over. A Recipe search still
+  checks the terms a Recipe's title and description share with the prompt (`lib/relevance.js`), until it carries the
+  Hub's verdict too.
 - **Recipes.** A Recipe is an ordered chain of strategies. Each prompt is searched for Recipes
   (`POST /recipe/search`) alongside the text recall, both at once, and a fitting Recipe comes before a single
   strategy. It must pass the relevance gate on its title and description, which is all a search returns about it;
@@ -213,9 +212,7 @@ scripts/               pack.mjs, publish-tag.sh
   judges each recalled asset's fit to the task with it, never recalls by it. The first 400 characters of a prompt are
   often its boilerplate, and an error line alone names no task: an offline replay of 53 SWE runs fired on 15 failed
   checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
-  pools that held it. A failed check's recall also counts terms an asset shares with the task in the local relevance
-  gate, since an error line rarely words a fix the way an asset does; a prompt's recall does not, or a follow-up like
-  "thanks" would pass on the task's terms.
+  pools that held it.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
   more than the fresh tokens (input, cache writes, output) the turn spent: evolver-core's estimator prices deriving a
   whole approach from scratch, which put ~72k against single questions that cost 5k.
