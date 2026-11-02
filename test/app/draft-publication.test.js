@@ -39,12 +39,43 @@ test('explicit publication preserves the Proxy receipt and its complete bound bu
 
 test('a Proxy-declared unpublishable draft is retained and explains the trusted verification requirement', async () => {
   const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    return { ok: false, error: 'publish_reverification_unavailable' };
+  };
   const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
   assert.equal(answer.ok, false);
   assert.match(answer.text, /trusted.*verif/i);
-  assert.equal(requests.length, 0);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
   assert.deepEqual(await ports.drafts.read(), [draft]);
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'discard 1' })).ok, true);
+  assert.deepEqual(await ports.drafts.read(), []);
+});
+
+test('explicit publication reverifies a draft and retains the promoted bundle when submission fails', async () => {
+  const { ports, requests } = await withDraft({ ...RESULT, publishable: false });
+  const cancellation = new AbortController();
+  ports.proxy.request = async (method, path, body, options) => {
+    requests.push({ method, path, body, options });
+    assert.equal(options.signal, cancellation.signal);
+    if (path === '/asset/reverify') {
+      assert.deepEqual(body, { assets: [GENE, CAPSULE], persist: false });
+      assert.equal(options.timeoutMs, 120_000);
+      return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE, EVENT], publish_receipt: RECEIPT } };
+    }
+    assert.deepEqual(body.assets, [GENE, CAPSULE, EVENT]);
+    assert.deepEqual(body.publish_receipt, RECEIPT);
+    assert.deepEqual((await ports.drafts.read())[0].assets, body.assets, 'the retry bundle is saved before submission');
+    return { ok: false, error: 'Hub unavailable' };
+  };
+  const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1', signal: cancellation.signal });
+  assert.equal(answer.ok, false);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify', '/asset/submit']);
+  assert.equal((await ports.drafts.read())[0].publishable, true);
+  requests.length = 0;
+  ports.proxy.request = async (method, path, body) => { requests.push({ path, body }); return { ok: true, data: {} }; };
+  assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' })).ok, true);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/submit']);
   assert.deepEqual(await ports.drafts.read(), []);
 });
 
@@ -57,8 +88,38 @@ test('a rejected publication keeps the exact bound draft for review or retry', a
   assert.deepEqual(await ports.drafts.read(), [draft]);
 });
 
+test('discarding a draft during reverification prevents its submission or resurrection', async () => {
+  const { ports, requests } = await withDraft({ ...RESULT, publishable: false });
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    await ports.drafts.update(() => []);
+    return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } };
+  };
+  const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(answer.ok, false);
+  assert.match(answer.text, /discarded/);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
+  assert.deepEqual(await ports.drafts.read(), []);
+});
+
+test('a malformed reverification response cannot submit or replace a draft', async () => {
+  for (const data of [
+    { ok: false, error: 'execution_failed' },
+    { ok: true, publishable: false, assets: [GENE, CAPSULE], publish_receipt: RECEIPT },
+    { ok: true, publishable: true, assets: [] },
+    { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: 'untrusted claim' },
+  ]) {
+    const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
+    ports.proxy.request = async (method, path) => { requests.push({ path }); return { ok: true, data }; };
+    const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+    assert.equal(answer.ok, false);
+    assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
+    assert.deepEqual(await ports.drafts.read(), [draft]);
+  }
+});
+
 test('the installed Core contract distinguishes HTTP claims from a trusted verifier receipt', async () => {
-  const trace = [{ command: 'node --test retry.test.js', exit: 0 }];
+  const trace = [{ command: 'node scripts/verify-retry.js', exit: 0 }];
   const input = {
     title: 'Bounded retry for transient HTTP failures',
     summary: 'When transient HTTP requests fail, retry only known retryable responses with bounded exponential backoff and jitter, then verify deterministic outcomes using an injected clock.',
@@ -68,19 +129,26 @@ test('the installed Core contract distinguishes HTTP claims from a trusted verif
   };
   const request = hub.createConversationVerificationRequest(input, input.validation, 'test-runtime', randomBytes(32).toString('hex'));
   const verifiedExecution = { trace, validation: input.validation, binding: { request, rootFingerprint: 'sha256:' + 'a'.repeat(64) } };
-  for (const trusted of [false, true]) {
-    const result = await hub.distillConversation(input, trusted ? { verifiedExecution, registerPublishReceipt: () => {} } : {});
+  for (const mode of ['unavailable', 'bound', 'promotion']) {
+    const result = await hub.distillConversation(input, mode === 'bound' ? { verifiedExecution, registerPublishReceipt: () => {} } : {});
     assert.equal(result.ok, true);
-    assert.equal(result.publishable, trusted);
+    assert.equal(result.publishable, mode === 'bound');
     const { ports, requests } = await withDraft(result);
     ports.proxy.request = async (method, path, body) => {
       requests.push({ method, path, body });
+      if (path === '/asset/reverify') {
+        if (mode === 'unavailable') return { ok: false, error: 'publish_reverification_unavailable' };
+        const candidate = hub.preparePublishReverification(body.assets, {});
+        const request = hub.createPublishVerificationRequest(candidate.input, candidate.validation, 'test-runtime', randomBytes(32).toString('hex'));
+        const execution = { trace, validation: candidate.validation, binding: { request, rootFingerprint: verifiedExecution.binding.rootFingerprint } };
+        return { ok: true, data: { ok: true, publishable: true, ...hub.completePublishReverification(candidate, execution, {}) } };
+      }
       hub.assertPublishBindingReceipt(body.assets, body.publish_receipt);
       return { ok: true, data: { message_id: 'fixture' } };
     };
     const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
-    assert.equal(answer.ok, trusted, answer.text);
-    assert.equal(requests.length, trusted ? 1 : 0);
-    assert.equal((await ports.drafts.read()).length, trusted ? 0 : 1);
+    assert.equal(answer.ok, mode !== 'unavailable', answer.text);
+    assert.deepEqual(requests.map(({ path }) => path), mode === 'promotion' ? ['/asset/reverify', '/asset/submit'] : [mode === 'bound' ? '/asset/submit' : '/asset/reverify']);
+    assert.equal((await ports.drafts.read()).length, mode === 'unavailable' ? 1 : 0);
   }
 });

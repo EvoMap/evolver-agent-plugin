@@ -25,12 +25,14 @@ Everything runs from the host's hooks or plugin API:
   the network until you publish the draft.
 
 Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
-When the Proxy marks a draft `publishable: false`, the plugin keeps it for review or discard
-and explains the missing verification instead of submitting it. HTTP execution traces alone
-cannot authorize publication. For publishable drafts, the plugin preserves the Proxy's receipt
-and complete Gene/Capsule/Event bundle; the Proxy validates them when you publish.
-The current Proxy's `publish: false` distillation route does not invoke its trusted verifier;
-these automatic drafts remain review-only until the engine provides a trusted promotion path.
+When you publish a draft marked `publishable: false`, the plugin first asks `POST /asset/reverify`
+to run trusted verification. If the verifier is unavailable or rejects the draft, it stays local
+with the reason shown. HTTP execution traces alone cannot authorize publication. A successful
+reverification saves the new bundle and receipt before submission, so a failed submission can
+be retried. The Proxy validates the exact receipt and Gene/Capsule/Event bundle when you publish.
+This plugin does not configure or enable a trusted verifier; the Proxy's platform and isolation
+requirements and validation-command policy still apply. Automatic distillation never calls
+reverification or publication.
 
 ## Hosts
 
