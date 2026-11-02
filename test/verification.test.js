@@ -35,6 +35,22 @@ test('command positions in chains, pipelines, environment assignments and npx wr
   }
 });
 
+test('a known executable reached through a path still verifies, while a path in an argument does not', () => {
+  for (const command of [
+    './gradlew test', './node_modules/.bin/tsc --noEmit', '/usr/bin/make',
+    'cd app && ./gradlew test', 'CI=1 ./node_modules/.bin/tsc --noEmit',
+    '/usr/bin/npx --yes ./node_modules/.bin/tsc --noEmit',
+  ]) {
+    assert.equal(isVerificationCommand(command), true, command);
+  }
+  for (const command of [
+    'echo ./gradlew test', 'cat ./node_modules/.bin/tsc', 'echo /usr/bin/make',
+    'echo "notes; ./gradlew test"', '/usr/bin/npx echo ./gradlew test', './scripts/make-not-a-check',
+  ]) {
+    assert.equal(isVerificationCommand(command), false, command);
+  }
+});
+
 test('a non-zero exit fails the verification', () => {
   assert.equal(verificationFailed({ isError: true, text: '' }), true);
 });
