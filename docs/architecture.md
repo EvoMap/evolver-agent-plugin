@@ -215,10 +215,11 @@ scripts/               pack.mjs, publish-tag.sh
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional
   step the Hub did not return never brings it back.
 - **Task context.** Every recall sends `context` beside `text`: an object the Hub defines and the Proxy forwards
-  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (2000 characters, cleaned as
-  a prompt is), `trigger` is `turn_start` or `check_failed`, and `language` the touched files' languages. The Hub
-  judges each recalled asset's fit to the task with it, never recalls by it. A prompt's opening is often its
-  boilerplate, and an error line alone names no task: an offline replay of 53 SWE runs fired on 15 failed
+  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (4000 characters, cleaned as
+  a prompt is, and cut further so the context stays within the Proxy's 4096-byte limit), `trigger` is `turn_start`
+  or `check_failed`, and `language` the touched files' languages. The Hub judges each recalled asset's fit to the
+  task with it, never recalls by it. A prompt's opening is often its boilerplate, and an error line alone names no
+  task: an offline replay of 53 SWE runs fired on 15 failed
   checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
   pools that held it.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
