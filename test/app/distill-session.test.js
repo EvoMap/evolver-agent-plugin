@@ -115,7 +115,7 @@ test('a failing headless model keeps the candidate, and three failed tries give 
 });
 
 test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {
-  const { ports } = await withCandidate();
+  const { ports } = await withCandidate({ distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } } });
   const asked = await distillSession(ports, { sessionId: 's1' });
   assert.equal(asked.status, 'no_model');
   assert.match(asked.agentGene.prompt, /Turn it into one reusable Gene/);

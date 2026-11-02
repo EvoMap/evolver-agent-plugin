@@ -24,6 +24,14 @@ Everything runs from the host's hooks or plugin API:
   passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
   the network until you publish the draft.
 
+Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
+When the Proxy marks a draft `publishable: false`, the plugin keeps it for review or discard
+and explains the missing verification instead of submitting it. HTTP execution traces alone
+cannot authorize publication. For publishable drafts, the plugin preserves the Proxy's receipt
+and complete Gene/Capsule/Event bundle; the Proxy validates them when you publish.
+The current Proxy's `publish: false` distillation route does not invoke its trusted verifier;
+these automatic drafts remain review-only until the engine provides a trusted promotion path.
+
 ## Hosts
 
 The plugin is the access layer: shared logic lives in `lib/`, and each host is a profile in
