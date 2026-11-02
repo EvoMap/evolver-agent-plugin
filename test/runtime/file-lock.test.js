@@ -70,6 +70,152 @@ test('an old mtime never evicts a live owner, which can refresh and release its 
   assert.deepEqual(readdirSync(dir), []);
 });
 
+test('a transient owner read error never turns a stale live lock into a legacy lock', async (t) => {
+  for (const code of ['EBUSY', 'EPERM', 'EACCES', 'EIO']) {
+    const { dir, lock } = scratch(t);
+    assert.equal(await withLock(lock, async () => {
+      const owner = join(lock, 'owner');
+      const token = readFileSync(owner, 'utf8');
+      utimesSync(lock, STALE, STALE);
+      const read = fs.readFileSync;
+      let refused = false;
+      let entered = false;
+      fs.readFileSync = (target, ...args) => {
+        if (target === owner && !refused) {
+          refused = true;
+          throw Object.assign(new Error('transient owner read refusal'), { code });
+        }
+        return read(target, ...args);
+      };
+      try {
+        assert.equal(await withLock(lock, async () => { entered = true; }), false, code);
+      } finally {
+        fs.readFileSync = read;
+      }
+      assert.equal(refused, true);
+      assert.equal(entered, false, code);
+      assert.equal(readFileSync(owner, 'utf8'), token, 'the live owner stays intact');
+    }), true);
+    assert.deepEqual(readdirSync(dir), [], 'the original owner still releases normally');
+  }
+});
+
+test('a stale directory left before its owner was written is recoverable', async (t) => {
+  const { dir, lock } = scratch(t);
+  mkdirSync(lock);
+  utimesSync(lock, STALE, STALE);
+  let entered = false;
+  assert.equal(await withLock(lock, async () => { entered = true; }), true);
+  assert.equal(entered, true);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('release retries a transient owner read failure and really removes its lock', async (t) => {
+  const { dir, lock } = scratch(t);
+  const owner = join(lock, 'owner');
+  const read = fs.readFileSync;
+  let refused = false;
+  try {
+    assert.equal(await withLock(lock, async () => {
+      fs.readFileSync = (target, ...args) => {
+        if (target === owner && !refused) {
+          refused = true;
+          throw Object.assign(new Error('transient read refusal'), { code: 'EBUSY' });
+        }
+        return read(target, ...args);
+      };
+    }), true);
+  } finally {
+    fs.readFileSync = read;
+  }
+  assert.equal(refused, true);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('release refuses an unreadable owner explicitly without claiming cleanup', async (t) => {
+  for (const code of ['EBUSY', 'EPERM', 'EIO']) {
+    const { lock } = scratch(t);
+    const owner = join(lock, 'owner');
+    const read = fs.readFileSync;
+    let token;
+    try {
+      await assert.rejects(withLock(lock, async () => {
+        token = read(owner, 'utf8');
+        fs.readFileSync = (target, ...args) => {
+          if (target === owner) throw Object.assign(new Error('persistent read refusal'), { code });
+          return read(target, ...args);
+        };
+      }), { code: 'ELOCKED' });
+    } finally {
+      fs.readFileSync = read;
+    }
+    assert.equal(readFileSync(owner, 'utf8'), token, code);
+  }
+});
+
+test('refresh leaves an unreadable live lock untouched without crashing its timer caller', async (t) => {
+  const { dir, lock } = scratch(t);
+  assert.equal(await withLock(lock, async (held) => {
+    const owner = join(lock, 'owner');
+    utimesSync(lock, STALE, STALE);
+    const read = fs.readFileSync;
+    fs.readFileSync = (target, ...args) => {
+      if (target === owner) throw Object.assign(new Error('unreadable owner'), { code: 'EPERM' });
+      return read(target, ...args);
+    };
+    try {
+      assert.doesNotThrow(() => held.refresh());
+      assert.equal(statSync(lock).mtimeMs, STALE.getTime());
+    } finally {
+      fs.readFileSync = read;
+    }
+  }), true);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('refresh tolerates file access refusals and the next refresh and release still work', async (t) => {
+  for (const method of ['utimesSync', 'mkdirSync', 'readFileSync']) {
+    const { dir, lock } = scratch(t);
+    assert.equal(await withLock(lock, async (held) => {
+      utimesSync(lock, STALE, STALE);
+      const access = fs[method];
+      let refused = false;
+      fs[method] = (target, ...args) => {
+        const matches = method === 'mkdirSync' ? String(target).startsWith(`${lock}.admission.`)
+          : target === (method === 'readFileSync' ? join(lock, 'owner') : lock);
+        if (matches && !refused) {
+          refused = true;
+          throw Object.assign(new Error('transient access refusal'), { code: 'EPERM' });
+        }
+        return access(target, ...args);
+      };
+      try {
+        assert.doesNotThrow(() => held.refresh(), method);
+        if (method !== 'readFileSync') assert.equal(statSync(lock).mtimeMs, STALE.getTime());
+      } finally {
+        fs[method] = access;
+      }
+      assert.equal(refused, true, method);
+      held.refresh();
+      assert.ok(statSync(lock).mtimeMs > STALE.getTime());
+    }), true);
+    assert.deepEqual(readdirSync(dir), []);
+  }
+});
+
+test('release does not delete a missing or different owner', async (t) => {
+  for (const replacement of [null, `${process.pid}:another-owner`]) {
+    const { lock } = scratch(t);
+    assert.equal(await withLock(lock, async () => {
+      if (replacement === null) unlinkSync(join(lock, 'owner'));
+      else writeFileSync(join(lock, 'owner'), replacement);
+    }), true);
+    assert.equal(existsSync(lock), true);
+    assert.equal(existsSync(join(lock, 'owner')), replacement !== null);
+    if (replacement !== null) assert.equal(readFileSync(join(lock, 'owner'), 'utf8'), replacement);
+  }
+});
+
 test('release waits asynchronously for transient admission contention', async (t) => {
   const { lock } = scratch(t);
   let guard;
