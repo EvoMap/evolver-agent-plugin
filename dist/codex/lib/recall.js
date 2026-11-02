@@ -1,25 +1,32 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { expandedRecipe, rankedRecipes, recipeSearchRequestOf, stepFetchRequestOf } from './recipe.js';
+import { expandedRecipe, omittedNoteOf, rankedRecipes, recipeSearchRequestOf, stepFetchRequestOf } from './recipe.js';
 import { withoutSecrets } from './redact.js';
+import { headOf, linesWithin, tokensOf } from './token-budget.js';
 
 // `/asset/fetch` with text and no ids recalls whole assets in one round trip.
 // No limit is sent: the Hub's default for a text recall (two assets) applies,
 // and the Hub charges per asset it returns, so asking for more costs credits a
 // new account may not have.
 const MIN_PROMPT_CHARS = 8;
-const PROMPT_MAX_CHARS = 400;
-const TASK_MAX_CHARS = 1500;
-// One strategy should read as an approach, not a transcript; a candidate that
-// would inject more than this is passed over for the next.
-const MAX_INJECTED_CHARS = 4000;
-const STEP_MAX_CHARS = 400;
+// Prompts often open with a role or workflow preamble shared by every task of a
+// kind; at 400 characters the recall text was that preamble and nothing else.
+const PROMPT_MAX_CHARS = 2000;
+const TASK_MAX_CHARS = 4000;
+// The Evolver Proxy (2.0.48 and earlier) drops a recall context whose JSON is over
+// 4096 bytes whole, and the Hub then judges nothing: a CJK task reaches that at
+// about 1,350 characters.
+const PROXY_CONTEXT_MAX_BYTES = 4096;
+// One strategy should read as an approach, not a transcript: a longer one keeps
+// its opening and safety lines and as many others as fit.
+const MAX_STRATEGY_TOKENS = 1000;
+const STEP_MAX_TOKENS = 100;
 const TITLE_MAX_CHARS = 80;
 const DEFAULT_MIN_SIMILARITY = 0.3;
 // Text recall skips the Hub's search tuning, so it returns genes too thin to
 // follow: two or three steps say too little to reuse. Longer strategies are
-// kept whole, each step capped at STEP_MAX_CHARS.
+// kept, each step capped at STEP_MAX_TOKENS.
 const MIN_STRATEGY_STEPS = 4;
 const UNSCORED = -1;
 const EMPTY_MATCH = { ids: [], text: '' };
@@ -29,7 +36,7 @@ function strategySteps(asset) {
   const list = Array.isArray(steps) ? steps : [steps];
   return list
     .filter((step) => typeof step === 'string' && step.trim())
-    .map((step) => step.trim().slice(0, STEP_MAX_CHARS));
+    .map((step) => headOf(step.trim(), STEP_MAX_TOKENS));
 }
 
 // Only what the person typed is matched: notifications, peer messages and other
@@ -123,6 +130,13 @@ async function proxyData(proxyFetch, { method, path, body }) {
 // `context` (`{ task, trigger, language? }`) never recalls: the Hub judges each recalled asset's fit to the task with it.
 const textRecallOf = (text, context) => ({ method: 'POST', path: '/asset/fetch', body: context ? { text, context } : { text } });
 
+function withinProxyLimit(context) {
+  const excess = context?.task ? Buffer.byteLength(JSON.stringify(context)) - PROXY_CONTEXT_MAX_BYTES : 0;
+  if (excess <= 0) return context;
+  const task = Buffer.from(context.task);
+  return { ...context, task: new TextDecoder().decode(task.subarray(0, Math.max(0, task.length - excess))).replace(/\uFFFD+$/u, '') };
+}
+
 const headingOf = (name) => `[Evolution Memory] ${name} (EvoMap network):`;
 const numbered = (steps) => steps.map((step, index) => `${index + 1}. ${step}`);
 
@@ -141,10 +155,17 @@ async function recalledRecipe(proxyFetch, text, { context, listedIds, closingOf 
   if (!best) return null;
   const fetched = await proxyData(proxyFetch, stepFetchRequestOf(best.steps));
   const expanded = expandedRecipe(best, readableStepsOf(fetched), { listedIds, closing: closingOf(best.recipe.id) });
-  return expanded ? { match: expanded, fit: best.fit } : null;
+  return { ...expanded, fit: best.fit, id: best.recipe.id };
 }
 
 const recipeBy = (recipe, cutoff) => (cutoff ? Promise.race([recipe, cutoff.then(() => null)]) : recipe);
+
+function singleStrategyTextOf(name, steps, assetId, closing) {
+  const textOf = (lines, omitted) => [headingOf(name), ...numbered(lines), ...(omitted > 0 ? [omittedNoteOf(omitted, assetId)] : []), '', closing].join('\n');
+  const frame = tokensOf(textOf([], 0)) + tokensOf(omittedNoteOf(99, assetId));
+  const lines = linesWithin(steps, MAX_STRATEGY_TOKENS - frame);
+  return textOf(lines, steps.length - lines.length);
+}
 
 function singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) {
   const assets = recalledAssets(recalled);
@@ -154,9 +175,7 @@ function singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) {
     if (steps.length < MIN_STRATEGY_STEPS) continue;
 
     const name = readableNameOf(candidate);
-    const injected = [headingOf(name), ...numbered(steps), '', closingOf(candidate.asset_id)].join('\n');
-    if (injected.length > MAX_INJECTED_CHARS) continue;
-
+    const injected = singleStrategyTextOf(name, steps, candidate.asset_id, closingOf(candidate.asset_id));
     const trace = { outcome: 'injected', recalled: assets.length, eligible: ranked.length, name };
     return { match: { ids: [candidate.asset_id], name, text: injected }, trace };
   }
@@ -181,14 +200,16 @@ export async function recallStrategy(proxyFetch, text, { context = null, listedI
 
   // Both start at once. A Recipe is preferred, but once a single strategy is ready it waits for the Recipe only until
   // `recipeCutoff`, so a slow Recipe search never costs the turn the strategy it would have had without Recipes.
-  const recipe = recalledRecipe(proxyFetch, text, { context, listedIds, closingOf });
-  const recalled = await proxyData(proxyFetch, textRecallOf(text, context));
+  const sent = withinProxyLimit(context);
+  const recipe = recalledRecipe(proxyFetch, text, { context: sent, listedIds, closingOf });
+  const recalled = await proxyData(proxyFetch, textRecallOf(text, sent));
   const single = recalled ? singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) : null;
   const chain = await (single?.match ? recipeBy(recipe, recipeCutoff) : recipe);
-  if (chain) {
-    onTrace({ outcome: 'injected', kind: 'recipe', name: chain.match.name, steps: chain.match.ids.length, fit: chain.fit });
+  if (chain?.match) {
+    onTrace({ outcome: 'injected', kind: 'recipe', name: chain.match.name, steps: chain.match.ids.length, shortened: chain.shortened, fit: chain.fit });
     return chain.match;
   }
+  if (chain?.passedOver) onTrace({ outcome: 'passed_over', kind: 'recipe', id: chain.id, reason: chain.passedOver });
   if (!single) {
     onTrace({ outcome: 'unavailable' });
     return EMPTY_MATCH;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { recallStrategy, promptTextOf } from '../lib/recall.js';
+import { recallStrategy, promptTextOf, taskTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
@@ -28,8 +28,37 @@ const ASSET = {
 
 test('the prompt text is the typed prompt, trimmed and bounded', () => {
   assert.equal(promptTextOf('  add a retry to the uploader  '), 'add a retry to the uploader');
-  assert.equal(promptTextOf('x'.repeat(500)).length, 400);
+  assert.equal(promptTextOf('x'.repeat(2500)).length, 2000);
   assert.equal(promptTextOf(undefined), '');
+});
+
+test('the recall text and the task context reach past a long shared preamble', () => {
+  const prompt = `${'shared preamble '.repeat(60)}the task itself ${'detail '.repeat(800)}`;
+  assert.ok(promptTextOf(prompt).includes('the task itself'));
+  assert.ok(taskTextOf(prompt).startsWith(promptTextOf(prompt)));
+  assert.equal(taskTextOf(prompt).length, 4000);
+});
+
+test('the task context leaves for the Proxy whole when it fits 4096 bytes', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('a'.repeat(5000));
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start' } });
+  assert.equal(calls[0].body.context.task, task);
+  assert.equal(searches[0].context.task, task);
+});
+
+test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('上传失败后重试'.repeat(600));
+  const context = { task, trigger: 'check_failed', language: ['TypeScript', 'Go'] };
+  await recallStrategy(proxyFetch, 'upload retry fails', { context });
+  for (const sent of [calls[0].body.context, searches[0].context]) {
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 4096);
+    assert.ok(sent.task.length > 1300);
+    assert.ok(task.startsWith(sent.task));
+    assert.doesNotMatch(sent.task, /\uFFFD/u);
+    assert.deepEqual(sent.language, ['TypeScript', 'Go']);
+  }
 });
 
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {
@@ -272,15 +301,21 @@ test('engine reminders, markup and links are not matched, and a bare reminder re
   assert.equal(calls.length, 0);
 });
 
-test('a strategy that would inject more than 4000 characters gives way to the next', async () => {
-  const long = Array.from({ length: 12 }, (step, index) => `${'x'.repeat(380)} step ${index}.`);
-  const { proxyFetch } = stubProxy({
-    assets: [
-      { asset_id: 'sha256:transcript', asset_type: 'Capsule', similarity: 0.99, strategy: long },
-      { asset_id: 'sha256:fits', asset_type: 'Gene', similarity: 0.5, strategy: ['Read it.', 'Apply it.', 'Check it.', 'Record it.'] },
-    ],
-  });
-  assert.deepEqual((await recallStrategy(proxyFetch, 'add a retry to the uploader')).ids, ['sha256:fits']);
+test('a strategy longer than its budget keeps its opening and safety lines and names what it left out', async () => {
+  const long = [...Array.from({ length: 12 }, (step, index) => `${'x'.repeat(380)} step ${index}.`), 'Safety boundary: never touch prod.'];
+  const { proxyFetch } = stubProxy({ assets: [{ asset_id: 'sha256:long', asset_type: 'Gene', similarity: 0.99, strategy: long }] });
+  const match = await recallStrategy(proxyFetch, 'add a retry to the uploader');
+  assert.deepEqual(match.ids, ['sha256:long']);
+  assert.match(match.text, /^\[Evolution Memory\] .*\n1\. x{380} step 0\.\n/);
+  assert.match(match.text, /\. Safety boundary: never touch prod\.\n\(\d+ more lines of sha256:long left out for length\.\)\n/);
+  assert.ok(!match.text.includes('step 11.'));
+});
+
+test('a line is capped by tokens, so a Chinese line keeps as much meaning as an English one', async () => {
+  const chinese = '紫'.repeat(150);
+  const { proxyFetch } = stubProxy({ assets: [{ asset_id: 'sha256:zh', asset_type: 'Gene', strategy: [chinese, '读', '改', '验'] }] });
+  const match = await recallStrategy(proxyFetch, '帮我排一个紫微斗数命盘');
+  assert.match(match.text, new RegExp(`\\n1\\. ${'紫'.repeat(100)}\\n`));
 });
 
 test('keys and tokens are stripped from the prompt before it leaves for recall', async () => {
