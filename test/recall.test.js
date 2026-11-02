@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { recallStrategy, promptTextOf } from '../lib/recall.js';
+import { recallStrategy, promptTextOf, taskTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
@@ -28,8 +28,14 @@ const ASSET = {
 
 test('the prompt text is the typed prompt, trimmed and bounded', () => {
   assert.equal(promptTextOf('  add a retry to the uploader  '), 'add a retry to the uploader');
-  assert.equal(promptTextOf('x'.repeat(500)).length, 400);
+  assert.equal(promptTextOf('x'.repeat(2500)).length, 2000);
   assert.equal(promptTextOf(undefined), '');
+});
+
+test('the task context keeps as much of the prompt as the recall text', () => {
+  const prompt = `${'shared preamble '.repeat(60)}the task itself`;
+  assert.equal(taskTextOf(prompt), promptTextOf(prompt));
+  assert.ok(promptTextOf(prompt).endsWith('the task itself'));
 });
 
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {
