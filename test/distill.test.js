@@ -67,6 +67,15 @@ test('the request keeps each check once, as its last run, only project-relative 
   assert.equal(body.platform, 'codex', 'the host is the caller\'s, never assumed');
 });
 
+test('the last unknown run replaces an earlier pass without inventing a successful trace row', () => {
+  const { body } = distillRequestOf({ lesson: LESSON,
+    checks: [{ command: 'npm test', failed: false }, { command: 'npm test', failed: null }, { command: 'tsc', failed: false }], paths: [],
+    sessionId: 's1', platform: 'codex',
+  });
+  assert.deepEqual(body.execution.trace, [{ command: 'tsc', exit: 0 }]);
+  assert.deepEqual(body.validation, ['tsc']);
+});
+
 const RESULT = {
   ok: true,
   distill_id: 'abc123',

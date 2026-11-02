@@ -6,6 +6,7 @@ import { answerTextOf, modelOf, personTextOf } from '../../../hosts/dsh/messages
 import profile from '../../../hosts/dsh/profile.js';
 import { editedFilesOf, toolNoteOf } from '../../../hosts/dsh/tools.js';
 import { turnEndReason } from '../../../hosts/dsh/turn-end.js';
+import { turnRecordOf } from '../../../lib/turn/record.js';
 
 const DSH = JSON.parse(readFileSync(new URL('../../fixtures/dsh/payloads.json', import.meta.url), 'utf8'));
 const PROJECT = '/home/dev/project';
@@ -60,11 +61,15 @@ test('a command still running in the background, or one dsh refused, has no verd
 test('a run without dsh 0.2\'s structured value is read off the markers its text ends with', () => {
   const run = (text, extra = {}) => toolNoteOf({ name: 'bash', arguments: { command: 'npm test' }, result: { isError: false, content: [{ type: 'text', text }], ...extra } });
   assert.equal(run('ℹ fail 1\n[exit code: 1]').exit, 1);
-  assert.equal(run('ℹ pass 4').exit, 0);
+  assert.equal(run('ℹ pass 4').exit, null, 'missing markers must not invent a native exit code');
+  assert.deepEqual(turnRecordOf([run('ℹ pass 4\nℹ fail 0')]).checks, [{ command: 'npm test', failed: false }]);
+  assert.deepEqual(turnRecordOf([run('done')]).checks, [{ command: 'npm test', failed: null }]);
   assert.equal(run('partial\n[timed out after 60000ms]\n[killed by signal: SIGTERM]').exit, 124);
   assert.equal(run('done', { value: 'ok\n[Command finished with exit code 2]' }).exit, 2);
   const killed = { ...DSH.tools.bashExit3, result: { ...DSH.tools.bashExit3.result, value: { ...DSH.tools.bashExit3.result.value, exitCode: null, signal: 'SIGKILL' } } };
   assert.equal(toolNoteOf(killed).exit, 124);
+  const unknown = { ...killed, result: { ...killed.result, value: { ...killed.result.value, signal: null } } };
+  assert.equal(toolNoteOf(unknown).exit, null, 'a missing structured exit with no timeout or signal is unknown');
 });
 
 test('write and edit are edits; a read names the file it read', () => {
