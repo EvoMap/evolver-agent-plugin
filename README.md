@@ -25,7 +25,7 @@ Everything runs from the host's hooks or plugin API:
   the network until you publish the draft.
 
 Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
-When you publish a draft marked `publishable: false`, the plugin first asks `POST /asset/reverify`
+When you publish a draft marked `publishable: false`, or a legacy draft without a receipt, the plugin first asks `POST /asset/reverify`
 to run trusted verification. If the verifier is unavailable or rejects the draft, it stays local
 with the reason shown. HTTP execution traces alone cannot authorize publication. A successful
 reverification saves the new bundle and receipt before submission, so a failed submission can

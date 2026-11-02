@@ -91,6 +91,20 @@ test('a rejected publication keeps the exact bound draft for review or retry', a
   assert.deepEqual(await ports.drafts.read(), [draft]);
 });
 
+test('a legacy draft without publication metadata also requires trusted reverification', async () => {
+  const { ports, requests } = await withDraft(RESULT);
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    return path === '/asset/reverify'
+      ? { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } }
+      : { ok: true, data: {} };
+  };
+  const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(answer.ok, true, answer.text);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify', '/asset/submit']);
+  assert.deepEqual(await ports.drafts.read(), []);
+});
+
 test('discarding a draft during reverification prevents its submission or resurrection', async () => {
   const { ports, requests } = await withDraft({ ...RESULT, publishable: false });
   ports.proxy.request = async (method, path, body) => {
