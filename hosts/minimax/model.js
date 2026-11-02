@@ -19,7 +19,7 @@ export const modelRecord = Object.freeze({
 /** Capture the verified turn's route before a later session/default-model change can replace it. */
 export function sessionModelOf(payload, context) {
   const row = context?.modelRecord?.(payload.session_id);
-  if (!row || typeof row.route !== 'string' || !ROUTE.test(row.route) || row.route.length > 512 || (row.variant != null && (typeof row.variant !== 'string' || !VARIANT.test(row.variant)))) return { model: 'unresolved' };
+  if (!row || typeof row.route !== 'string' || !ROUTE.test(row.route) || row.route.length > 512 || (row.variant != null && row.variant !== '' && (typeof row.variant !== 'string' || !VARIANT.test(row.variant)))) return { model: 'unresolved' };
   const bare = row.route.slice(row.route.indexOf('/') + 1);
   const reported = typeof payload.model === 'string' ? payload.model : '';
   if (reported && reported !== bare && reported !== row.route && reported !== `${row.route}#${row.variant}`) return { model: 'unresolved' };

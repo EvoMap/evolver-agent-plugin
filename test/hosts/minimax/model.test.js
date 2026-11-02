@@ -36,6 +36,39 @@ test('the v2 read-only projection captures a session route and variant, independ
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
+test('native empty variants preserve the provider route in session metadata and agent definitions', () => {
+  const root = mkdtempSync(join(tmpdir(), 'evolver-native-variant-'));
+  const env = { MINIMAX_DATA_DIR: root };
+  mkdirSync(join(root, 'v2/sqlite'), { recursive: true });
+  const db = new DatabaseSync(profile.modelRecord.file(env));
+  try {
+    db.exec('CREATE TABLE local_runtime_sessions (session_id TEXT PRIMARY KEY, extra_data_json TEXT); CREATE TABLE local_runtime_session_agent_definitions (session_id TEXT PRIMARY KEY, definition_json TEXT)');
+    db.prepare('INSERT INTO local_runtime_sessions VALUES (?, ?)').run('native-session', '{}');
+    const context = { modelRecord: recordReaderOf(profile.modelRecord, env) };
+    for (const definition of [false, true]) {
+      for (const [variant, expected] of [
+        ['', 'custom_provider:audit/model-a'],
+        [null, 'custom_provider:audit/model-a'],
+        [undefined, 'custom_provider:audit/model-a'],
+        ['high', 'custom_provider:audit/model-a#high'],
+        [' ', 'unresolved'], [';exit', 'unresolved'], [0, 'unresolved'], [false, 'unresolved'],
+      ]) {
+        const model = { providerId: 'custom_provider:audit', modelId: 'model-a', variant };
+        db.prepare('UPDATE local_runtime_sessions SET extra_data_json = ?').run(JSON.stringify(definition
+          ? { effectiveModel: 'stale/model', effectiveModelVariant: 'thinking' }
+          : { effectiveModel: 'custom_provider:audit/model-a', effectiveModelVariant: variant }));
+        if (definition) db.prepare('INSERT OR REPLACE INTO local_runtime_session_agent_definitions VALUES (?, ?)').run('native-session', JSON.stringify({ model }));
+        const captured = profile.payload.model({ session_id: 'native-session', model: 'model-a' }, context);
+        assert.deepEqual(captured, { model: expected }, `${definition ? 'definition' : 'session'} variant ${JSON.stringify(variant)}`);
+        if (expected !== 'unresolved') {
+          assert.deepEqual(modelArguments(captured), ['--model', expected]);
+          assert.deepEqual(profile.payload.model({ session_id: 'native-session', model: 'different-model' }, context), { model: 'unresolved' });
+        } else assert.throws(() => modelArguments(captured), /no completion/);
+      }
+    }
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test('unknown schemas, mismatched models and shell-shaped routes never select a fallback provider', () => {
   for (const row of [null, { route: 'only-a-model' }, { route: 'provider/model', variant: ';exit' }, { route: 'provider/model;whoami' }]) {
     assert.deepEqual(sessionModelOf({ session_id: 's' }, { modelRecord: () => row }), { model: 'unresolved' });
