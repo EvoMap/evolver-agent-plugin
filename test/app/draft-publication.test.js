@@ -10,7 +10,10 @@ import { memoryPorts } from './memory-ports.js';
 const GENE = { type: 'Gene', asset_id: 'sha256:gene' };
 const CAPSULE = { type: 'Capsule', asset_id: 'sha256:capsule' };
 const EVENT = { type: 'EvolutionEvent', asset_id: 'sha256:event' };
-const RECEIPT = { version: 'publish-binding.v1', receiptId: 'proxy-issued-receipt' };
+const RECEIPT = {
+  version: 'publish-binding.v1', receiptId: 'proxy-issued-receipt', bundleDigest: 'bundle', inputDigest: 'input',
+  validationDigest: 'validation', runtimeDigest: 'runtime', rootFingerprint: 'root', executionDigest: 'execution',
+};
 const RESULT = { ok: true, quality: { ok: true }, distill_id: 'draft-1', gene: GENE, capsule: CAPSULE };
 
 async function withDraft(result) {
@@ -108,6 +111,10 @@ test('a malformed reverification response cannot submit or replace a draft', asy
     { ok: true, publishable: false, assets: [GENE, CAPSULE], publish_receipt: RECEIPT },
     { ok: true, publishable: true, assets: [] },
     { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: 'untrusted claim' },
+    { ok: true, publishable: true, assets: [null, null], publish_receipt: RECEIPT },
+    { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: [] },
+    { ok: true, publishable: true, assets: [GENE, GENE], publish_receipt: RECEIPT },
+    { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: { version: 'publish-binding.v1' } },
   ]) {
     const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
     ports.proxy.request = async (method, path) => { requests.push({ path }); return { ok: true, data }; };
