@@ -55,6 +55,29 @@ test('a live session keeps its candidate; only an ended one is a leftover', asyn
   assert.ok((await ports.candidates.read()).s1);
 });
 
+test('an explicit distillation cannot duplicate its process\'s running background distillation', async () => {
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  let completions = 0;
+  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE, async () => {
+    completions += 1;
+    started.resolve();
+    await finish.promise;
+  }) });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const background = distillLeftovers(ports);
+  await started.promise;
+  const explicit = distillSession(ports, { sessionId: 's1' });
+  await new Promise(setImmediate);
+  finish.resolve();
+  const [outcomes, answer] = await Promise.all([background, explicit]);
+  assert.equal(completions, 1);
+  assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
+  assert.equal(outcomes[0].status, 'drafted');
+  assert.equal(answer.status, 'busy');
+  assert.equal((await ports.drafts.read()).length, 1);
+});
+
 test('with no model outside the conversation, a leftover waits a day for an agent\'s Gene, then is dropped', async () => {
   const { ports } = await withCandidate();
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
