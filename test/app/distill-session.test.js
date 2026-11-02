@@ -107,6 +107,102 @@ test('a candidate dropped by a correction while the model answers is not posted'
   assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
 });
 
+test('a correction while a draft request is pending discards its late reply', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const reply = await request(...args);
+    if (args[1] === '/conversation/distill') {
+      started.resolve();
+      await finish.promise;
+    }
+    return reply;
+  };
+  const running = distillSession(ports, { sessionId: 's1' });
+  await started.promise;
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  finish.resolve();
+  assert.equal((await running).status, 'dropped');
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a correction while an agent Gene request is pending discards its late draft', async () => {
+  const { ports } = await withCandidate();
+  const writtenFor = (await ports.candidates.read()).s1.at;
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const reply = await request(...args);
+    if (args[1] === '/conversation/distill') {
+      started.resolve();
+      await finish.promise;
+    }
+    return reply;
+  };
+  const running = postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
+  await started.promise;
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  finish.resolve();
+  assert.equal((await running).status, 'dropped');
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a correction crossing a draft write removes that draft and keeps earlier drafts', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  const kept = { id: 'earlier-draft', title: 'Keep this method', createdAt: ports.clock.now() };
+  await ports.drafts.update(() => [kept]);
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const update = ports.drafts.update;
+  let firstWrite = true;
+  ports.drafts.update = async (mutate) => {
+    const written = await update(mutate);
+    if (firstWrite) {
+      firstWrite = false;
+      started.resolve();
+      await finish.promise;
+    }
+    return written;
+  };
+  const running = distillSession(ports, { sessionId: 's1' });
+  await started.promise;
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  finish.resolve();
+  assert.equal((await running).status, 'dropped');
+  assert.deepEqual(await ports.drafts.read(), [kept]);
+});
+
+for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other session']) {
+  test(`draft compensation preserves a same-id ${other} only when it is not the corrected candidate`, async () => {
+    const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+    const candidate = (await ports.candidates.read()).s1;
+    const previous = { id: DRAFTED.distill_id, title: 'Earlier method', createdAt: ports.clock.now(), sessionId: 's1' };
+    if (other === 'same candidate') previous.sourceCandidate = { at: candidate.at, turn: candidate.turn };
+    const replacement = { ...previous, title: 'Concurrent method', sourceCandidate: { at: candidate.at, turn: candidate.turn + 1 } };
+    if (other === 'other session') Object.assign(replacement, { sessionId: 's2', sourceCandidate: { at: candidate.at, turn: candidate.turn } });
+    await ports.drafts.update(() => [previous]);
+    const update = ports.drafts.update;
+    let firstWrite = true;
+    ports.drafts.update = async (mutate) => {
+      const written = await update(mutate);
+      if (firstWrite) {
+        firstWrite = false;
+        await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+        if (other === 'newer turn' || other === 'other session') await update(() => [replacement]);
+      }
+      return written;
+    };
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped');
+    const expected = other === 'same candidate' ? [] : [other === 'legacy draft' ? previous : replacement];
+    assert.deepEqual(await ports.drafts.read(), expected);
+  });
+}
+
 test('a failing headless model keeps the candidate, and three failed tries give it up', async () => {
   const { ports } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
