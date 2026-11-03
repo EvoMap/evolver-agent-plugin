@@ -5,16 +5,24 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
 
+import { endTree } from '../../../lib/runtime/process/spawn.js';
 import { pack } from '../../../scripts/pack.mjs';
 import { PROMPT } from '../../app/memory-ports.js';
 import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
 
-async function run(command, args, { env, cwd, input = '', shell = false }) {
-  const child = spawn(command, args, { env, cwd, shell, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+async function run(command, args, { env, cwd, input = '', shell = false, timeoutMs }) {
+  const child = spawn(command, args, { env, cwd, shell, detached: process.platform !== 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
   child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
   child.stdin.on('error', () => {}); child.stdin.end(input);
-  return new Promise((resolve, reject) => { child.once('error', reject); child.once('close', code => resolve({ code, stdout, stderr })); });
+  return new Promise((resolve, reject) => {
+    const timer = timeoutMs ? setTimeout(() => {
+      if (child.pid) endTree(child.pid);
+      reject(new Error(command + ' exceeded its native hook budget'));
+    }, timeoutMs) : undefined;
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
 }
 
 async function until(check) {
@@ -55,7 +63,7 @@ async function fixture(t) {
     const handler = manifest.hooks.find(item => item.event === event); assert.ok(handler);
     const started = Date.now();
     // Kimi executes each plugin hook with the plugin root as cwd, while payload.cwd names the user's project.
-    const result = await run(handler.command, [], { env: { ...env, ...overrideEnv }, cwd: plugin, shell: true, input: JSON.stringify({ ...base, hook_event_name: event, ...extra }) });
+    const result = await run(handler.command, [], { env: { ...env, ...overrideEnv }, cwd: plugin, shell: true, timeoutMs: handler.timeout * 1000, input: JSON.stringify({ ...base, hook_event_name: event, ...extra }) });
     assert.equal(result.code, 0, result.stderr);
     assert.ok(Date.now() - started < handler.timeout * 1000, `${event} exceeded its native hook budget`);
     return JSON.parse(result.stdout);
