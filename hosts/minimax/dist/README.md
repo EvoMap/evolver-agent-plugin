@@ -52,14 +52,14 @@ Type these as ordinary text in the task chat. The hook also accepts a leading sl
 
 ```text
 evolver-status
-evolver-status recall off
-evolver-status auto-distill off
+evolver-config recall off
+evolver-config auto-distill off
 evolver-drafts
 evolver-evolve retry handling
 evolver-search transient Redis connection failures
-evolver-status jobs
-evolver-status job <id>
-evolver-status cancel <id>
+evolver-jobs
+evolver-jobs job <id>
+evolver-jobs cancel <id>
 ```
 
 Status and draft listings are shown to the person without opening a model turn. `evolver-evolve` adds the
@@ -80,8 +80,8 @@ before changing settings. In environments which retain them, explicit `EVOLVER_R
 
 MiniMax command hooks have a ten-second budget. Login, search, distill, publishing/discarding drafts and
 engine commands (`sync`, `review`, `run`, `solidify`) therefore run in a detached command worker. The chat
-immediately shows its job id. Use `evolver-status job <id>` for the result, `evolver-status jobs` for recent
-jobs, or `evolver-status cancel <id>` to request cancellation. Results remain user-only; a searched strategy is
+immediately shows its job id. Use `evolver-jobs job <id>` for the result, `evolver-jobs` for recent
+jobs, or `evolver-jobs cancel <id>` to request cancellation. Results remain user-only; a searched strategy is
 not recorded as reused unless it is subsequently recalled into an agent turn.
 
 One command runs at a time per profile, on the session and workspace captured when it was requested. The history

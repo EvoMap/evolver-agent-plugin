@@ -14,12 +14,12 @@ test('background command arguments remain data, including shell-shaped text and 
 
 test('native commands accept exact names with or without a slash and leave ordinary prompts alone', () => {
   for (const command of ['evolver-status', '/evolver-status']) assert.deepEqual(parse(command), { name: 'evolver-status', args: '' });
-  assert.deepEqual(parse('/evolver-status recall off'), { name: 'evolver-status', args: 'recall off' });
-  assert.deepEqual(parse('evolver-status auto-distill on'), { name: 'evolver-status', args: 'auto-distill on' });
+  assert.deepEqual(parse('/evolver-config recall off'), { name: 'evolver-config', args: 'recall off' });
+  assert.deepEqual(parse('evolver-config auto-distill on'), { name: 'evolver-config', args: 'auto-distill on' });
   for (const text of ['please run evolver-status', 'evolver-status explain this error', 'evolver-unknown']) assert.equal(parse(text), null);
   assert.equal(parse('evolver-run --dry-run').background, true);
   assert.equal(parse('evolver-distill retries').background, true);
-  assert.deepEqual(parse('evolver-status job a'), { name: 'evolver-status', args: 'job a' });
+  assert.deepEqual(parse('evolver-jobs job a'), { name: 'evolver-jobs', args: 'job a' });
 });
 
 test('status configures settings without a model turn; slow commands are admitted with their exact session and project', async () => {
@@ -29,7 +29,7 @@ test('status configures settings without a model turn; slow commands are admitte
   let admitted;
   made.ports.commandJobs = { enqueue: at => { admitted = at; return { ok: true, text: 'Job queued.' }; } };
   const driver = createDriver({ profile, ports: made.ports, transcripts: { size: () => 0, readSince: () => '' }, lifetime: 'resident', env: {} });
-  const answer = await driver.handle('UserPromptSubmit', { ...payload, prompt: '/evolver-status recall off' });
+  const answer = await driver.handle('UserPromptSubmit', { ...payload, prompt: '/evolver-config recall off' });
   assert.equal(answer.decision, 'block');
   assert.match(answer.systemMessage, /Recall: off/);
   assert.equal(made.ports.settings.recall, false);

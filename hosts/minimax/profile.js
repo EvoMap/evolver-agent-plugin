@@ -6,9 +6,8 @@ import { join } from 'node:path';
 import { EVENTS } from '../../lib/agent/events.js';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { editedFilesOf, toolNoteOf } from './evidence.js';
-import { dataDirOf } from './paths.js';
 import { headlessMiniMax } from './headless.js';
-import { stateDirOf } from './paths.js';
+import { runtimeDatabaseOf, stateDirOf } from './paths.js';
 import { isBackgroundCommand, promptCommandOf } from './commands.js';
 import { modelRecord, sessionModelOf } from './model.js';
 import { endedTurnSummaryOf } from '../../lib/turn-summary.js';
@@ -27,7 +26,7 @@ export default defineProfile({
   turnEnd: {
     unclosed: { settleMs: 0, as: 'error' },
     statusRecord: {
-      file: env => join(dataDirOf(env), 'v2', 'sqlite', 'runtime-state.sqlite'),
+      file: runtimeDatabaseOf,
       // shortcut: read the v2 terminal status until MiniMax emits a native failed/cancelled hook.
       query: 'SELECT status FROM local_runtime_turn_ingress WHERE session_id = ? AND turn_id = ?',
     },

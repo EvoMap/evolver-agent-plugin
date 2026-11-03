@@ -34,7 +34,7 @@ Evolver flags from hooks; its persistent preferences are described below.
 | `EVOLVER_AUTO_DISTILL` | (on) | `off` leaves distillation to an explicit command. |
 
 MiniMax stores boolean `recall` and `autoDistill` preferences in `<PLUGIN_DATA>/minimax-settings.json`.
-`evolver-status recall off` and `evolver-status auto-distill off` update them without opening a model turn.
+`evolver-config recall off` and `evolver-config auto-distill off` update them without opening a model turn.
 Status reports the effective values and any invalid preferences; invalid/unreadable files pause both automatic
 activities instead of silently enabling them. Explicit environment values win where the host preserves them.
 

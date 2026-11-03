@@ -6,8 +6,6 @@ import { join } from 'node:path';
 import { modelArguments } from './model.js';
 import { dataDirOf } from './paths.js';
 
-export { dataDirOf } from './paths.js';
-
 /** Let MiniMax's YAML parser merge the original routing and credentials; no YAML dependency or secret logging. */
 export function headlessConfigOf(source) {
   const lines = source.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n').split('\n');

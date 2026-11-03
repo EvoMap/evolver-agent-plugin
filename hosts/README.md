@@ -23,7 +23,7 @@ a channel.
 | Owner | `owner: 'self' \| 'spawner' \| 'parent' \| { ancestor: RegExp } \| { ancestorPath: RegExp }`; `spawner` is the process that started this one with no shell between, on every platform | `parent` |
 | Headless model | `model: { kind: 'cli', command: (env) → path \| { names, dirs?(env), accepts?(name, realPath), nodeScriptOnWindows?, windowsShims? }, args(model, prompt, { workdir, preflight, promptPath }), parse, input?(prompt), workdir?: 'empty', promptFile?, env?, shim?, preflight?: { args, parse({ code, stdout }) } } \| { kind: 'sdk', complete? } \| { kind: 'in-session' } \| null`; names are looked up on PATH, then in `dirs`; `preflight` runs first and either hands `args` what it found or stops the run; `promptFile` writes the prompt into the empty folder under that name instead of stdin; `env` sets variables for the run | `null` |
 | State | `stateDir(env)` | `~/.evolver/state` |
-| Preferences | `settingsFile(env)`; optional JSON file with boolean `recall` and `autoDistill`; `evolver-status recall\|auto-distill on\|off` saves them | environment only |
+| Preferences | `settingsFile(env)`; optional JSON file with boolean `recall` and `autoDistill`; `evolver-config recall\|auto-distill on\|off` saves them | environment only |
 | Session model record | `modelRecord: { file(env), query }`; optional read-only SQLite projection, exposed to payload readers as `context.modelRecord(sessionId)` | none |
 | Leftovers | `legacy: [{ folder } \| { rename } \| { sessions } \| { ledgers } \| { turns } \| { retention }]` (`folder`: an older install's state folder beside this one, moved in first): what the host's standalone plugin left, adopted file by file until none is left; its unreported injections are reported aborted at the next session start | `[]` |
 
@@ -60,7 +60,7 @@ Distillation uses the captured native session provider/model/variant, a private 
 marker also prevents hook re-entry when MiniMax removes `EVOLVER_HEADLESS`. Delivery is local, not Marketplace.
 Commands are intercepted in chat. Status, persistent preference changes, draft listings and the evolution
 checkpoint fit the hook; longer operations are admitted with `typed.background` to one durable command worker
-per profile. `evolver-status jobs`, `job <id>` and `cancel <id>` expose results and cancellation to the person.
+per profile. `evolver-jobs`, `evolver-jobs job <id>` and `evolver-jobs cancel <id>` expose results and cancellation to the person.
 The preferences file survives filtered environments. A read-only v2 model projection captures the verified
 turn's route; missing or mismatched metadata prevents completion rather than switching providers. Normal Stop
 may show a user-only summary. The turn monitor uses native terminal status only for failure/cancellation;

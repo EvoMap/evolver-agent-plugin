@@ -17,3 +17,5 @@ export function dataDirOf(env) {
 }
 
 export const stateDirOf = env => env.PLUGIN_DATA || join(dataDirOf(env), 'v2', 'plugin-data', 'hooks', 'evolver-plugin');
+
+export const runtimeDatabaseOf = (env) => join(dataDirOf(env), 'v2', 'sqlite', 'runtime-state.sqlite');

@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/minimax/profile.js';
-import { completionOf, dataDirOf, headlessConfigOf } from '../../../hosts/minimax/headless.js';
+import { completionOf, headlessConfigOf } from '../../../hosts/minimax/headless.js';
+import { dataDirOf } from '../../../hosts/minimax/paths.js';
 
 test('native hook data locates the original profile without silently switching accounts', () => {
   const root = join(process.cwd(), 'native-profile');

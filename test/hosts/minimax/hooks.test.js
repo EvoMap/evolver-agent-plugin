@@ -78,11 +78,11 @@ async function fixture(t) {
 
 test('packed shell hooks persist settings across processes, expose status in chat and keep manual distill available', async t => {
   const f = await fixture(t);
-  assert.equal((await f.hook('UserPromptSubmit', { prompt: 'evolver-status recall off' })).decision, 'block');
+  assert.equal((await f.hook('UserPromptSubmit', { prompt: 'evolver-config recall off' })).decision, 'block');
   const recalls = f.proxy.requests.filter(x => x.path === '/asset/fetch').length;
   assert.equal((await f.hook('UserPromptSubmit', { prompt: PROMPT })).hookSpecificOutput, undefined);
   assert.equal(f.proxy.requests.filter(x => x.path === '/asset/fetch').length, recalls);
-  await f.hook('UserPromptSubmit', { prompt: 'evolver-status auto-distill off' });
+  await f.hook('UserPromptSubmit', { prompt: 'evolver-config auto-distill off' });
   await f.verified(); await f.hook('SessionEnd');
   assert.equal(f.calls().length, 0);
   assert.equal(f.read('minimax-settings.json').autoDistill, false);
@@ -116,7 +116,7 @@ test('a chat distill runs in a detached worker, reports its result in chat, and 
   const id = /Job ([0-9a-f-]+):/.exec(admission.reason)?.[1]; assert.ok(id);
   const job = await until(() => { const value = f.read('minimax-commands/commands.json', []).find(item => item.id === id); return value?.state === 'completed' ? value : null; });
   assert.equal(job.sessionId, 's1'); assert.equal(job.projectDir, f.project);
-  const result = await f.hook('UserPromptSubmit', { prompt: `evolver-status job ${id}` });
+  const result = await f.hook('UserPromptSubmit', { prompt: `evolver-jobs job ${id}` });
   assert.equal(result.decision, 'block'); assert.match(result.reason, /into a draft/);
   assert.equal(f.read('minimax-distill-drafts.json', []).length, 1);
   assert.equal(f.calls().length, 1);

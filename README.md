@@ -132,9 +132,9 @@ injections, undelivered reports), so nothing is lost on the way over.
   A release checkout installs its versioned `dist/minimax` bundle; `--version X.Y.Z` builds the current sources explicitly.
   The checkout's manifest is `.minimax-plugin/plugin.json`; source stays in `hosts/minimax/`.
   This is a local installation: MiniMax's current public Marketplace submission format excludes hooks.
-  Use `evolver-status`, `evolver-drafts` and `evolver-evolve` in chat; `evolver-status recall off` and
-  `evolver-status auto-distill off` save preferences. Longer commands run as background jobs; use
-  `evolver-status jobs`, `evolver-status job <id>` or `evolver-status cancel <id>` to inspect or cancel them.
+  Use `evolver-status`, `evolver-drafts` and `evolver-evolve` in chat; `evolver-config recall off` and
+  `evolver-config auto-distill off` save preferences. Longer commands run as background jobs; use
+  `evolver-jobs`, `evolver-jobs job <id>` or `evolver-jobs cancel <id>` to inspect or cancel them.
   [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
   configuration copies and recovery when a host exits without `SessionEnd`.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,

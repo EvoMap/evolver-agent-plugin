@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { join } from 'node:path';
-
-import { dataDirOf } from './paths.js';
+import { runtimeDatabaseOf } from './paths.js';
 
 const ROUTE = /^[A-Za-z0-9_:.@-]+\/[A-Za-z0-9_:.@/-]+$/;
 const VARIANT = /^[A-Za-z0-9_.-]+$/;
 
 export const modelRecord = Object.freeze({
-  file: env => join(dataDirOf(env), 'v2', 'sqlite', 'runtime-state.sqlite'),
+  file: runtimeDatabaseOf,
   // shortcut: read the 0.7.4/v2 schema until native hooks expose a provider-qualified model route.
   query: `SELECT CASE WHEN d.session_id IS NOT NULL THEN json_extract(d.definition_json, '$.model.providerId') || '/' || json_extract(d.definition_json, '$.model.modelId') ELSE json_extract(s.extra_data_json, '$.effectiveModel') END AS route,
     CASE WHEN d.session_id IS NOT NULL THEN json_extract(d.definition_json, '$.model.variant') ELSE json_extract(s.extra_data_json, '$.effectiveModelVariant') END AS variant
