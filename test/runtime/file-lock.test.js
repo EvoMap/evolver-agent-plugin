@@ -266,7 +266,10 @@ test('an admission cleanup failure is surfaced instead of silently orphaning a l
     fs.unlinkSync = unlink;
   }
   assert.equal(entered, false);
+  assert.equal(existsSync(lock), false, 'the failed acquire must not leave a work lock');
   assert.match(readdirSync(admission)[0], new RegExp(`^owner-${process.pid}-`));
+  assert.equal(await withLock(lock, async () => { entered = true; }), true);
+  assert.equal(entered, true);
 });
 
 test('a transient admission cleanup refusal retries and leaves later work unblocked', async (t) => {
@@ -292,6 +295,34 @@ test('a transient admission cleanup refusal retries and leaves later work unbloc
   assert.equal(await withLock(lock, async () => { entered += 1; }), true);
   assert.equal(entered, 2);
   assert.deepEqual(readdirSync(dir), []);
+});
+
+test('an old admission stays held by the same process, but a reused PID can be recovered', async (t) => {
+  const { lock } = scratch(t);
+  const admission = `${lock}.admission`;
+  const unlink = fs.unlinkSync;
+  fs.unlinkSync = (target) => {
+    if (dirname(target) === admission) throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+    return unlink(target);
+  };
+  try {
+    await assert.rejects(withLock(lock, async () => assert.fail()), { code: 'ELOCKED' });
+  } finally {
+    fs.unlinkSync = unlink;
+  }
+  const [original] = readdirSync(admission);
+  const birth = original.split('-')[3];
+  assert.match(birth ?? '', /^[a-f0-9]{24}$/);
+  const replaceOwner = (name) => {
+    unlinkSync(join(admission, readdirSync(admission)[0]));
+    writeFileSync(join(admission, name), '');
+    utimesSync(admission, STALE, STALE);
+  };
+  replaceOwner(`owner-${process.pid}-a1-${birth}`);
+  assert.equal(await withLock(lock, async () => assert.fail('same process still owns the guard')), false);
+  const differentBirth = (birth[0] === '0' ? '1' : '0') + birth.slice(1);
+  replaceOwner(`owner-${process.pid}-a2-${differentBirth}`);
+  assert.equal(await withLock(lock, async () => {}), true);
 });
 
 test('busy and unrecognised admission guards stay intact and leave no staging directories', async (t) => {

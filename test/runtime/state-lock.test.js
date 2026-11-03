@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { updateState } from '../../lib/runtime/store/file-lock.js';
@@ -18,6 +18,22 @@ function scratch(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return { dir, target, lock: `${target}.lock` };
 }
+
+test('a failed admission release after acquiring a state token lets the next update proceed', (t) => {
+  const { target, lock } = scratch(t);
+  const unlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (dirname(file) === `${lock}.admission`) throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+    return unlink(file);
+  };
+  try {
+    assert.throws(() => updateState(target, {}, () => assert.fail('mutator must not run')), BUSY);
+  } finally {
+    fs.unlinkSync = unlink;
+  }
+  assert.equal(existsSync(lock), false);
+  assert.deepEqual(updateState(target, {}, (state) => ({ count: state.count + 1 })), { count: 1 });
+});
 
 test('a held state lock never runs an unguarded mutator after its wait expires', (t) => {
   const { target, lock } = scratch(t);
@@ -156,6 +172,10 @@ test('three state updaters preserve every increment while recovering one dead fi
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
       }
     };
+    // Start all contenders before orchestrating the lock interleaving.
+    updateState(marker(role + '-startup.json'), {}, () => undefined);
+    fs.writeFileSync(marker(role + '-ready'), '');
+    wait(role + '-start');
     const read = fs.readFileSync;
     let paused = false;
     fs.readFileSync = (file, ...args) => {
@@ -207,24 +227,27 @@ test('three state updaters preserve every increment while recovering one dead fi
     }
   };
   t.after(async () => {
+    for (const role of ['A', 'B', 'C']) writeFileSync(marker(role + '-start'), '');
     writeFileSync(marker('A-resume'), '');
     writeFileSync(marker('release'), '');
     await Promise.all(children);
     rmSync(dir, { recursive: true, force: true });
   });
-  run('A');
+  for (const role of ['A', 'B', 'C']) run(role);
+  await until(() => ['A', 'B', 'C'].every((role) => existsSync(marker(role + '-ready'))));
+  writeFileSync(marker('A-start'), '');
   await until(() => existsSync(marker('A-read-dead')));
-  run('B');
+  writeFileSync(marker('B-start'), '');
   await until(() => existsSync(marker('B-entered')) || existsSync(marker('B-guard-busy')));
   const unguarded = existsSync(marker('B-entered'));
   writeFileSync(marker('A-resume'), '');
   if (unguarded) {
     await until(() => existsSync(marker('A-moved-fresh')));
-    run('C');
+    writeFileSync(marker('C-start'), '');
     await until(() => existsSync(marker('C-entered')));
   } else {
     await until(() => ['A', 'B'].some((role) => existsSync(marker(role + '-entered'))));
-    run('C');
+    writeFileSync(marker('C-start'), '');
     await until(() => existsSync(marker('C-attempted')) || existsSync(marker('C-guard-busy')));
   }
   writeFileSync(marker('release'), '');
