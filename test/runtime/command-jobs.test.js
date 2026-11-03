@@ -54,6 +54,21 @@ test('queued cancellation runs nothing; active cancellation aborts its own proce
   assert.match((await f.jobs.status(f.id())).text, /child stopped/);
 });
 
+test('a temporary poll read failure does not abort a running command', async t => {
+  const f = fixture(t);
+  await f.jobs.enqueue(invocation);
+  const id = f.id();
+  const file = join(f.dir, 'commands.json');
+  await f.jobs.run(id, async (_job, signal) => {
+    const healthy = readFileSync(file, 'utf8');
+    writeFileSync(file, '{temporarily unreadable');
+    try { await new Promise(resolve => setTimeout(resolve, 300)); }
+    finally { writeFileSync(file, healthy); }
+    return { ok: !signal.aborted, text: 'finished' };
+  });
+  assert.equal(f.read().at(-1).state, 'completed');
+});
+
 test('a dead worker is interrupted, spawn failure is explicit, and corrupt state is never overwritten', async t => {
   const f = fixture(t, { isGone: () => true });
   await f.jobs.enqueue(invocation);
