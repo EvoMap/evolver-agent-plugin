@@ -42,7 +42,7 @@ async function fixture(t) {
 test('verified candidate flows through real ACP transport and validation into a private Proxy draft', async t => {
   const made = await fixture(t);
   const result = await distillSession(made.ports, { sessionId: 'session' });
-  assert.equal(result.status, 'drafted');
+  assert.equal(result.status, 'drafted', result.error);
   assert.equal((await made.ports.drafts.read())[0].title, GENE.title);
   assert.deepEqual(await made.ports.candidates.read(), {});
   const posts = made.requests.filter(request => request.path === '/conversation/distill');
