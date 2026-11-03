@@ -58,6 +58,7 @@ test('a dead worker is interrupted, spawn failure is explicit, and corrupt state
   const f = fixture(t, { isGone: () => true });
   await f.jobs.enqueue(invocation);
   assert.match((await f.jobs.status(f.id())).text, /interrupted/);
+  assert.equal(f.read().at(-1).state, 'queued', 'status does not rewrite persisted state');
   assert.equal(await f.jobs.run(f.id(), () => { throw new Error('no replay'); }), false);
   const missing = fixture(t, { start: async () => ({ missing: true }) });
   assert.equal((await missing.jobs.enqueue(invocation)).ok, false);

@@ -52,7 +52,7 @@ test('a relevant Recipe is expanded in step order and preferred over a single st
   assert.match(match.text, /Follow the steps in order\. Apply it where it fits\. Evolver reports how the reuse of rcp_upload went when this turn ends\.$/);
   assert.deepEqual(stepFetches()[0].body, { asset_ids: ['sha256:retry', 'sha256:alert', 'sha256:docs'] });
   assert.deepEqual(calls.find((call) => call.path === '/recipe/search').body, { q: PROMPT, limit: 5, context: CONTEXT });
-  assert.deepEqual(traces.at(-1), { outcome: 'injected', kind: 'recipe', name: 'Harden a flaky upload client', steps: 2, fit: 0.8 });
+  assert.deepEqual(traces.at(-1), { outcome: 'injected', kind: 'recipe', name: 'Harden a flaky upload client', steps: 2, shortened: 0, fit: 0.8 });
 });
 
 test('each step keeps its own text, read as a single strategy of that name', async () => {
@@ -137,4 +137,34 @@ test('a Recipe still pending at the cutoff gives way to the single strategy that
 test('a Proxy without Recipe search still recalls a single strategy', async () => {
   const proxyFetch = async (method, path) => (path === '/recipe/search' ? { ok: false, error: 'HTTP 501' } : { ok: true, data: { assets: [GENE] } });
   assert.deepEqual((await recalled(proxyFetch)).ids, ['sha256:gene']);
+});
+
+const longStepsOf = (count, linesPerStep) => Array.from({ length: count }, (_, step) => ({
+  asset_id: `sha256:long${step}`,
+  short_title: `Long step number ${step}`,
+  strategy: [
+    ...Array.from({ length: linesPerStep }, (_, line) => `Step ${step} line ${line}: ${'detail '.repeat(40)}`),
+    `Safety boundary: step ${step} must not write outside its folder.`,
+  ],
+}));
+const chainOf = (assets) => ({ ...RECIPE, id: 'rcp_long', steps: assets.map((asset, position) => ({ asset_id: asset.asset_id, position, optional: false })) });
+
+test('a Recipe longer than its budget is shortened step by step, each keeping its opening and safety lines', async () => {
+  const assets = longStepsOf(9, 15);
+  const traces = [];
+  const match = await recalled(proxy({ recipes: [chainOf(assets)], stepAssets: assets }).proxyFetch, { onTrace: (trace) => traces.push(trace) });
+  assert.equal(match.ids.length, 9);
+  for (let step = 0; step < 9; step += 1) {
+    assert.match(match.text, new RegExp(`Step ${step + 1} — Long step number ${step}:\\n1\\. Step ${step} line 0:`));
+    assert.match(match.text, new RegExp(`\\d+\\. Safety boundary: step ${step} must not write outside its folder\\.\\n\\(\\d+ more lines of sha256:long${step} left out for length\\.\\)`));
+  }
+  assert.equal(traces.at(-1).shortened, 9);
+});
+
+test('a Recipe whose every step cannot keep even its opening line is passed over, and the trace says why', async () => {
+  const assets = longStepsOf(40, 1);
+  const traces = [];
+  const match = await recalled(proxy({ recipes: [chainOf(assets)], stepAssets: assets }).proxyFetch, { onTrace: (trace) => traces.push(trace) });
+  assert.deepEqual(match.ids, ['sha256:gene']);
+  assert.deepEqual(traces[0], { outcome: 'passed_over', kind: 'recipe', id: 'rcp_long', reason: 'too_long' });
 });

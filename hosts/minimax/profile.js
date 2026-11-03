@@ -34,6 +34,8 @@ export default defineProfile({
   },
   budgets: { prompt: 10_000, sessionEnd: 3_000 },
   owner: 'parent',
+  windowsAncestry: true,
+  drainWindowsHandles: true,
   model: headlessMiniMax,
   stateDir: stateDirOf,
   settingsFile: env => join(stateDirOf(env), 'minimax-settings.json'),

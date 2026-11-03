@@ -48,7 +48,8 @@ test('the owner is this process, the parent past a shell, or the nearest named a
   assert.equal(ownerProbeOf('self').current(), process.pid);
   assert.equal(ownerProbeOf('parent', { probe, platform: 'darwin' }).current(), 50);
   assert.equal(ownerProbeOf({ ancestor: /^codex/ }, { probe, platform: 'darwin' }).current(), 40);
-  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), 50);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), null);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32', windowsAncestry: true }).current(), 50);
 });
 
 test('a hook waits what is left of its budget, never less than a floor', () => {
