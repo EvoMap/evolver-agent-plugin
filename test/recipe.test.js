@@ -168,3 +168,20 @@ test('a Recipe whose every step cannot keep even its opening line is passed over
   assert.deepEqual(match.ids, ['sha256:gene']);
   assert.deepEqual(traces[0], { outcome: 'passed_over', kind: 'recipe', id: 'rcp_long', reason: 'too_long' });
 });
+
+test('a mixed Recipe preserves Capsule evidence in order without exposing its execution trace', async () => {
+  const capsule = {
+    type: 'Capsule', asset_id: 'sha256:retry', gene: 'sha256:linked',
+    summary: 'A flaky upload recovered after bounded retries.',
+    content: 'Raw case content to keep out of the prompt.',
+    execution_trace: ['Raw trace to keep out of the prompt.'],
+  };
+  const { proxyFetch } = proxy({ stepAssets: [capsule, STEP_ASSETS[1]] });
+  const match = await recalled(proxyFetch);
+  assert.deepEqual(match.ids, ['sha256:retry', 'sha256:alert']);
+  assert.match(match.text, /Step 1[^\n]*\n1\. Observed case: A flaky upload recovered after bounded retries\.[\s\S]*Step 2 — Alert/);
+  assert.doesNotMatch(match.text, /Raw case content|Raw trace/);
+  assert.match(match.stepTexts['sha256:retry'], /Observed case:/);
+  const incomplete = proxy({ stepAssets: [{ ...capsule, summary: '' }, STEP_ASSETS[1]] });
+  assert.deepEqual((await recalled(incomplete.proxyFetch)).ids, ['sha256:gene']);
+});

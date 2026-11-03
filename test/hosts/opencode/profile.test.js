@@ -6,6 +6,7 @@ import profile from '../../../hosts/opencode/profile.js';
 import { pluginEnv } from '../../../hosts/opencode/dist/options.js';
 import { createTurnTracker } from '../../../hosts/opencode/dist/turns.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
+import { skipReason } from '../../../lib/distill/candidate.js';
 
 const FIXTURE = JSON.parse(readFileSync(new URL('../../fixtures/opencode/payloads.json', import.meta.url), 'utf8'));
 const { bash, args, assistant, errors, sessions } = FIXTURE;
@@ -30,10 +31,21 @@ test('a bash check passes or fails on its exit code, and on failure output a `| 
 });
 
 test('a check the person interrupted gives no verdict, while one its timeout killed failed', () => {
-  assert.deepEqual(checksOf(bash.interrupted), []);
+  assert.deepEqual(checksOf(bash.interrupted), [{ command: 'npm test', failed: null }]);
   assert.deepEqual(checksOf(bash.timedOut), [{ command: 'npm test', failed: true }]);
   const record = turnRecordOf([note({ tool: 'bash', args: { command: 'npm test' }, result: bash.interrupted })]);
   assert.deepEqual(record.commands, ['npm test']);
+});
+
+test('an interrupted check after a pass remains last and prevents a candidate', () => {
+  const record = turnRecordOf([
+    { kind: 'edit', paths: ['src/retry.js'] },
+    note({ tool: 'bash', args: { command: 'npm test' }, result: bash.passed }),
+    note({ tool: 'bash', args: { command: 'npm test' }, result: bash.interrupted }),
+    { kind: 'answer', text: 'Done.' },
+  ]);
+  assert.deepEqual(record.checks.map(check => check.failed), [false, null]);
+  assert.equal(skipReason('answer', record), 'unverified');
 });
 
 test('a command that is no check keeps its exit code but not its output', () => {

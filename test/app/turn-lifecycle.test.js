@@ -88,17 +88,29 @@ test('an aborted turn reports its injection as failed, with no check', async () 
   assert.equal(report.evidence.aborted, true);
 });
 
-test('a check still running at turn end counts as not run; a later note with its call id settles it', async () => {
+test('a check still running at turn end stays unknown; a later note with its call id settles it', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c1' } });
-  assert.deepEqual((await end(ports, 's1')).record.checks, []);
+  assert.deepEqual((await end(ports, 's1')).record.checks, [{ command: 'npm test', failed: null }]);
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c2' } });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1, callId: 'c2' } });
   const { record } = await end(ports, 's1');
   assert.deepEqual(record.checks, [{ command: 'npm test', failed: true }]);
   assert.deepEqual(record.commands, ['npm test']);
+});
+
+test('a later pending check blocks an earlier pass, even when an older command finishes late', async () => {
+  const { ports } = memoryPorts();
+  await verifiedTurn(ports, 's1');
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', running: true, callId: 'old' } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'new' } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', exit: 0, callId: 'old' } });
+  const ended = await end(ports, 's1');
+  assert.deepEqual(ended.record.checks.map(check => check.failed), [false, false, null]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(ended.reports[0].evidence.tier, 'none');
 });
 
 test('an agent-reported turn counts as exposure only', async () => {
@@ -265,6 +277,17 @@ test('a turn judged again keeps its candidate\'s stamp and claim; an agent\'s re
   const first = (await ports.candidates.read()).agent;
   assert.equal(await end(ports, 'agent', { turnId: 'r1', recordOf: record(true), source: AGENT_REPORTED }), null);
   assert.deepEqual((await ports.candidates.read()).agent, first);
+});
+
+test('a late native completion cannot close a newer logical turn whose native identity is not bound yet', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: '0', ...WAIT });
+  const first = await ports.sessions.read('s1');
+  await end(ports, 's1', { turnId: '0' });
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'now the next task', ...WAIT });
+  await end(ports, 's1', { turnId: '0', expectedTurn: first.turn, expectedPid: first.pid });
+  assert.equal((await ports.sessions.read('s1')).open, true);
+  assert.equal((await ports.sessions.read('s1')).turn, 2);
 });
 
 test('a correction that slips in while a re-judge reads its record still drops the candidate', async () => {

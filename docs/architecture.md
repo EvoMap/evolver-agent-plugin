@@ -264,6 +264,40 @@ scripts/               pack.mjs, publish-tag.sh
   a resumed session continues under the same id, and a repeated task id is one the Hub drops as a duplicate.
 - **Subagents** get no recall; their checks and edits count toward the main turn.
 
+## Indexed native sessions and isolated ACP completion
+
+Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 and Desktop 1.2.1 on Windows.
+Both local clients use the same Kimi profile and managed plugin. It declares the native workspace/session
+layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked, replaced, malformed or partial
+records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
+using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer
+hint. A detached native monitor catches terminal writes after the last hook; recovery reads those records before
+orphan abort reporting. Turn number and owner guards prevent a late observer from closing a newer pending turn.
+Background checks remain unknown until matching native task metadata settles them. Other hosts retain their
+existing transcript/tool-result adapters; Kimi subagents and concurrent prompts are outside this v1 contract.
+
+The optional ModelRunner `capture` port records the selected alias, provider, upstream model, effort and a
+credential/config binding before recall returns. The `acp` runner revalidates that binding before creating one
+private session and sending one prompt. It uses a private HOME and a selected-only TOML config; the credential is
+passed in an environment variable. The private agent has no tools/subagents, project hooks, user plugins or MCP
+servers. ACP success, the native/provider terminal, exact route and native process closure must agree. A separate
+IPC guardian handles cancellation and owner death before removing owned scratch. On Windows the system
+PowerShell helper assigns the native process to a non-inheritable kill-on-close Job Object at creation, with
+only its stdio handles inherited. The helper terminates remaining job members and proves the job is empty
+after native exit or stop. It reports proof separately from native output. Scratch with no proof is kept;
+the job does not contain processes created by an external broker outside the descendant tree.
+
+An unavailable/changed route is a typed preflight block, preserving the candidate without spending a model
+attempt or expiring it as an abandoned draft. Ordinary model/protocol failures keep the existing retry policy.
+The `kimi.com` managed route reads the current access token and device identity from the exact native profile.
+It binds both to the snapshot, preserves the native provider family separately from its transport, and passes
+only the access token in the private child's environment. It does not manage login or refresh.
+Draft publication still uses the shared explicit command and Proxy contract. Other regions, clients and native
+acceptance on each target OS are separate gates, not inferred from fixture tests.
+
+Packing vendors only the pinned `smol-toml` ESM closure and its BSD license, rewriting that runtime import to a
+relative path. Installed bundles need no npm install for TOML; source packing and release CI run `npm ci` first.
+
 ## Claude Code engine behaviour found while testing
 
 - A `hooks.json` that lists `modules` still runs its command `hooks`.
@@ -287,6 +321,7 @@ scripts/               pack.mjs, publish-tag.sh
 ```bash
 npm ci
 npm test
+npm run test:kimi
 npx -p typescript tsc -p .
 npm run validate
 ```
@@ -296,6 +331,11 @@ update. `npm run validate` packs `dist/claude-code` and runs `claude plugin vali
 2.1.286 or newer; an older `claude` on `PATH` validates the plugin as having no hooks. Installed copies update by
 version: bump `version` in a host's manifest with every change meant to reach its users, or the host reports the old
 version as the latest.
+
+Release CI runs the full suite on Linux and separate Kimi packed-hook and shared runtime tests on Windows,
+each on Node 22 and 26. All three jobs must pass before publication. Host tests use disposable profiles and local
+service fixtures; they require no developer account, Hub token or globally installed native CLI. Windows suites
+run up to four test files at once; their multi-process contention tests retain their own parallel workers.
 
 ## Open questions
 

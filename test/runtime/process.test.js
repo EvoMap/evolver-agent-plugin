@@ -48,7 +48,7 @@ test('the owner is this process, the parent past a shell, or the nearest named a
   assert.equal(ownerProbeOf('self').current(), process.pid);
   assert.equal(ownerProbeOf('parent', { probe, platform: 'darwin' }).current(), 50);
   assert.equal(ownerProbeOf({ ancestor: /^codex/ }, { probe, platform: 'darwin' }).current(), 40);
-  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), null);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), 50);
 });
 
 test('a hook waits what is left of its budget, never less than a floor', () => {
@@ -132,16 +132,17 @@ test('a CLI is looked up name by name, on PATH then in the host\'s folders, and 
   assert.equal(executableOf(cursor, options), null, 'an unrelated agent on PATH is never run');
   const workbuddy = { names: ['codebuddy'], dirs: ['/apps/wb'], nodeScriptOnWindows: true };
   assert.deepEqual(executableOf(workbuddy, options), { file: '/apps/wb/codebuddy', viaNode: false });
-  assert.deepEqual(executableOf(workbuddy, { ...options, platform: 'win32', env: { PATH: '/usr/bin' } }), { file: '/apps/wb/codebuddy', viaNode: true });
+  const windowsScript = 'C:\\apps\\wb\\codebuddy'; present.add(windowsScript);
+  assert.deepEqual(executableOf({ ...workbuddy, dirs: ['C:\\apps\\wb'] }, { ...options, platform: 'win32', env: { PATH: 'C:\\unrelated;C:\\usr\\bin' } }), { file: windowsScript, viaNode: true });
   present.add('/usr/bin/tool.cmd');
   assert.equal(executableOf({ names: ['tool'] }, { ...options, platform: 'win32' }), null, 'a .cmd shim needs a shell');
 });
 
 test('on Windows an npm .cmd shim is found only for a CLI that allows one, after an .exe of the same name', async () => {
   const { executableOf } = await import('../../lib/runtime/process/which.js');
-  const present = new Set(['/npm/codex.cmd', '/tools/codex.exe']);
+  const present = new Set(['C:\\npm\\codex.cmd', 'C:\\tools\\codex.exe']);
   const options = (PATH) => ({ env: { PATH }, platform: 'win32', exists: (file) => present.has(file), realPath: (file) => file });
-  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/npm')), { file: '/npm/codex.cmd', viaNode: false });
-  assert.equal(executableOf({ names: ['codex'] }, options('/npm')), null);
-  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/tools')), { file: '/tools/codex.exe', viaNode: false });
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('C:\\unrelated;C:\\npm')), { file: 'C:\\npm\\codex.cmd', viaNode: false });
+  assert.equal(executableOf({ names: ['codex'] }, options('C:\\npm')), null);
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('C:\\tools')), { file: 'C:\\tools\\codex.exe', viaNode: false });
 });

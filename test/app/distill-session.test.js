@@ -44,9 +44,50 @@ test('a session-end distillation the Proxy answers as a draft is kept as a draft
   assert.equal((await ports.candidates.read()).s1, undefined);
   assert.equal((await ports.drafts.read())[0].title, GENE.title);
   const { body } = requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual([body.platform, body.trigger, body.session_id, body.persist, body.publish], ['testagent', 'session_end', 'testagent:s1', true, false]);
+  assert.deepEqual([body.platform, body.trigger, body.session_id, body.persist, body.publish], ['testagent', 'session_end', 'testagent:s1', false, false]);
   assert.deepEqual(body.execution, { trace: [{ command: 'npm test', exit: 0 }] });
   assert.deepEqual(body.distill_usage, { inputTokens: 10, outputTokens: 5 });
+});
+
+test('manual distill distinguishes a reviewable draft from an unexpected Proxy storage report', async () => {
+  const older = { id: 'older-draft', title: 'An older draft', createdAt: 1_000_000 };
+  for (const answer of [DRAFTED, { status: 'stored', details: 'raw Proxy detail' }]) {
+    const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), distillAnswer: answer });
+    await ports.drafts.update(() => [older]);
+    const result = await runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
+    assert.equal(result.ok, true);
+    const drafts = await ports.drafts.read();
+    assert.deepEqual(drafts.map(draft => draft.id), answer === DRAFTED ? [older.id, DRAFTED.distill_id] : [older.id]);
+    if (answer === DRAFTED) {
+      assert.match(result.text, /Review it with \/evolver-drafts/);
+      assert.doesNotMatch(result.text, /publish 1/);
+    } else {
+      assert.match(result.text, /Proxy reported that it stored the result/);
+      assert.doesNotMatch(result.text, /raw Proxy detail|evolver-drafts/);
+    }
+    assert.equal(requests.some(request => request.path === '/asset/submit'), false);
+  }
+});
+
+test('a runtime blocked before a model request keeps its candidate and attempts until the route is available', async () => {
+  const blocked = Object.assign(new Error('no safe selected route'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+  const { ports, requests, advance } = await withCandidate({ model: { complete: async () => { throw blocked; } } });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  for (let i = 0; i < 5; i++) {
+    const [outcome] = await distillLeftovers(ports);
+    assert.deepEqual(outcome, { status: 'blocked', reason: 'route_changed' });
+  }
+  const candidate = (await ports.candidates.read()).s1;
+  assert.equal(candidate.attempts, 0);
+  assert.equal(candidate.claimedBy, null);
+  assert.equal(candidate.blocked.reason, 'route_changed');
+  assert.equal(requests.some(request => request.path === '/conversation/distill'), false);
+  advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
+  ports.settings = { autoDistill: false };
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.ok((await ports.candidates.read()).s1);
+  ports.model = modelAnswering(GENE);
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
 });
 
 test('a live session keeps its candidate; only an ended one is a leftover', async () => {
@@ -115,13 +156,15 @@ test('a failing headless model keeps the candidate, and three failed tries give 
 });
 
 test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {
-  const { ports } = await withCandidate();
+  const { ports, requests } = await withCandidate({ distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } } });
   const asked = await distillSession(ports, { sessionId: 's1' });
   assert.equal(asked.status, 'no_model');
   assert.match(asked.agentGene.prompt, /Turn it into one reusable Gene/);
   assert.ok((await ports.candidates.read()).s1);
   const posted = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: asked.agentGene.writtenFor });
   assert.equal(posted.status, 'drafted');
+  const { persist, publish } = requests.find(request => request.path === '/conversation/distill').body;
+  assert.deepEqual({ persist, publish }, { persist: false, publish: false });
   const listed = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts' });
   assert.match(listed.text, /Stabilise Redis retries/);
   const published = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });

@@ -48,6 +48,23 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 
 ## Adding a host
 
+Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows for the main agent in local sessions, using API/BYOK or an existing `kimi.com`
+managed access token. Its native
+root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
+`KIMI_CODE_HOME` and changes only its owned native registration. Native config, credentials and Evolver state
+(`KIMI_CODE_HOME/evolver`) stay outside the package; unregistering retains managed bytes. Other client types,
+subagents, parallel prompts and other OAuth regions require separate native acceptance.
+
+Kimi's `UserPromptSubmit` returns `{ message }` to the model. Tool hooks observe native evidence and never promise
+inline failed-check context. Stop is a hint rather than a terminal verdict: wire/task records reconcile lifecycle
+and verification, with dead-owner recovery when a session has no end event. Session ids include the native-home
+scope. Commands use `node <plugin>/bin/command.mjs kimi <command>` from a terminal, without prompt interception.
+Distillation captures provider/model/account identity from the native session and uses a private ACP profile with
+no user/project hooks, plugins, MCP or skills; missing or changed route identity keeps the candidate for retry.
+Windows packed hooks have passed with a loopback fixture provider/Proxy, including native turn-zero evidence,
+process ownership and normal cleanup. macOS packed acceptance and real-account acceptance are separate gates; see
+[`kimi/dist/README.md`](kimi/dist/README.md).
+
 1. `hosts/<name>/profile.js`: `export default defineProfile({ name, label, channel, events, evidence, … })` with
    only the points that differ; readers that need more than a line go in sibling files.
 2. `hosts/<name>/dist/`: the host's hook registration calling `node bin/hook.mjs <name> <hostEvent>` (or its MCP

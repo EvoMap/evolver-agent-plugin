@@ -47,3 +47,14 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
     },
   };
 }
+
+/** A detached hook worker can still finish a state write after the Proxy received its last request. */
+export async function closeProxyWhenSettled(proxy) {
+  for (let attempt = 0; ; attempt++) {
+    try { return proxy.close(); }
+    catch (error) {
+      if (attempt === 19 || !['ENOTEMPTY', 'EPERM', 'EBUSY'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}

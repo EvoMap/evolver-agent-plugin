@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 EvoMap
+
+import fs from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+
+import { updateState } from '../lib/runtime/store/file-lock.js';
+import { kimiHomeOf } from '../hosts/kimi/paths.js';
+import { pack } from './pack.mjs';
+
+const BUNDLE = fileURLToPath(new URL('../dist/kimi', import.meta.url));
+const NAME = 'evolver-plugin';
+const validVersion = value => typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value)
+  && !value.split('-').slice(1).join('-').split('.').some(part => /^0\d+$/.test(part));
+
+function ordinaryDirectory(path) {
+  if (!fs.existsSync(path)) return;
+  const stat = fs.lstatSync(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Refusing a non-directory or linked plugin path: ${path}`);
+}
+
+function validRegistry(value) {
+  if (value?.version !== 1 || !Array.isArray(value.plugins)
+    || value.plugins.some(entry => !entry || typeof entry !== 'object' || typeof entry.id !== 'string' || typeof entry.root !== 'string')
+    || new Set(value.plugins.map(entry => entry.id)).size !== value.plugins.length) throw new Error('Invalid Kimi plugin registry; repair it before retrying.');
+  return value;
+}
+
+function registryOf(file) {
+  let value;
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Refusing a non-file or linked plugin registry.');
+    value = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { version: 1, plugins: [] };
+    throw error;
+  }
+  return validRegistry(value);
+}
+
+function packageOf(dir) {
+  if (!fs.existsSync(dir)) return null;
+  ordinaryDirectory(dir);
+  const marker = join(dir, '.evolver-packed'), file = join(dir, 'kimi.plugin.json');
+  for (const path of [marker, file]) {
+    if (!fs.existsSync(path) || !fs.lstatSync(path).isFile() || fs.lstatSync(path).isSymbolicLink()) throw new Error(`Refusing an unmanaged Kimi plugin: ${dir}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (fs.readFileSync(marker, 'utf8').trim() !== 'kimi' || manifest.name !== NAME || !validVersion(manifest.version)
+    || !Array.isArray(manifest.hooks) || manifest.hooks.some(hook => typeof hook.event !== 'string' || typeof hook.command !== 'string')) throw new Error(`Invalid Kimi package identity, version or hooks: ${dir}`);
+  return manifest;
+}
+
+function ownEntry(registry, target) {
+  const own = registry.plugins.find(entry => entry.id === NAME);
+  if (own && resolve(own.root) !== target) throw new Error('Refusing to replace an Evolver registration owned by another path.');
+  return own;
+}
+
+function underInstallLock(plugins, work) {
+  let result;
+  // No state value is written: this target-specific guard must stay held through registry failure and rollback.
+  updateState(join(plugins, '.evolver-plugin-install'), {}, () => { result = work(); });
+  return result;
+}
+
+/** Installs only the owned managed package and native registry entry; account/config/state stay outside them. */
+export function installKimi({ operation = 'install', home = kimiHomeOf(process.env), dryRun = false, version } = {}) {
+  if (!['install', 'update', 'status', 'remove'].includes(operation)) throw new Error('Expected install, update, status or remove.');
+  if (version !== undefined && (!validVersion(version) || !['install', 'update'].includes(operation))) throw new Error('Version must be X.Y.Z or X.Y.Z-prerelease for install/update.');
+  const root = resolve(home), plugins = join(root, 'plugins'), managed = join(plugins, 'managed'), target = join(managed, 'evolver-plugin');
+  for (const dir of [root, plugins, managed, target]) ordinaryDirectory(dir);
+  const registryFile = join(plugins, 'installed.json'), registry = registryOf(registryFile), own = ownEntry(registry, target), previous = packageOf(target);
+  const registered = Boolean(own), installed = registered && Boolean(previous);
+  if (operation === 'status') return { installed, registered, path: target, ...(previous ? { version: previous.version } : {}), ...(own ? { enabled: own.enabled !== false } : {}) };
+  if (operation === 'update' && !installed) throw new Error('Kimi plugin is not installed; use install first.');
+  if (dryRun) return { operation, path: target, dryRun: true };
+  if (operation === 'remove') {
+    if (own) underInstallLock(plugins, () => updateState(registryFile, { version: 1, plugins: [] }, current => {
+      validRegistry(current); ownEntry(current, target);
+      return { ...current, plugins: current.plugins.filter(entry => entry.id !== NAME) };
+    }));
+    // Kimi's native remove operation unregisters a local plugin and keeps its managed bytes.
+    return { installed: false, registered: false, path: target, packageRetained: Boolean(previous) };
+  }
+  fs.mkdirSync(managed, { recursive: true, mode: 0o700 });
+  const stage = fs.mkdtempSync(join(root, '.evolver-install-')), prepared = join(stage, 'package'), backup = join(stage, 'previous');
+  let moved = false, activated = false, committed = false, next;
+  try {
+    if (version === undefined && fs.existsSync(BUNDLE)) {
+      packageOf(BUNDLE);
+      fs.cpSync(BUNDLE, prepared, { recursive: true });
+    } else pack('kimi', prepared, { version });
+    next = packageOf(prepared);
+    underInstallLock(plugins, () => {
+      try {
+        updateState(registryFile, { version: 1, plugins: [] }, current => {
+          validRegistry(current); const currentOwn = ownEntry(current, target), currentPackage = packageOf(target);
+          if (operation === 'update' && (!currentOwn || !currentPackage)) throw new Error('Kimi plugin changed before activation; retry after checking status.');
+          if (currentPackage) { fs.renameSync(target, backup); moved = true; }
+          fs.renameSync(prepared, target); activated = true;
+          const entry = { ...currentOwn, id: NAME, root: target, source: 'local-path', enabled: currentOwn?.enabled ?? true, installedAt: currentOwn?.installedAt ?? new Date().toISOString() };
+          return { ...current, plugins: [...current.plugins.filter(item => item.id !== NAME), entry] };
+        });
+        committed = true;
+      } catch (error) {
+        try {
+          if (activated) fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+          if (moved) { fs.renameSync(backup, target); moved = false; }
+        } catch { throw new Error(`Activation and rollback failed. The previous package is retained at ${backup}.`); }
+        throw error;
+      }
+    });
+    return { installed: true, registered: true, operation, path: target, version: next.version, next: 'Start a new Kimi Code session to load the managed plugin.' };
+  } finally {
+    if (!moved || committed) fs.rmSync(stage, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const { values, positionals } = parseArgs({ options: { home: { type: 'string' }, 'dry-run': { type: 'boolean' }, version: { type: 'string' }, help: { type: 'boolean' } }, allowPositionals: true });
+    const usage = 'Usage: node scripts/install-kimi.mjs [install|update|status|remove] [--home PATH] [--dry-run] [--version X.Y.Z]';
+    if (positionals.length > 1) throw new Error(usage);
+    if (values.help) console.log(usage);
+    else console.log(JSON.stringify(installKimi({ operation: positionals[0], home: values.home, dryRun: values['dry-run'], version: values.version }), null, 2));
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}
