@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { events } from '@evomap/evolver-core';
+
+import { recordReuseLocally } from '../lib/local-ledger.js';
 import { withQueued } from '../lib/report-outbox.js';
 import {
   correctionReportOf,
@@ -137,6 +143,87 @@ test('evidence-bearing reports are recorded locally once; tier none never is', a
   await deliverPending(sinks, await deliverPending(sinks, outbox, NOW), NOW);
   assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1' }]);
   assert.equal(sinks.posts.length, 4);
+});
+
+test('a sent report retries a pre-write local failure without posting to the Hub again', async () => {
+  const down = ledgers({ local: false });
+  const queued = withQueued({}, [{ report: immediate({ checks: [{ command: 'npm test', failed: false }] }), sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(down, queued, NOW);
+  assert.equal(down.posts.length, 1);
+  assert.equal(Object.values(sent)[0].sentAt, NOW);
+  assert.equal(Object.values(sent)[0].localAt, undefined);
+  const up = ledgers();
+  const recorded = await deliverPending(up, sent, NOW + 1);
+  assert.equal(up.posts.length, 0);
+  assert.deepEqual(up.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1' }]);
+  assert.equal(Object.values(recorded)[0].sentAt, NOW, 'the original Hub delivery time stays intact');
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  await deliverPending(up, recorded, NOW + 2);
+  assert.equal(up.locals.length, 1);
+  assert.equal(up.posts.length, 0);
+});
+
+test('a ledger lock timeout retries the local write after Hub delivery', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-ledger-retry-'));
+  const previous = process.env.EVOLVER_HOME;
+  process.env.EVOLVER_HOME = home;
+  t.after(() => {
+    if (previous === undefined) delete process.env.EVOLVER_HOME;
+    else process.env.EVOLVER_HOME = previous;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const ingest = t.mock.method(events.Ingestor.prototype, 'ingest', async () => {
+    if (ingest.mock.callCount() === 0) {
+      throw Object.assign(new Error('ledger lock timeout'), { code: 'LOCK_TIMEOUT' });
+    }
+  });
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  const queued = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(sinks, queued, NOW);
+  const [pending] = Object.values(sent);
+  assert.equal(pending.localFailures, 1);
+  assert.equal(pending.localUncertainAt, undefined);
+  assert.equal(pending.sentAt, NOW);
+
+  const recorded = await deliverPending(sinks, sent, NOW + 1);
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  assert.equal(ingest.mock.callCount(), 2);
+  assert.equal(sinks.posts.length, 1);
+});
+
+test('an ambiguous local write is recorded without retrying either ledger', async () => {
+  const sinks = ledgers();
+  const writes = [];
+  sinks.recordLocally = async (request) => {
+    writes.push(request);
+    throw new Error('ledger failed after appending');
+  };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  let outbox = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  for (let i = 0; i < 5; i += 1) outbox = await deliverPending(sinks, outbox, NOW + i);
+
+  assert.equal(sinks.posts.length, 1);
+  assert.equal(writes.length, 1);
+  assert.equal(Object.values(outbox)[0].sentAt, NOW);
+  assert.equal(Object.values(outbox)[0].localUncertainAt, NOW);
+  assert.equal(Object.values(outbox)[0].localAt, undefined);
+});
+
+test('exhausting local attempts does not stop Hub delivery retries', async () => {
+  const down = ledgers({ hub: new Error('Hub offline'), local: false });
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  let outbox = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  for (let i = 0; i < 4; i += 1) outbox = await deliverPending(down, outbox, NOW + i);
+
+  assert.equal(down.posts.length, 4);
+  assert.equal(down.locals.length, 3);
+  const up = ledgers();
+  const sent = await deliverPending(up, outbox, NOW + 4);
+  assert.equal(up.posts.length, 1);
+  assert.equal(up.locals.length, 0);
+  assert.equal(Object.values(sent)[0].sentAt, NOW + 4);
 });
 
 test('a report the Hub already holds counts as delivered and is not retried', async () => {
