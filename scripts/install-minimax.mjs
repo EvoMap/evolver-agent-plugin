@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -67,7 +67,7 @@ export function installMiniMax({ operation = 'install', dataDir = dataDirOf(proc
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values, positionals } = parseArgs({ options: { 'data-dir': { type: 'string' }, 'dry-run': { type: 'boolean' }, version: { type: 'string' }, help: { type: 'boolean' } }, allowPositionals: true });
     const usage = 'Usage: node scripts/install-minimax.mjs [install|update|status] [--data-dir PATH] [--dry-run] [--version X.Y.Z]';

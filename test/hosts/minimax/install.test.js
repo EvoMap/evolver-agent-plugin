@@ -11,6 +11,17 @@ import { fileURLToPath } from 'node:url';
 import { installMiniMax } from '../../../scripts/install-minimax.mjs';
 import { pack } from '../../../scripts/pack.mjs';
 
+test('the installer CLI runs from a symlinked checkout path', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'evolver-install-link-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const checkout = fileURLToPath(new URL('../../../', import.meta.url));
+  const linked = join(root, 'linked-checkout');
+  fs.symlinkSync(checkout, linked, process.platform === 'win32' ? 'junction' : 'dir');
+  const dataDir = join(root, 'native-data');
+  const stdout = execFileSync(process.execPath, [join(linked, 'scripts/install-minimax.mjs'), 'status', '--data-dir', dataDir], { encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(stdout), { installed: false, path: join(dataDir, 'plugins', 'evolver-plugin') });
+});
+
 test('the default installer copies the released bundle and its version; an explicit version builds the checkout', t => {
   const root = mkdtempSync(join(tmpdir(), "evolver release user's "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
