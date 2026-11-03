@@ -153,6 +153,23 @@ test('release refuses an unreadable owner explicitly without claiming cleanup', 
   }
 });
 
+test('a release failure preserves the original work error', async (t) => {
+  const { lock } = scratch(t);
+  const read = fs.readFileSync;
+  const workError = new Error('work failed');
+  try {
+    await assert.rejects(withLock(lock, async () => {
+      fs.readFileSync = (file, ...args) => {
+        if (String(file) === join(lock, 'owner')) throw Object.assign(new Error('unreadable owner'), { code: 'EIO' });
+        return read(file, ...args);
+      };
+      throw workError;
+    }), (error) => error === workError);
+  } finally {
+    fs.readFileSync = read;
+  }
+});
+
 test('refresh leaves an unreadable live lock untouched without crashing its timer caller', async (t) => {
   const { dir, lock } = scratch(t);
   assert.equal(await withLock(lock, async (held) => {
