@@ -62,6 +62,13 @@ test('a turn whose usage is unknown counts no saving and states no usage', () =>
   );
 });
 
+test('an unknown last check claims neither a reached goal nor a saving', () => {
+  assert.equal(
+    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: null }, turnReason: 'answer', changedLines: 30, usage: USAGE }),
+    '? Goal unverified (last check result unknown: npm test) · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
+  );
+});
+
 test('the summary is one line, since the desktop notice renders no line breaks', () => {
   const summary = turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, usage: USAGE });
   assert.equal(summary.includes('\n'), false);

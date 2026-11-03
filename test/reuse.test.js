@@ -75,10 +75,11 @@ test('an interrupted turn says so', () => {
   assert.equal(report.outcome, 'failed');
 });
 
-test('a report carries the turn\'s last 20 checks with their exit codes, each command cut to 500 characters, keys stripped', () => {
+test('a report carries the turn\'s last 20 checks of known result with their exit codes, each command cut to 500 characters, keys stripped', () => {
   const earlier = Array.from({ length: 20 }, (unused, index) => ({ command: `npm run lint -- part${index}`, exit: 2, failed: true }));
+  const unknown = { command: 'npm run build', exit: null, failed: null };
   const last = { command: `API_KEY=hunter22 npm test -- ${'x'.repeat(600)}`, exit: 0, failed: false };
-  const { evidence } = immediate({ checks: [...earlier, last] });
+  const { evidence } = immediate({ checks: [...earlier, unknown, last] });
   assert.equal(evidence.checks.length, 20);
   assert.deepEqual(evidence.checks[0], { command: 'npm run lint -- part1', exit: 2 });
   assert.equal(evidence.checks.at(-1).command.length, 500);

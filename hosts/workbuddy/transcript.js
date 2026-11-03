@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { CHECK_COMMAND_MAX_CHARS, checkExitOf } from '../../lib/turn/record.js';
-import { isVerificationCommand, verificationFailed } from '../../lib/verification.js';
+import { checkExitOf } from '../../lib/checks.js';
+import { CHECK_COMMAND_MAX_CHARS } from '../../lib/turn/record.js';
+import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
 // JSON record per line, `function_call` / `function_call_result` pairs joined by `callId`, messages with a `role`.
@@ -90,14 +91,12 @@ const exitCodeOf = (result) => {
 
 function shellFailed(result) {
   if (result.status !== 'completed') return true;
-  const exit = exitCodeOf(result);
-  if (exit !== null && exit !== 0) return true;
-  return verificationFailed({ text: shellOutputOf(result.text) });
+  return verificationFailureOf({ exit: exitCodeOf(result), text: shellOutputOf(result.text) });
 }
 
 function checkOf(call) {
   const failed = shellFailed(call.result);
-  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: checkExitOf(exitCodeOf(call.result), failed), failed };
+  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: checkExitOf({ exit: exitCodeOf(call.result), failed }), failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);

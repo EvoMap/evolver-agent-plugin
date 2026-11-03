@@ -182,7 +182,14 @@ test('a whole turn through the installed hooks: the strategy before each call, a
 
 test('a killed session\'s open strategy is reported aborted at the first model call of the next session', async (t) => {
   const proxy = await fakeProxy({ assets: [] });
-  t.after(() => proxy.close());
+  t.after(async () => {
+    try {
+      // Receiving the report precedes the worker's outbox write and lock release.
+      await waitFor(() => !existsSync(stateFile(proxy.env.HOME, 'antigravity-outbox.lock')));
+    } finally {
+      proxy.close();
+    }
+  });
   install(proxy.env.HOME, '.gemini/config/plugins');
   const dead = spawnSync(process.execPath, ['-e', '']).pid;
   const digest = createHash('sha256').update('s-killed').digest('hex').slice(0, 16);
