@@ -55,7 +55,7 @@ test('corrupt hook state stays intact and emits a diagnostic alongside the neutr
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, '{"private text":');
   let diagnostic = '';
-  const stderr = { write: (text) => { diagnostic += text; } };
+  const stderr = { write: (text, done) => { diagnostic += text; done(); } };
 
   assert.deepEqual(await invoke('UserPromptSubmit', { session_id: 's-corrupt', cwd: '/proj', prompt: PROMPT }, { stderr }), { empty: 'UserPromptSubmit' });
   assert.match(diagnostic, /EINVALIDSTATE/);
