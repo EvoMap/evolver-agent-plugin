@@ -42,6 +42,20 @@ test('the outbox takes queued reports and keeps what each delivery attempt settl
   assert.equal(seen[0].sentAt, 5);
 });
 
+test('a report appended after an interrupted queue write survives draining and commit', async () => {
+  const { dir, stores: cursor } = stores();
+  const earlier = { report: { task_id: 'earlier', asset_id: 'a' }, sessionId: 's1' };
+  const next = { report: { task_id: 'next', asset_id: 'a' }, sessionId: 's1' };
+  writeFileSync(join(dir, 'cursor-reports-queue.jsonl'), `${JSON.stringify(earlier)}\n{"report":`);
+  await cursor.reports.enqueue([next]);
+  const delivered = [];
+  await cursor.outbox.drain(async (due) => { delivered.push(...Object.values(due).map((entry) => entry.report)); return due; });
+  assert.deepEqual(delivered, [earlier.report, next.report]);
+  const persisted = [];
+  await cursor.outbox.drain(async (due) => { persisted.push(...Object.values(due).map((entry) => entry.report)); return due; });
+  assert.deepEqual(persisted, [earlier.report, next.report]);
+});
+
 test('retention takes only an earlier session\'s entries in the same project, with each file\'s hash now', async () => {
   const { dir, stores: cursor } = stores();
   const file = join(dir, 'edited.js');

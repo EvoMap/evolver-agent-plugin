@@ -22,7 +22,7 @@ const textOf = (result) => (result?.content ?? [])
 function exitInText(text) {
   const last = [...text.matchAll(EXIT_MARKER)].at(-1);
   if (last) return Number(last[1]);
-  return KILLED_MARKER.test(text) ? KILLED_EXIT : 0;
+  return KILLED_MARKER.test(text) ? KILLED_EXIT : null;
 }
 
 // A call dsh refused or aborted, a run still going in the background, or one stopped on request has no verdict,
@@ -32,7 +32,7 @@ function exitOf(result) {
   const { value } = result;
   if (value?.kind === 'foreground') {
     if (value.aborted || value.stopped !== undefined) return undefined;
-    return Number.isInteger(value.exitCode) ? value.exitCode : KILLED_EXIT;
+    return Number.isInteger(value.exitCode) ? value.exitCode : (value.timedOut || value.signal ? KILLED_EXIT : null);
   }
   if (value?.kind) return undefined;
   return exitInText(typeof value === 'string' ? value : textOf(result));

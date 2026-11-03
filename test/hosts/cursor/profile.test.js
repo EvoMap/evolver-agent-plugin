@@ -37,6 +37,8 @@ test('the chat model is kept as Cursor names it; an empty name is the default', 
 test('a Shell result is a check by its exit code and output; writes, deletes and edits are noted by path', () => {
   assert.deepEqual(noteOf('postToolUse.shellPassed'), { kind: 'shell', command: 'npm test', exit: 0, output: 'ℹ tests 2\nℹ pass 2\nℹ fail 0\n' });
   assert.deepEqual(noteOf('postToolUse.shellFailed'), { kind: 'shell', command: 'npm test', exit: 1, output: 'done' });
+  const unknown = cursor.evidence.toolNote({ ...payload('postToolUse.shellPassed'), tool_output: JSON.stringify({ output: 'done' }) });
+  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', failed: null }]);
   assert.deepEqual(noteOf('postToolUse.write'), { kind: 'tool', paths: ['/work/app/lib/redis.js'] });
   assert.deepEqual(noteOf('postToolUse.delete'), { kind: 'edit', paths: ['/work/app/lib/old.js'] });
   assert.deepEqual(noteOf('afterFileEdit'), { kind: 'edit', paths: ['/work/app/lib/redis.js'] });

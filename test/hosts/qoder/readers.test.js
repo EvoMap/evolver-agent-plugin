@@ -47,6 +47,8 @@ test('a subagent\'s event and the task notification Qoder submits for a backgrou
 });
 
 test('a finished Bash call carries its exit code and output; a failed one its exit code in the error text', () => {
+  const unknown = qoder.evidence.toolNote({ ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: { stdout: 'done' } });
+  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', failed: null }]);
   assert.deepEqual(noteOf('PostToolUse.Bash.passed'), { kind: 'shell', command: 'sh check.sh 2>&1 | tail -5', exit: 0, output: '# tests 1\n# pass 1\n# fail 0' });
   assert.deepEqual(noteOf('PostToolUseFailure.Bash.exit1'), { kind: 'shell', command: 'sh check.sh', exit: 1, output: 'not ok 1 - readme\n# tests 1\n# pass 0\n# fail 1' });
   assert.deepEqual(noteOf('PostToolUseFailure.Bash.exit127'), { kind: 'shell', command: 'npm test', exit: 127, output: '(eval):1: command not found: npm' });

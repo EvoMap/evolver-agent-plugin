@@ -5,7 +5,9 @@ import { test } from 'node:test';
 
 import { patchedPaths } from '../../../hosts/codex/evidence.js';
 import codex from '../../../hosts/codex/profile.js';
+import { createDriver } from '../../../lib/agent/driver.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
+import { PROMPT, memoryPorts } from '../../app/memory-ports.js';
 
 // Payloads Codex 0.164.0 sent to a plugin's hooks (paths renamed), and the tool responses of the standalone
 // plugin's tests, from Codex 0.144.
@@ -23,6 +25,23 @@ const SESSION = '01a17b33-1759-7171-b4c0-2618b2cbe40e';
 const TURN = '01a17b33-17ae-7f93-a0ea-d7608791f4bd';
 
 const ONE_SESSION = ['SessionStart.startup', 'UserPromptSubmit', 'PreToolUse.apply_patch', 'PostToolUse.apply_patch', 'PreToolUse.Bash', 'PostToolUse.Bash.passed', 'PostToolUse.Bash.exit3', 'Stop', 'SessionEnd'];
+
+test('an exit-less result with no passing evidence cannot verify a turn, including after an earlier pass', async () => {
+  for (const earlierPass of [false, true]) {
+    const { ports, queued } = memoryPorts();
+    const driver = createDriver({ profile: codex, ports, lifetime: 'ephemeral' });
+    await driver.handle('UserPromptSubmit', { ...payload('UserPromptSubmit'), prompt: PROMPT });
+    await driver.handle('PostToolUse', payload('PostToolUse.apply_patch'));
+    if (earlierPass) await driver.handle('PostToolUse', payload('PostToolUse.Bash.passed'));
+    await driver.handle('PostToolUse', {
+      ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: 'boom\n', tool_use_id: 'silent-exit',
+    });
+    await driver.handle('Stop', payload('Stop'));
+    assert.equal((await ports.candidates.read())[SESSION], undefined, `earlier pass: ${earlierPass}`);
+    assert.equal(queued[0].report.evidence.tier, 'none');
+    assert.equal(queued[0].report.evidence.check, undefined);
+  }
+});
 
 test('every event names its session; the prompt, its tool calls and the turn end name the turn', () => {
   for (const name of ONE_SESSION) assert.equal(codex.payload.sessionId(payload(name)), SESSION, name);
@@ -62,7 +81,7 @@ test('a Bash result carries no exit code, so a check is judged by its output', (
   assert.deepEqual({ ...passed, output: undefined }, { kind: 'shell', command: 'node --test', exit: null, output: undefined, callId: 'call_4' });
   assert.deepEqual(checksOf(passed), [{ command: 'node --test', failed: false }]);
   assert.deepEqual(noteOf('PostToolUse.Bash.exit3'), { kind: 'shell', command: 'node -e "console.log(\'boom\'); process.exit(3)"', exit: null, output: 'boom\n', callId: 'call_6' });
-  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', failed: false }], 'a check that fails silently reads as passed');
+  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', failed: null }], 'bare stdout carries neither an exit code nor positive passing evidence');
   assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.patchAndFailingTests'])), [{ command: 'npm test', failed: true }]);
 });
 

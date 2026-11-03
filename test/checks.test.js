@@ -19,6 +19,12 @@ test('the last check decides, and a failure of that same command earlier marks a
   assert.deepEqual(checkEvidenceOf([{ command: 'npm test', failed: false }, { command: 'npm test', failed: true }]), { kind: 'test', passed: false, fail_then_pass: false });
 });
 
+test('an unknown last result is no check evidence; an earlier unknown result is no failure', () => {
+  assert.equal(checkEvidenceOf([{ command: 'npm test', failed: false }, { command: 'npm test', failed: null }]), undefined);
+  assert.deepEqual(checkEvidenceOf([{ command: 'npm test', failed: null }, { command: 'npm test', failed: false }]),
+    { kind: 'test', passed: true, fail_then_pass: false });
+});
+
 test('the same check is recognised when only its output trimming differs', () => {
   const checks = [
     { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -12', failed: true },
