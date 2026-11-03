@@ -91,17 +91,21 @@ test('a rejected publication keeps the exact bound draft for review or retry', a
   assert.deepEqual(await ports.drafts.read(), [draft]);
 });
 
-test('a legacy draft without publication metadata also requires trusted reverification', async () => {
+test('a legacy draft without publication metadata forwards a newer Proxy receipt unchanged', async () => {
   const { ports, requests } = await withDraft(RESULT);
+  const receipt = { version: 'publish-binding.v2', opaque: 'proxy-issued' };
   ports.proxy.request = async (method, path, body) => {
     requests.push({ method, path, body });
-    return path === '/asset/reverify'
-      ? { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } }
-      : { ok: true, data: {} };
+    if (path === '/asset/reverify') {
+      await ports.drafts.update((list) => list.map((draft) => Object.fromEntries(Object.entries(draft).reverse())));
+      return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: receipt } };
+    }
+    return { ok: true, data: {} };
   };
   const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
   assert.equal(answer.ok, true, answer.text);
   assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify', '/asset/submit']);
+  assert.deepEqual(requests[1].body.publish_receipt, receipt);
   assert.deepEqual(await ports.drafts.read(), []);
 });
 
@@ -119,6 +123,21 @@ test('discarding a draft during reverification prevents its submission or resurr
   assert.deepEqual(await ports.drafts.read(), []);
 });
 
+test('replacing a draft with the same id during reverification preserves the replacement', async () => {
+  const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
+  const replacement = { ...draft, createdAt: draft.createdAt + 1, title: 'Replacement' };
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    await ports.drafts.update(() => [replacement]);
+    return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } };
+  };
+  const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(answer.ok, false);
+  assert.match(answer.text, /discarded/);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
+  assert.deepEqual(await ports.drafts.read(), [replacement]);
+});
+
 test('a malformed reverification response cannot submit or replace a draft', async () => {
   for (const data of [
     { ok: false, error: 'execution_failed' },
@@ -128,7 +147,6 @@ test('a malformed reverification response cannot submit or replace a draft', asy
     { ok: true, publishable: true, assets: [null, null], publish_receipt: RECEIPT },
     { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: [] },
     { ok: true, publishable: true, assets: [GENE, GENE], publish_receipt: RECEIPT },
-    { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: { version: 'publish-binding.v1' } },
   ]) {
     const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
     ports.proxy.request = async (method, path) => { requests.push({ path }); return { ok: true, data }; };
