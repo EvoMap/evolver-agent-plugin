@@ -207,7 +207,7 @@ for (const [count, replace] of [[1, false], [25, false], [25, true]]) test(`a co
 });
 
 for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other session', 'discarded draft']) {
-  test(`draft compensation preserves a same-id ${other} only when it is not the corrected candidate`, async () => {
+  test(`draft compensation never restores a displaced draft and preserves concurrent replacements (${other})`, async () => {
     const { ports } = await withCandidate({ model: modelAnswering(GENE) });
     const candidate = (await ports.candidates.read()).s1;
     const previous = { id: DRAFTED.distill_id, title: 'Earlier method', createdAt: ports.clock.now(), sessionId: 's1' };
@@ -230,7 +230,7 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
       return written;
     };
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped');
-    const expected = other === 'same candidate' || other === 'discarded draft' ? [] : [other === 'legacy draft' ? previous : replacement];
+    const expected = other === 'newer turn' || other === 'other session' ? [replacement] : [];
     assert.deepEqual(await ports.drafts.read(), [before, ...expected, after]);
   });
 }
