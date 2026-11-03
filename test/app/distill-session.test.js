@@ -9,7 +9,7 @@ import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { IDLE_DISTILL_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -135,10 +135,18 @@ test('a candidate dropped by a correction while the model answers is not posted'
   assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
 });
 
-test('a failing headless model keeps the candidate, and three failed tries give it up', async () => {
-  const { ports } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
+test('a failing headless model keeps the candidate, tries again only after a doubling wait, and three failed tries give it up', async () => {
+  const { ports, advance } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  for (let attempt = 1; attempt <= 3; attempt += 1) assert.equal((await distillDue(ports))[0].status, 'model_failed');
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
+  advance(RETRY_BASE_MS - 1);
+  assert.deepEqual(await distillDue(ports), [], 'the first retry waits its delay');
+  advance(1);
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
+  advance(RETRY_BASE_MS);
+  assert.deepEqual(await distillDue(ports), [], 'the second wait is twice as long');
+  advance(RETRY_BASE_MS);
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 

@@ -13,7 +13,7 @@ them is in `hosts/README.md`):
 
 | Command | Purpose |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts. |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts; where the Proxy reports it, its background publishing: whether its verifier is available and why not, how many Genes await verification or were published, and the last attempt's result. |
 | `/evolver-login` | Sign in to the EvoMap Hub: set Evolver up when its Proxy does not answer, start `evolver login` in the background and answer its link and code; once approved, the node the Proxy registered. |
 | `/evolver-search <task or error text>` | Find the best matching strategy or Recipe. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
 | `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
@@ -122,8 +122,8 @@ head, diff?, diff_truncated? }`) for a git work tree; a diff that would push the
 left out and marked truncated. A reuse report refused for `evidence_too_large` (a Proxy older than the check list)
 is sent again without `checks`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
 and answers the Gene and Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes
-or discards it with `evolver-drafts`. A correction while the model answers stops the post; a candidate is retried at
-the next session start and given up after three failed tries, and one no model here can take waits a day for an
+or discards it with `evolver-drafts`. A correction while the model answers stops the post; a failed candidate is tried
+again in the background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and one no model here can take waits a day for an
 agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
 inside it. An agent with no model outside the conversation writes the Gene itself when asked.
 

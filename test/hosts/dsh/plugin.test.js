@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  ASSET, DSH, PROMPT, bash, fakeLlm, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
+  ASSET, DSH, PROMPT, bash, elapseRetryWaits, fakeLlm, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
 } from './host.js';
 
 const fetches = (proxy) => requestsTo(proxy, '/asset/fetch');
@@ -123,6 +123,8 @@ test('the plugin\'s unload ends the open sessions; the next dsh process distills
   assert.equal(aborted.evidence.aborted, true);
   assert.equal(aborted.outcome, 'failed');
 
+  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[done.session.id]?.attempts === 1, 'the try without a model service to count');
+  elapseRetryWaits(proxy);
   const llm = fakeLlm();
   const next = await startDsh({ llm });
   await next.createAgent();

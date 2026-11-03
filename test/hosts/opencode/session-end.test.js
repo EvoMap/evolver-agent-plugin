@@ -68,7 +68,7 @@ test('the helper session triggers none of this plugin\'s own work', async (t) =>
   assert.equal(reportsOf(proxy).length, 1);
 });
 
-test('a distillation the model failed keeps the candidate, and the next session start retries it', async (t) => {
+test('a distillation the model failed keeps the candidate, and a session start once its retry wait is over retries it', async (t) => {
   const { oc, proxy, client, stores } = await harness(t, { answer: 'not json' });
   await verifiedTurn(oc, 'ses_f');
   await deleted(oc, 'ses_f');
@@ -79,6 +79,8 @@ test('a distillation the model failed keeps the candidate, and the next session 
   assert.deepEqual(distills(proxy), []);
   assert.equal(callsNamed(client, 'delete').length, 1, 'the helper session is removed');
 
+  assert.ok(kept.retryAt > Date.now(), 'the next try waits');
+  await stores.candidates.update((pending) => ({ ...pending, ses_f: { ...pending.ses_f, retryAt: 0 } }));
   client.answer = JSON.stringify({ title: 'Retry', summary: 'Retry Redis connections deterministically.' });
   await oc.prompt('ses_next', 'what does this repo do?');
   await until(() => distills(proxy).length === 1, 'the retry');
