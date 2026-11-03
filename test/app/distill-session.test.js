@@ -152,7 +152,7 @@ test('a correction while an agent Gene request is pending discards its late draf
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
-for (const [count, replace] of [[1, false], [20, false], [20, true]]) test(`a correction crossing a draft write keeps ${count} earlier drafts${replace ? ' and a concurrent same-id replacement' : ''}`, async () => {
+for (const [count, replace] of [[1, false], [25, false], [25, true]]) test(`a correction crossing a draft write keeps ${count} earlier drafts${replace ? ' and a concurrent same-id replacement' : ''}`, async () => {
   const { ports } = await withCandidate({ model: modelAnswering(GENE) });
   const kept = Array.from({ length: count }, (_, index) => ({ id: `earlier-${index}`, title: 'Keep this method', createdAt: ports.clock.now() }));
   await ports.drafts.update(() => kept);
@@ -191,7 +191,9 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
     if (other === 'same candidate') previous.sourceCandidate = { at: candidate.at, turn: candidate.turn };
     const replacement = { ...previous, title: 'Concurrent method', sourceCandidate: { at: candidate.at, turn: candidate.turn + 1 } };
     if (other === 'other session') Object.assign(replacement, { sessionId: 's2', sourceCandidate: { at: candidate.at, turn: candidate.turn } });
-    await ports.drafts.update(() => [previous]);
+    const before = { ...previous, id: 'before' };
+    const after = { ...previous, id: 'after' };
+    await ports.drafts.update(() => [before, previous, after]);
     const update = ports.drafts.update;
     let firstWrite = true;
     ports.drafts.update = async (mutate) => {
@@ -199,14 +201,14 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
       if (firstWrite) {
         firstWrite = false;
         await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-        if (other === 'newer turn' || other === 'other session') await update(() => [replacement]);
-        if (other === 'discarded draft') await update(() => []);
+        if (other === 'newer turn' || other === 'other session') await update(() => [before, replacement, after]);
+        if (other === 'discarded draft') await update(() => [before, after]);
       }
       return written;
     };
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped');
     const expected = other === 'same candidate' || other === 'discarded draft' ? [] : [other === 'legacy draft' ? previous : replacement];
-    assert.deepEqual(await ports.drafts.read(), expected);
+    assert.deepEqual(await ports.drafts.read(), [before, ...expected, after]);
   });
 }
 
