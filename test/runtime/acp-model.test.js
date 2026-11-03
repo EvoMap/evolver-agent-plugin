@@ -11,6 +11,7 @@ import { createConnection } from 'node:net';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { declarationFor } from '../fixtures/acp/declaration.mjs';
 import { CHILD_FILE, OWNER_FILE } from '../../lib/runtime/process/acp-child.js';
+import { windowsJobExecutable } from '../../lib/runtime/process/windows-job.js';
 
 const SECRET = 'fixture-private-api-key-NOT-A-REAL-CREDENTIAL';
 
@@ -299,7 +300,7 @@ try {
 } finally { $keeper.Dispose() }
 `], { windowsHide: true, timeout: 5000, stdio: 'pipe', env: {
       SystemRoot: system, WINDIR: system, EVOLVER_TEST_KEEPER_PID: String(job.child.helperPid), EVOLVER_TEST_GUARDIAN_PID: String(job.child.guardianPid),
-      EVOLVER_TEST_KEEPER_IMAGE: powershell, EVOLVER_TEST_KEEPER_SCRIPT: join(job.home, '.evolver-job.ps1'),
+      EVOLVER_TEST_KEEPER_IMAGE: windowsJobExecutable(), EVOLVER_TEST_KEEPER_SCRIPT: join(job.home, '.evolver-job.ps1'),
     } });
     await rejected;
     await assertUnprovenFixtureJobStopped(job);
