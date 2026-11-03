@@ -89,14 +89,14 @@ test('a draft needs a passing quality gate and both assets', () => {
 
 test('drafts are deduplicated by id and retained until explicitly removed', () => {
   const draft = (id, createdAt = 0) => ({ id, title: id, summary: '', assets: [], createdAt });
-  const once = withDraft(withDraft([], draft('a'), 0), draft('a', 1), 1);
+  const once = withDraft(withDraft([], draft('a')), draft('a', 1));
   assert.deepEqual(once.map((d) => d.createdAt), [1]);
-  const many = Array.from({ length: 25 }, (_, i) => draft(`d${i}`)).reduce((list, d) => withDraft(list, d, 0), []);
+  const many = Array.from({ length: 25 }, (_, i) => draft(`d${i}`)).reduce((list, d) => withDraft(list, d), []);
   assert.equal(many.length, 25);
   assert.equal(many[0].id, 'd0');
   const later = 9 * 24 * 60 * 60 * 1000;
-  assert.deepEqual(withDraft([draft('old')], draft('new', later), later).map((d) => d.id), ['old', 'new']);
-  assert.deepEqual(withoutDraft([draft('a'), draft('b')], 'a', 0).map((d) => d.id), ['b']);
+  assert.deepEqual(withDraft([draft('old')], draft('new', later)).map((d) => d.id), ['old', 'new']);
+  assert.deepEqual(withoutDraft([draft('a'), draft('b')], 'a').map((d) => d.id), ['b']);
 });
 
 test('a draft is named by its list number or a unique id prefix', () => {

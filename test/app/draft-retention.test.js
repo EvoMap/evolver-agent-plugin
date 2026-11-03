@@ -12,7 +12,7 @@ test('adding and listing drafts preserves old, legacy and more than twenty unrev
   await ports.drafts.update(() => earlier);
   await ports.clock.sleep(9 * 24 * 60 * 60 * 1000);
   const added = { id: 'new', title: 'New method', summary: '', assets: [], createdAt: ports.clock.now() };
-  await ports.drafts.update(list => withDraft(list, added, ports.clock.now()));
+  await ports.drafts.update((list) => withDraft(list, added));
   const list = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts' });
   assert.match(list.text, /27 distilled drafts waiting/);
   assert.match(list.text, /1\. Old method 0/);
