@@ -18,7 +18,7 @@ test('check names in arguments, quoted data and comments are not executions', ()
     'echo "npm test"', 'echo npm test', 'printf "%s\\n" "make"', 'rg pytest README.md',
     'node -e "console.log(\'npm test\')"', 'git status # npm test', '# npm test\npwd',
     'echo "notes; npm test"', "printf 'notes\nnpm test\n'", 'echo `pwd; npm test`',
-    'npx echo npm test', 'npm exec echo "npm test"',
+    'npx echo npm test', 'timeout --signal TERM 60 echo npm test', 'sudo -n echo npm test', 'npm exec echo "npm test"',
     'echo # note; npm test', 'echo bash -c "npm test"', 'bash -c "echo npm test"', 'echo $(printf x; npm test)', 'echo $(echo $(printf x); npm test)',
   ]) {
     assert.equal(isVerificationCommand(command), false, command);
@@ -31,7 +31,7 @@ test('command positions in chains, pipelines, environment assignments and npx wr
     'npx --yes vitest run', 'npx --package=typescript tsc -p .', 'npx --package typescript tsc -p .',
     'echo "notes; npm test"\nnode --test', 'curl http://x/#f && npm test', 'git log --format=%h#%s; npm test',
     'cd $(git rev-parse --show-toplevel) && npm test', 'cd $(echo "$(pwd)") && npm test',
-    'bash -c "npm test"', "sh -c 'cd app && npm test'", 'timeout 60 npm test', 'sudo npm test', 'time npm test', 'nohup npm test', 'env -i npm test',
+    'bash -c "npm test"', "sh -c 'cd app && npm test'", 'timeout 60 npm test', 'timeout --signal=TERM 60 npm test', 'sudo npm test', 'sudo -n npm test', 'time npm test', 'time -p npm test', 'nohup npm test', 'env -i npm test',
     'yarn vitest', 'bunx vitest', 'python -m pytest', 'uv run pytest', 'poetry run pytest',
     '{ npm test; }', 'if true; then npm test; fi', 'C:\\tools\\make.exe',
   ]) {
