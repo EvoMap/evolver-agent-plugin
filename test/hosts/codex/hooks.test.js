@@ -139,7 +139,7 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
     outcome: 'success',
     task_id: 'codex:s-turn:1',
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed after failing earlier.',
-    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, aborted: false, stage: 'immediate' },
+    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, checks: [{ command: 'npm test', exit: 1 }, { command: 'npm test 2>&1 | tail -5', exit: 0 }], source: 'observed', aborted: false, stage: 'immediate' },
   });
   const candidate = pending()['s-turn'];
   assert.deepEqual(candidate.model, { model: 'gpt-5.5' });

@@ -30,7 +30,7 @@ test('a recalled strategy ends with the spec line, and its turn end reports it w
   assert.equal(ended.reports.length, 1);
   assert.equal(ended.reports[0].task_id, 'testagent:s1:1');
   assert.equal(ended.reports[0].outcome, 'success');
-  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, checks: [{ command: 'npm test', exit: 0 }], source: 'observed', aborted: false, stage: 'immediate' });
   assert.deepEqual(queued.map(({ report }) => report.task_id), ['testagent:s1:1']);
   assert.ok(scheduled.includes('drain'));
 });
@@ -97,7 +97,7 @@ test('a check still running at turn end counts as not run; a later note with its
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c2' } });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1, callId: 'c2' } });
   const { record } = await end(ports, 's1');
-  assert.deepEqual(record.checks, [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(record.checks, [{ command: 'npm test', exit: 1, failed: true }]);
   assert.deepEqual(record.commands, ['npm test']);
 });
 
@@ -105,9 +105,8 @@ test('an agent-reported turn counts as exposure only', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   const recordOf = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer: '' });
-  const [report] = (await end(ports, 's1', { recordOf, source: 'agent_reported' })).reports;
-  assert.equal(report.evidence.tier, 'none');
-  assert.equal(report.evidence.reported_by, 'agent');
+  const [report] = (await end(ports, 's1', { recordOf, source: AGENT_REPORTED })).reports;
+  assert.deepEqual([report.evidence.tier, report.evidence.reported_by, report.evidence.source], ['none', 'agent', 'reported']);
   assert.match(report.reason, /as the agent reported it\.$/);
 });
 
@@ -236,7 +235,7 @@ test('a note that raced past the open-turn check is still kept out of the next t
   await ports.notes.append('s1', { kind: 'shell', command: 'npm test', exit: 1, turnId: 'g1' });
   await toolFinished(ports, { sessionId: 's1', turnId: 'g2', note: { kind: 'shell', command: 'npm run lint', exit: 0 } });
   const { record } = await end(ports, 's1', { turnId: 'g2' });
-  assert.deepEqual(record.checks, [{ command: 'npm run lint', failed: false }]);
+  assert.deepEqual(record.checks, [{ command: 'npm run lint', exit: 0, failed: false }]);
 });
 
 test('a session end naming a turn id the session never opened (an intercepted command) still ends it', async () => {

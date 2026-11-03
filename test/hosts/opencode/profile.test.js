@@ -31,7 +31,7 @@ test('a bash check passes or fails on its exit code, and on failure output a `| 
 
 test('a check the person interrupted gives no verdict, while one its timeout killed failed', () => {
   assert.deepEqual(checksOf(bash.interrupted), []);
-  assert.deepEqual(checksOf(bash.timedOut), [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(checksOf(bash.timedOut), [{ command: 'npm test', exit: 124, failed: true }]);
   const record = turnRecordOf([note({ tool: 'bash', args: { command: 'npm test' }, result: bash.interrupted })]);
   assert.deepEqual(record.commands, ['npm test']);
 });

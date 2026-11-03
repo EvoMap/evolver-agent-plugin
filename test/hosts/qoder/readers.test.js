@@ -56,9 +56,9 @@ test('a finished Bash call carries its exit code and output; a failed one its ex
 test('the same calls running a test suite are a check that failed, then passed; a missing test runner fails it', () => {
   const asSuite = (name) => qoder.evidence.toolNote({ ...payload(name), tool_input: { command: 'node --test' } }, { hostEvent: payload(name).hook_event_name });
   const record = turnRecordOf([asSuite('PostToolUseFailure.Bash.exit1'), noteOf('PostToolUse.Edit'), asSuite('PostToolUse.Bash.passed')]);
-  assert.deepEqual(record.checks, [{ command: 'node --test', failed: true }, { command: 'node --test', failed: false }]);
+  assert.deepEqual(record.checks, [{ command: 'node --test', exit: 1, failed: true }, { command: 'node --test', exit: 0, failed: false }]);
   assert.deepEqual(turnRecordOf([noteOf('PostToolUseFailure.Bash.exit1')]).checks, [], 'sh check.sh is no check the plugin knows');
-  assert.deepEqual(turnRecordOf([noteOf('PostToolUseFailure.Bash.exit127')]).checks, [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(turnRecordOf([noteOf('PostToolUseFailure.Bash.exit127')]).checks, [{ command: 'npm test', exit: 127, failed: true }]);
   assert.deepEqual(turnRecordOf([noteOf('PostToolUseFailure.Bash.timeout')]).commands, ['sleep 5']);
 });
 
@@ -77,7 +77,7 @@ test('a tool response given as text, as the Qoder IDE documents it, is judged by
   const failing = 'not ok 1 - readme\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n# fail 1\n';
   const asText = { ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: failing };
   assert.deepEqual(qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' }), { kind: 'shell', command: 'npm test', exit: null, output: failing });
-  assert.deepEqual(turnRecordOf([qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' })]).checks, [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(turnRecordOf([qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' })]).checks, [{ command: 'npm test', exit: 1, failed: true }]);
 });
 
 test('an Edit or Write that succeeded edits its file, by the lines its input names; one that failed only names it', () => {

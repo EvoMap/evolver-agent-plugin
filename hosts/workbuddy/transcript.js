@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
+import { CHECK_COMMAND_MAX_CHARS, checkExitOf } from '../../lib/turn/record.js';
 import { isVerificationCommand, verificationFailed } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
@@ -9,7 +10,6 @@ import { isVerificationCommand, verificationFailed } from '../../lib/verificatio
 export const EDIT_TOOLS = Object.freeze(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
-const CHECK_COMMAND_MAX_CHARS = 200;
 const EXIT_CODE = /^Exit Code: (-?\d+)/m;
 const TOOL_ERROR = /^\s*(?:Error\b|<tool_use_error>)/;
 const MARK_BYTES = 256;
@@ -83,11 +83,21 @@ const shellOutputOf = (text) => {
   return stdout === -1 ? text : text.slice(stdout);
 };
 
+const exitCodeOf = (result) => {
+  const exit = EXIT_CODE.exec(result.text);
+  return exit ? Number(exit[1]) : null;
+};
+
 function shellFailed(result) {
   if (result.status !== 'completed') return true;
-  const exit = EXIT_CODE.exec(result.text);
-  if (exit && Number(exit[1]) !== 0) return true;
+  const exit = exitCodeOf(result);
+  if (exit !== null && exit !== 0) return true;
   return verificationFailed({ text: shellOutputOf(result.text) });
+}
+
+function checkOf(call) {
+  const failed = shellFailed(call.result);
+  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: checkExitOf(exitCodeOf(call.result), failed), failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
@@ -122,7 +132,7 @@ export function turnActivityOf(records) {
     edits: calls.filter((call) => EDIT_TOOLS.includes(call.name) && editSucceeded(call.result)).map((call) => editedPathOf(call.args)).filter(Boolean),
     checks: calls
       .filter((call) => isCheck(call) && call.result)
-      .map((call) => ({ command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), failed: shellFailed(call.result) })),
+      .map(checkOf),
     answer: answerOf(records),
   };
 }

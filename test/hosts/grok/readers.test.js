@@ -54,7 +54,7 @@ test('a call grok moves to the background has no verdict until its task\'s outpu
   const output = noteOf('PostToolUse.get_command_or_subagent_output');
   assert.deepEqual(output, { kind: 'shell', command: 'sleep 2; npm test', exit: 1, output: '\n> test\n> sh check.sh\n\n1 failing\n', callId: 'call_3' });
   const record = turnRecordOf([noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput'), output]);
-  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', failed: true }]);
+  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', exit: 1, failed: true }]);
   assert.deepEqual(record.commands, ['sleep 2; npm test'], 'its output is the same command, not a second one');
   const stillRunning = { ...payload('PostToolUse.get_command_or_subagent_output') };
   stillRunning.toolResult = { ...stillRunning.toolResult, Result: { ...stillRunning.toolResult.Result, status: 'running', exit_code: null } };

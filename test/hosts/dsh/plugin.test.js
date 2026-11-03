@@ -55,12 +55,12 @@ test('a verified turn is reported with its last check and becomes the session\'s
   assert.equal(report.task_id, `dsh:${DSH.agentCreated.startup.sessionId}:1`);
   assert.equal(report.asset_id, ASSET.asset_id);
   assert.equal(report.outcome, 'success');
-  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, checks: [{ command: 'npm test 2>&1 | tail -5', exit: 0 }], source: 'observed', aborted: false, stage: 'immediate' });
   await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the candidate');
   const candidate = stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id];
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { provider: 'deepseek-official', model: 'deepseek-flash' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: 0, failed: false }]);
   assert.equal(candidate.answer, 'Set maxRetriesPerRequest to null; the suite passes.');
   assert.equal(candidate.pid, process.pid);
 });

@@ -37,7 +37,7 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 |---|---|---|
 | `proxy_port` | `$EVOMAP_PROXY_PORT`, then `19820` | Fallback Proxy port. |
 | `recall_enabled` | `true` | Recall one strategy per prompt. |
-| `auto_distill` | `true` | Distill the session's last verified turn after the session ends, with one completion on your plan. `/evolver-distill` works either way. |
+| `auto_distill` | `true` | Distill the session's last verified turn once the session has been quiet for 30 minutes or ends, with one completion on your plan. `/evolver-distill` works either way. |
 | `node_path` | `node` | The Node.js 22.13+ that runs the relay. |
 
 ## Troubleshooting
@@ -56,7 +56,8 @@ State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every fi
   at every turn end and session start for 8 days.
 - **No draft after a verified turn.** A turn is a candidate only when it answered, its last test, build, lint or
   type-check passed, and it edited files or ran three commands; the candidate waits in `<host>-distill-pending.json`
-  until its session ends. `/evolver-status` says whether one is waiting.
+  until its session has been quiet for 30 minutes (no prompt, no turn end) or ends, and some hook event of that
+  host comes along to start the background worker. `/evolver-status` says whether one is waiting.
 - **Claude Code: installed, but no recall or turn summary.** Check `claude plugin list` shows it enabled and that
   Claude Code is 2.1.286 or newer. Hooks modules of installed plugins are behind a Claude Code rollout flag
   (`tengu_plugin_hooks_modules`); a `--plugin-dir` working copy always loads them. The relay needs `node` on the
@@ -108,15 +109,18 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
 | Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy`, `recallWhenStuck` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. Where a tool result's context reaches the model (`toolResultContext`, or a `tool-result` host), a failed test, build, lint or type-check recalls again, once per distinct failure and twice a turn at most, with a query built from its output and the turn's edits; a strategy that lands within the tool result's budget is added to that result and booked. |
-| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
+| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks), with the turn's last 20 checks as `{ command, exit }` and their `source` (`observed` by the host, `reported` by the agent). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate, with its checks' exit codes and, in a git work tree, the tree's root, HEAD and diff against HEAD (untracked files included, up to 256 KiB, taken within 1 s). It schedules distillation when a candidate is due. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
 **State** lives in one directory per host, every file named `<host>-<kind>`. Writes go through an exclusive lock with
 dead-owner takeover; hooks only append reports to a queue, and one process at a time owns the outbox.
 
-**Distillation** happens once a session, after it ends, outside the conversation: the host's model gets a digest of
+**Distillation** happens outside the conversation once the session has been quiet for 30 minutes after its candidate (a prompt that is no correction, or a turn end, starts the wait again; a session found quiet at a prompt stays due) or has ended; every prompt and turn end, besides a session's start and end, starts the background worker when a candidate is due. The host's model gets a digest of
 the candidate turn, may answer `{"skip": …}`, and the Gene goes to `POST /conversation/distill` with
-`trigger: session_end`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
+`trigger: idle` or `session_end`, `execution.trace` as `{ command, exit, source }` per check, and `project` (`{ root,
+head, diff?, diff_truncated? }`) for a git work tree; a diff that would push the body past the Proxy's 256 KiB is
+left out and marked truncated. A reuse report refused for `evidence_too_large` (a Proxy older than the check list)
+is sent again without `checks`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
 and answers the Gene and Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes
 or discards it with `evolver-drafts`. A correction while the model answers stops the post; a candidate is retried at
 the next session start and given up after three failed tries, and one no model here can take waits a day for an

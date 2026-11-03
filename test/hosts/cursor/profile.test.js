@@ -49,7 +49,7 @@ test('a failed Shell call fails its check on an exit or a timeout; an interrupt 
   assert.deepEqual(noteOf('postToolUseFailure.backgrounded'), { kind: 'tool', command: 'npm test', paths: [] });
   assert.equal(noteOf('postToolUseFailure.denied'), null);
   const record = turnRecordOf(['postToolUseFailure.exit', 'postToolUseFailure.interrupted', 'postToolUse.shellPassed'].map(noteOf));
-  assert.deepEqual(record.checks, [{ command: 'npm test', failed: true }, { command: 'npm test', failed: false }]);
+  assert.deepEqual(record.checks, [{ command: 'npm test', exit: 1, failed: true }, { command: 'npm test', exit: 0, failed: false }]);
 });
 
 test('the final answer of afterAgentResponse travels as a note of its own', () => {
