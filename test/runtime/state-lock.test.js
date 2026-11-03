@@ -120,14 +120,14 @@ test('a refused dead-owner reclaim obeys the same bounded wait without calling t
     import fs from 'node:fs';
     import { updateState } from ${JSON.stringify(RUNTIME)};
     const [target, lock] = process.argv.slice(1);
-    const rename = fs.renameSync;
+    const unlink = fs.unlinkSync;
     let reclaims = 0;
-    fs.renameSync = (source, destination) => {
-      if (source === lock && destination.endsWith('.reclaimed')) {
+    fs.unlinkSync = (file) => {
+      if (String(file) === lock) {
         reclaims += 1;
         throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
       }
-      return rename(source, destination);
+      return unlink(file);
     };
     let called = false;
     try { updateState(target, {}, () => { called = true; return {}; }); }
@@ -165,7 +165,7 @@ test('three state updaters preserve every increment while recovering one dead fi
     import fs from 'node:fs';
     import path from 'node:path';
     import { updateState } from ${JSON.stringify(RUNTIME)};
-    const [dir, target, lock, role, dead] = process.argv.slice(1);
+    const [dir, target, lock, role] = process.argv.slice(1);
     const marker = (name) => path.join(dir, name);
     const wait = (name) => {
       const deadline = Date.now() + 10000;
@@ -186,9 +186,6 @@ test('three state updaters preserve every increment while recovering one dead fi
         paused = true;
         fs.writeFileSync(marker('A-read-dead'), '');
         wait('A-resume');
-      } else if (role === 'A' && String(file).startsWith(lock + '.') && String(file).endsWith('.reclaimed') && result !== dead) {
-        fs.writeFileSync(marker('A-moved-fresh'), '');
-        wait('C-entered');
       }
       return result;
     };
@@ -216,7 +213,7 @@ test('three state updaters preserve every increment while recovering one dead fi
   `;
   const children = [];
   const run = (role) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, target, lock, role, dead]);
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, target, lock, role]);
     let stderr = '';
     child.stderr.on('data', (data) => { stderr += data; });
     children.push(new Promise((resolve) => child.on('close', (code) => resolve({ code, stderr }))));
@@ -241,17 +238,11 @@ test('three state updaters preserve every increment while recovering one dead fi
   await until(() => existsSync(marker('A-read-dead')));
   writeFileSync(marker('B-start'), '');
   await until(() => existsSync(marker('B-entered')) || existsSync(marker('B-guard-busy')));
-  const unguarded = existsSync(marker('B-entered'));
+  assert.equal(existsSync(marker('B-entered')), false, 'the competing process waits for admission');
   writeFileSync(marker('A-resume'), '');
-  if (unguarded) {
-    await until(() => existsSync(marker('A-moved-fresh')));
-    writeFileSync(marker('C-start'), '');
-    await until(() => existsSync(marker('C-entered')));
-  } else {
-    await until(() => ['A', 'B'].some((role) => existsSync(marker(role + '-entered'))));
-    writeFileSync(marker('C-start'), '');
-    await until(() => existsSync(marker('C-attempted')) || existsSync(marker('C-guard-busy')));
-  }
+  await until(() => ['A', 'B'].some((role) => existsSync(marker(role + '-entered'))));
+  writeFileSync(marker('C-start'), '');
+  await until(() => existsSync(marker('C-attempted')) || existsSync(marker('C-guard-busy')));
   writeFileSync(marker('release'), '');
   const results = await Promise.all(children);
   assert.ok(results.every(({ code }) => code === 0), JSON.stringify(results));
