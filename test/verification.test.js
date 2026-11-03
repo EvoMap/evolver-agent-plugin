@@ -19,7 +19,7 @@ test('check names in arguments, quoted data and comments are not executions', ()
     'node -e "console.log(\'npm test\')"', 'git status # npm test', '# npm test\npwd',
     'echo "notes; npm test"', "printf 'notes\nnpm test\n'", 'echo `pwd; npm test`',
     'npx echo npm test', 'npm exec echo "npm test"',
-    'echo $(printf x; npm test)', 'echo $(echo $(printf x); npm test)',
+    'echo # note; npm test', 'echo $(printf x; npm test)', 'echo $(echo $(printf x); npm test)',
   ]) {
     assert.equal(isVerificationCommand(command), false, command);
   }
@@ -29,7 +29,11 @@ test('command positions in chains, pipelines, environment assignments and npx wr
   for (const command of [
     'sleep 2; node --test', 'npm test 2>&1 | tail -5', 'CI=1 npm test', 'env CI=1 npm test',
     'npx --yes vitest run', 'npx --package=typescript tsc -p .', 'npx --package typescript tsc -p .',
-    'echo "notes; npm test"\nnode --test',
+    'echo "notes; npm test"\nnode --test', 'curl http://x/#f && npm test', 'git log --format=%h#%s; npm test',
+    'cd $(git rev-parse --show-toplevel) && npm test', 'cd $(echo "$(pwd)") && npm test',
+    'timeout 60 npm test', 'sudo npm test', 'time npm test', 'nohup npm test', 'env -i npm test',
+    'yarn vitest', 'bunx vitest', 'python -m pytest', 'uv run pytest', 'poetry run pytest',
+    '{ npm test; }', 'if true; then npm test; fi', 'C:\\tools\\make.exe',
   ]) {
     assert.equal(isVerificationCommand(command), true, command);
   }
