@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  DRAFTS_TTL_MS, distillPromptOf, distillRequestOf, draftNamed, draftOf, draftsListText, isDistillableTurn, lessonOf, skipReasonOf,
+  distillPromptOf, distillRequestOf, draftNamed, draftOf, draftsListText, isDistillableTurn, lessonOf, skipReasonOf,
   submitRequestOf, withDraft, withoutDraft,
 } from '../lib/distill.js';
 
@@ -67,6 +67,15 @@ test('the request keeps each check once, as its last run, only project-relative 
   assert.equal(body.platform, 'codex', 'the host is the caller\'s, never assumed');
 });
 
+test('the last unknown run replaces an earlier pass without inventing a successful trace row', () => {
+  const { body } = distillRequestOf({ lesson: LESSON,
+    checks: [{ command: 'npm test', failed: false }, { command: 'npm test', failed: null }, { command: 'tsc', failed: false }], paths: [],
+    sessionId: 's1', platform: 'codex',
+  });
+  assert.deepEqual(body.execution.trace, [{ command: 'tsc', exit: 0 }]);
+  assert.deepEqual(body.validation, ['tsc']);
+});
+
 const RESULT = {
   ok: true,
   distill_id: 'abc123',
@@ -87,15 +96,16 @@ test('a draft needs a passing quality gate and both assets', () => {
   assert.equal(skipReasonOf({ ok: true, quality: { ok: false, reason: 'insufficient_reusable_signal' } }), 'insufficient_reusable_signal');
 });
 
-test('drafts are deduplicated by id, capped, and expire', () => {
+test('drafts are deduplicated by id and retained until explicitly removed', () => {
   const draft = (id, createdAt = 0) => ({ id, title: id, summary: '', assets: [], createdAt });
-  const once = withDraft(withDraft([], draft('a'), 0), draft('a', 1), 1);
+  const once = withDraft(withDraft([], draft('a')), draft('a', 1));
   assert.deepEqual(once.map((d) => d.createdAt), [1]);
-  const many = Array.from({ length: 25 }, (_, i) => draft(`d${i}`)).reduce((list, d) => withDraft(list, d, 0), []);
-  assert.equal(many.length, 20);
-  assert.equal(many[0].id, 'd5');
-  assert.deepEqual(withDraft([draft('old')], draft('new', DRAFTS_TTL_MS + 1), DRAFTS_TTL_MS + 1).map((d) => d.id), ['new']);
-  assert.deepEqual(withoutDraft([draft('a'), draft('b')], 'a', 0).map((d) => d.id), ['b']);
+  const many = Array.from({ length: 25 }, (_, i) => draft(`d${i}`)).reduce((list, d) => withDraft(list, d), []);
+  assert.equal(many.length, 25);
+  assert.equal(many[0].id, 'd0');
+  const later = 9 * 24 * 60 * 60 * 1000;
+  assert.deepEqual(withDraft([draft('old')], draft('new', later)).map((d) => d.id), ['old', 'new']);
+  assert.deepEqual(withoutDraft([draft('a'), draft('b')], 'a').map((d) => d.id), ['b']);
 });
 
 test('a draft is named by its list number or a unique id prefix', () => {

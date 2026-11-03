@@ -39,6 +39,8 @@ test('the prompt and the project are read off the payload; a subagent\'s event i
 });
 
 test('a shell result carries its exit code; failure then pass reads as a fixed check', () => {
+  const unknown = grok.evidence.toolNote({ ...payload('PostToolUse.run_terminal_command.passed'), toolInput: { command: 'npm test' }, toolResult: { type: 'Bash', output_for_prompt: 'done' } });
+  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', failed: null }]);
   const failed = noteOf('PostToolUse.run_terminal_command.failed');
   assert.deepEqual(failed, { kind: 'shell', command: 'sh check.sh', exit: 1, output: '1 failing: README not fixed\n', callId: 'call_3' });
   assert.deepEqual(noteOf('PostToolUse.run_terminal_command.exit3'), { kind: 'shell', command: 'sleep 1; exit 3', exit: 3, output: '', callId: 'call_18' });
