@@ -74,19 +74,22 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
   if (version !== undefined && (!validVersion(version) || !['install', 'update'].includes(operation))) throw new Error('Version must be X.Y.Z or X.Y.Z-prerelease for install/update.');
   const root = resolve(home), plugins = join(root, 'plugins'), managed = join(plugins, 'managed'), target = join(managed, 'evolver-plugin');
   for (const dir of [root, plugins, managed, target]) ordinaryDirectory(dir);
-  const registryFile = join(plugins, 'installed.json'), registry = registryOf(registryFile), own = ownEntry(registry, target), previous = packageOf(target);
+  const registryFile = join(plugins, 'installed.json');
+  if (operation === 'remove' && !dryRun) return underInstallLock(plugins, () => {
+    const packageRetained = Boolean(packageOf(target));
+    updateState(registryFile, { version: 1, plugins: [] }, current => {
+      validRegistry(current);
+      if (!ownEntry(current, target)) return undefined;
+      return { ...current, plugins: current.plugins.filter(entry => entry.id !== NAME) };
+    });
+    // Native removal unregisters the plugin and retains its managed bytes.
+    return { installed: false, registered: false, path: target, packageRetained };
+  });
+  const registry = registryOf(registryFile), own = ownEntry(registry, target), previous = packageOf(target);
   const registered = Boolean(own), installed = registered && Boolean(previous);
   if (operation === 'status') return { installed, registered, path: target, ...(previous ? { version: previous.version } : {}), ...(own ? { enabled: own.enabled !== false } : {}) };
   if (operation === 'update' && !installed) throw new Error('Kimi plugin is not installed; use install first.');
   if (dryRun) return { operation, path: target, dryRun: true };
-  if (operation === 'remove') {
-    if (own) underInstallLock(plugins, () => updateState(registryFile, { version: 1, plugins: [] }, current => {
-      validRegistry(current); ownEntry(current, target);
-      return { ...current, plugins: current.plugins.filter(entry => entry.id !== NAME) };
-    }));
-    // Kimi's native remove operation unregisters a local plugin and keeps its managed bytes.
-    return { installed: false, registered: false, path: target, packageRetained: Boolean(previous) };
-  }
   fs.mkdirSync(managed, { recursive: true, mode: 0o700 });
   const stage = fs.mkdtempSync(join(root, '.evolver-install-')), prepared = join(stage, 'package'), backup = join(stage, 'previous');
   let moved = false, activated = false, committed = false, next;

@@ -78,6 +78,29 @@ test('install and update register the managed package while preserving native da
   assert.equal(readFileSync(join(home, 'evolver', 'kimi-distill-drafts.json'), 'utf8'), '[{"title":"unpublished"}]');
 });
 
+test('remove sees a registration committed before it acquires the installer lock', t => {
+  const home = scratch(t);
+  installKimi({ home, version: '1.2.3' });
+  const plugins = join(home, 'plugins');
+  const file = join(plugins, 'installed.json');
+  const guard = join(plugins, '.evolver-plugin-install.lock');
+  const installed = readFileSync(file, 'utf8');
+  writeFileSync(file, '{"version":1,"plugins":[]}');
+  const read = fs.readFileSync;
+  let committed = false;
+  t.mock.method(fs, 'readFileSync', (path, ...args) => {
+    const snapshot = read(path, ...args);
+    if (path !== file || committed) return snapshot;
+    committed = true;
+    writeFileSync(file, installed);
+    return existsSync(guard) ? read(path, ...args) : snapshot;
+  });
+  const removed = installKimi({ home, operation: 'remove' });
+  assert.ok(committed);
+  assert.equal(removed.packageRetained, true);
+  assert.deepEqual(JSON.parse(read(file, 'utf8')).plugins, []);
+});
+
 test('invalid or unreadable registration never becomes an empty registry', t => {
   const home = scratch(t), plugins = join(home, 'plugins'), file = join(plugins, 'installed.json');
   mkdirSync(plugins);
