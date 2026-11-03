@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { updateState } from '../../lib/runtime/store/file-lock.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 
 const RUNTIME = new URL('../../lib/runtime/store/file-lock.js', import.meta.url).href;
 const BUSY = { code: 'ELOCKED', message: 'State is busy or unavailable; no update was made' };
@@ -35,6 +36,44 @@ test('a failed admission release after acquiring a state token lets the next upd
   }
   assert.equal(existsSync(lock), false);
   assert.deepEqual(updateState(target, {}, (state) => ({ count: state.count + 1 })), { count: 1 });
+});
+
+test('a failed acquire rollback keeps its own token recoverable', (t) => {
+  const { target, lock } = scratch(t);
+  const unlink = fs.unlinkSync;
+  fs.unlinkSync = (file) => {
+    if (String(file) === lock || dirname(String(file)) === `${lock}.admission`) {
+      throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+    }
+    return unlink(file);
+  };
+  try {
+    assert.throws(() => updateState(target, {}, () => assert.fail('mutator must not run')), BUSY);
+  } finally {
+    fs.unlinkSync = unlink;
+  }
+  assert.equal(existsSync(lock), true);
+  assert.deepEqual(updateState(target, {}, (state) => ({ count: state.count + 1 })), { count: 1 });
+  assert.equal(existsSync(lock), false);
+});
+
+test('a settled state write stays successful and its stranded token can be reclaimed', (t) => {
+  const { target, lock } = scratch(t);
+  const unlink = fs.unlinkSync;
+  try {
+    assert.deepEqual(updateState(target, {}, (state) => {
+      fs.unlinkSync = (file) => {
+        if (String(file) === lock) throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+        return unlink(file);
+      };
+      return { count: state.count + 1 };
+    }), { count: 1 });
+  } finally {
+    fs.unlinkSync = unlink;
+  }
+  assert.equal(existsSync(lock), true);
+  assert.deepEqual(updateState(target, {}, (state) => ({ count: state.count + 1 })), { count: 2 });
+  assert.equal(existsSync(lock), false);
 });
 
 test('a held state lock never runs an unguarded mutator after its wait expires', (t) => {
@@ -211,27 +250,7 @@ test('three state updaters preserve every increment while recovering one dead fi
       return { count: stored.count + 1 };
     });
   `;
-  const children = [];
-  const run = (role) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, target, lock, role]);
-    let stderr = '';
-    child.stderr.on('data', (data) => { stderr += data; });
-    children.push(new Promise((resolve) => child.on('close', (code) => resolve({ code, stderr }))));
-  };
-  const until = async (condition) => {
-    const deadline = Date.now() + 10000;
-    while (!condition()) {
-      if (Date.now() > deadline) throw new Error('timed out waiting for the state updater');
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  };
-  t.after(async () => {
-    for (const role of ['A', 'B', 'C']) writeFileSync(marker(role + '-start'), '');
-    writeFileSync(marker('A-resume'), '');
-    writeFileSync(marker('release'), '');
-    await Promise.all(children);
-    rmSync(dir, { recursive: true, force: true });
-  });
+  const { run, results } = lockContenders(t, dir, script, [dir, target, lock], ['A-start', 'B-start', 'C-start', 'A-resume', 'release']);
   for (const role of ['A', 'B', 'C']) run(role);
   await until(() => ['A', 'B', 'C'].every((role) => existsSync(marker(role + '-ready'))));
   writeFileSync(marker('A-start'), '');
@@ -244,8 +263,8 @@ test('three state updaters preserve every increment while recovering one dead fi
   writeFileSync(marker('C-start'), '');
   await until(() => existsSync(marker('C-attempted')) || existsSync(marker('C-guard-busy')));
   writeFileSync(marker('release'), '');
-  const results = await Promise.all(children);
-  assert.ok(results.every(({ code }) => code === 0), JSON.stringify(results));
+  const outcomes = await results();
+  assert.ok(outcomes.every(({ code }) => code === 0), JSON.stringify(outcomes));
   assert.equal(existsSync(marker('overlap')), false, 'state mutators never overlap during dead-owner recovery');
   assert.deepEqual(JSON.parse(readFileSync(target, 'utf8')), { count: 3 });
 });

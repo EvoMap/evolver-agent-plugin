@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import childProcess, { spawnSync } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import fs from 'node:fs';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { withLock } from '../../lib/runtime/store/file-lock.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 
 const RUNTIME = new URL('../../lib/runtime/store/file-lock.js', import.meta.url).href;
 const STALE = new Date(0);
@@ -22,14 +24,6 @@ function scratch(t, token = null) {
   return { dir, lock };
 }
 
-async function until(check) {
-  const deadline = Date.now() + 10_000;
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error('timed out waiting for the lock contender');
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 function holdAdmission(lock, pid = process.pid) {
   const admission = `${lock}.admission`;
   const owner = join(admission, `owner-${pid}-deadbeef`);
@@ -37,6 +31,21 @@ function holdAdmission(lock, pid = process.pid) {
   writeFileSync(owner, 'fixture owner');
   return { admission, owner, release: () => { unlinkSync(owner); rmdirSync(admission); } };
 }
+
+test('taking an uncontended lock does not launch a process lookup', async (t) => {
+  const { lock } = scratch(t);
+  let launches = 0;
+  const spawn = childProcess.spawnSync;
+  childProcess.spawnSync = (...args) => { launches += 1; return spawn(...args); };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await withLock(lock, () => {}), true);
+  } finally {
+    childProcess.spawnSync = spawn;
+    syncBuiltinESMExports();
+  }
+  assert.equal(launches, 0);
+});
 
 test('stale legacy and dead-owner directories recover, but a fresh legacy lock stays held', async (t) => {
   const { lock } = scratch(t, 'legacy token');
@@ -150,7 +159,33 @@ test('release refuses an unreadable owner explicitly without claiming cleanup', 
       fs.readFileSync = read;
     }
     assert.equal(readFileSync(owner, 'utf8'), token, code);
+    assert.equal(await withLock(lock, () => {}), true, 'known abandoned work is recoverable after access returns');
   }
+});
+
+test('a stale foreign admission is probed once within the release deadline', async (t) => {
+  const { lock } = scratch(t);
+  const spawn = childProcess.spawnSync;
+  const timeouts = [];
+  try {
+    await assert.rejects(withLock(lock, () => {
+      const guard = holdAdmission(lock, process.ppid);
+      unlinkSync(guard.owner);
+      writeFileSync(join(guard.admission, `owner-${process.ppid}-a1-${Date.now() - 30_000}`), '');
+      utimesSync(guard.admission, STALE, STALE);
+      childProcess.spawnSync = (_command, _args, { timeout }) => {
+        timeouts.push(timeout);
+        return { status: null, stdout: '' };
+      };
+      syncBuiltinESMExports();
+    }), { code: 'ELOCKED' });
+  } finally {
+    childProcess.spawnSync = spawn;
+    syncBuiltinESMExports();
+  }
+  assert.equal(timeouts.length, 1);
+  assert.ok(timeouts[0] > 0 && timeouts[0] <= 1_000);
+  assert.equal(existsSync(lock), true, 'an inconclusive identity probe does not reclaim a live guard');
 });
 
 test('a release failure preserves the original work error', async (t) => {
@@ -289,6 +324,23 @@ test('an admission cleanup failure is surfaced instead of silently orphaning a l
   assert.equal(entered, true);
 });
 
+test('successful work is not reported as failed after its lock was removed', async (t) => {
+  const { lock } = scratch(t);
+  const unlink = fs.unlinkSync;
+  try {
+    assert.equal(await withLock(lock, () => {
+      fs.unlinkSync = (target) => {
+        if (dirname(target) === `${lock}.admission`) throw Object.assign(new Error('fixture cleanup refusal'), { code: 'EPERM' });
+        return unlink(target);
+      };
+    }), true);
+  } finally {
+    fs.unlinkSync = unlink;
+  }
+  assert.equal(existsSync(lock), false);
+  assert.equal(await withLock(lock, () => {}), true, 'the stranded admission can be reclaimed');
+});
+
 test('a transient admission cleanup refusal retries and leaves later work unblocked', async (t) => {
   const { dir, lock } = scratch(t);
   const unlink = fs.unlinkSync;
@@ -329,7 +381,7 @@ test('an old admission stays held by the same process, but a reused PID can be r
   }
   const [original] = readdirSync(admission);
   const birth = original.split('-')[3];
-  assert.match(birth ?? '', /^[a-f0-9]{24}$/);
+  assert.match(birth ?? '', /^\d{13}$/);
   const replaceOwner = (name) => {
     unlinkSync(join(admission, readdirSync(admission)[0]));
     writeFileSync(join(admission, name), '');
@@ -337,7 +389,7 @@ test('an old admission stays held by the same process, but a reused PID can be r
   };
   replaceOwner(`owner-${process.pid}-a1-${birth}`);
   assert.equal(await withLock(lock, async () => assert.fail('same process still owns the guard')), false);
-  const differentBirth = (birth[0] === '0' ? '1' : '0') + birth.slice(1);
+  const differentBirth = Number(birth) - 10_000;
   replaceOwner(`owner-${process.pid}-a2-${differentBirth}`);
   assert.equal(await withLock(lock, async () => {}), true);
 });
@@ -399,20 +451,7 @@ test('two contenders cannot replace the fresh lock while another reclaims a stal
     });
     fs.writeFileSync(marker(role + '-result'), JSON.stringify(result));
   `;
-  const children = [];
-  const run = (role) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, lock, role]);
-    let stderr = '';
-    child.stderr.on('data', (data) => { stderr += data; });
-    const done = new Promise((resolve) => child.on('close', (code) => resolve({ code, stderr })));
-    children.push({ child, done });
-  };
-  t.after(async () => {
-    writeFileSync(marker('resume'), '');
-    writeFileSync(marker('release'), '');
-    await Promise.all(children.map(({ done }) => done));
-    rmSync(dir, { recursive: true, force: true });
-  });
+  const { run, results } = lockContenders(t, dir, script, [dir, lock], ['resume', 'release']);
   run('A');
   await until(() => existsSync(marker('stale-read')));
   run('B');
@@ -422,8 +461,8 @@ test('two contenders cannot replace the fresh lock while another reclaims a stal
   await until(() => existsSync(marker('A-entered')));
   const entered = ['A', 'B', 'C'].filter((role) => existsSync(marker(role + '-entered')));
   writeFileSync(marker('release'), '');
-  const results = await Promise.all(children.map(({ done }) => done));
-  assert.ok(results.every(({ code }) => code === 0), JSON.stringify(results));
+  const outcomes = await results();
+  assert.ok(outcomes.every(({ code }) => code === 0), JSON.stringify(outcomes));
   assert.deepEqual(entered, ['A'], 'only the process reclaiming the inspected stale directory may enter');
   assert.deepEqual(['A', 'B', 'C'].map((role) => JSON.parse(readFileSync(marker(role + '-result'), 'utf8'))), [true, false, false]);
 });
@@ -487,20 +526,7 @@ test('a delayed dead-admission reclaimer cannot unlink the fresh owner another c
     });
     fs.writeFileSync(marker(role + '-result'), JSON.stringify(result));
   `;
-  const children = [];
-  const run = (role) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, lock, role]);
-    let stderr = '';
-    child.stderr.on('data', (data) => { stderr += data; });
-    const done = new Promise((resolve) => child.on('close', (code) => resolve({ code, stderr })));
-    children.push({ child, done });
-    return child;
-  };
-  t.after(async () => {
-    for (const name of ['A-resume', 'B-resume', 'release']) writeFileSync(marker(name), '');
-    await Promise.all(children.map(({ done }) => done));
-    rmSync(dir, { recursive: true, force: true });
-  });
+  const { run, results } = lockContenders(t, dir, script, [dir, lock], ['A-resume', 'B-resume', 'release']);
   run('A');
   await until(() => existsSync(marker('dead-inspected')));
   const fresh = run('B');
@@ -517,7 +543,7 @@ test('a delayed dead-admission reclaimer cannot unlink the fresh owner another c
   await until(() => existsSync(marker('B-entered')));
   assert.deepEqual(['A', 'B', 'C'].filter((role) => existsSync(marker(role + '-entered'))), ['B']);
   writeFileSync(marker('release'), '');
-  const results = await Promise.all(children.map(({ done }) => done));
-  assert.ok(results.every(({ code }) => code === 0), JSON.stringify(results));
+  const outcomes = await results();
+  assert.ok(outcomes.every(({ code }) => code === 0), JSON.stringify(outcomes));
   assert.deepEqual(['A', 'B', 'C'].map((role) => JSON.parse(readFileSync(marker(role + '-result'), 'utf8'))), [false, true, false]);
 });
