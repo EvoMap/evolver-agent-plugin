@@ -253,7 +253,9 @@ scripts/               pack.mjs, publish-tag.sh
   A finished check with no native exit code is unknown (`failed: null`) unless its output contains failure
   evidence or a supported Node/TAP summary with a positive pass count and zero failed tests. An unknown last
   result keeps the report at tier `none`, creates no candidate and claims no saving; it never falls back to an
-  earlier passing check. Unknown checks stay labelled unknown in the distillation prompt and provide no
+  earlier passing check. For Codex runs without an exit code, text-only Jest, Vitest, pytest, Go and Cargo
+  successes stay unknown unless they emit a supported summary. This can reduce L1 evidence and candidate
+  generation in those projects. Unknown checks stay labelled unknown in the distillation prompt and provide no
   execution trace exit code. A native exit code of zero still passes without requiring output.
   A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. An older Proxy
   drops the new fields and the plugin runs unchanged.
