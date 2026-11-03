@@ -30,7 +30,7 @@ test('a recalled strategy ends with the spec line, and its turn end reports it w
   assert.equal(ended.reports.length, 1);
   assert.equal(ended.reports[0].task_id, 'testagent:s1:1');
   assert.equal(ended.reports[0].outcome, 'success');
-  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, checks: [{ command: 'npm test', exit: 0 }], source: 'observed', aborted: false, stage: 'immediate' });
+  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
   assert.deepEqual(queued.map(({ report }) => report.task_id), ['testagent:s1:1']);
   assert.ok(scheduled.includes('drain'));
 });
@@ -101,13 +101,15 @@ test('a check still running at turn end counts as not run; a later note with its
   assert.deepEqual(record.commands, ['npm test']);
 });
 
-test('an agent-reported turn counts as exposure only', async () => {
-  const { ports } = memoryPorts();
-  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
-  const recordOf = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer: '' });
-  const [report] = (await end(ports, 's1', { recordOf, source: AGENT_REPORTED })).reports;
-  assert.deepEqual([report.evidence.tier, report.evidence.reported_by, report.evidence.source], ['none', 'agent', 'reported']);
-  assert.match(report.reason, /as the agent reported it\.$/);
+test('an agent-reported turn, under any source but the host\'s own, counts as exposure only', async () => {
+  for (const source of [AGENT_REPORTED, 'agent_reported']) {
+    const { ports } = memoryPorts();
+    await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+    const recordOf = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer: '' });
+    const [report] = (await end(ports, 's1', { recordOf, source })).reports;
+    assert.deepEqual([report.evidence.tier, report.evidence.reported_by, report.evidence.source], ['none', 'agent', 'reported'], source);
+    assert.match(report.reason, /as the agent reported it\.$/);
+  }
 });
 
 test('session end reports what is left as aborted, closes the candidate and keeps the turn counter for a resume', async () => {
@@ -177,6 +179,16 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
   ports.reports.enqueue = enqueue;
   const stored = await ports.sessions.read('s1');
   assert.equal(Object.values(stored.injected)[0].reportedAt, undefined);
+  assert.equal(sessionOfStored(stored).settling, null, 'the next prompt does not wait for an end that failed');
+});
+
+test('a turn whose work tree cannot be read is still the candidate, without its project', async () => {
+  const { ports } = memoryPorts();
+  ports.project.snapshot = async () => { throw new Error('git failed'); };
+  await verifiedTurn(ports, 's1');
+  assert.equal((await end(ports, 's1')).isCandidate, true);
+  assert.equal((await ports.candidates.read()).s1.project, undefined);
+  assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
 });
 
 test('the wait for a turn end still writing runs from when that turn began closing, after a settle wait', async () => {

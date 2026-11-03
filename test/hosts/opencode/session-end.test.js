@@ -95,7 +95,7 @@ test('a strategy whose turn never ended is reported aborted when its session is 
   const [report] = reportsOf(proxy);
   assert.equal(report.task_id, 'opencode:ses_cut:1');
   assert.equal(report.outcome, 'failed');
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', checks: [], source: 'observed', aborted: true, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', source: 'observed', aborted: true, stage: 'immediate' });
 });
 
 test('shutting OpenCode down only writes what its sessions leave; the next instance delivers and distills it', async (t) => {

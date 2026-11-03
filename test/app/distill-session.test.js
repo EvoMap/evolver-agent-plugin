@@ -57,7 +57,7 @@ test('a diff that would push the distillation past the Proxy\'s 256 KiB body lim
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
   await distillDue(ports);
   const { body } = requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual(body.project, { root: PROJECT.root, head: PROJECT.head, diff_truncated: true });
+  assert.deepEqual(body.project, { root: PROJECT.root, head: PROJECT.head, diff_omitted: 'too_large' });
 });
 
 test('a live session\'s candidate is distilled once the session has been quiet long enough, with trigger idle', async () => {

@@ -44,7 +44,7 @@ test('a turn that ran no check still reports its injection, as tier none', () =>
     outcome: 'success',
     task_id: 'claude-code:s1:4',
     reason: 'Injected by Evolver into turn 4; applied: used; no check ran.',
-    evidence: { tier: 'none', applied: 'used', checks: [], source: 'observed', aborted: false, stage: 'immediate' },
+    evidence: { tier: 'none', applied: 'used', source: 'observed', aborted: false, stage: 'immediate' },
   });
   assert.equal(immediate({ turnReason: 'error' }).outcome, 'failed');
 });
@@ -75,26 +75,9 @@ test('an interrupted turn says so', () => {
   assert.equal(report.outcome, 'failed');
 });
 
-test('a report carries the turn\'s last 20 checks of known result with their exit codes, each command cut to 500 characters, keys stripped', () => {
-  const earlier = Array.from({ length: 20 }, (unused, index) => ({ command: `npm run lint -- part${index}`, exit: 2, failed: true }));
-  const unknown = { command: 'npm run build', exit: null, failed: null };
-  const last = { command: `API_KEY=hunter22 npm test -- ${'x'.repeat(600)}`, exit: 0, failed: false };
-  const { evidence } = immediate({ checks: [...earlier, unknown, last] });
-  assert.equal(evidence.checks.length, 20);
-  assert.deepEqual(evidence.checks[0], { command: 'npm run lint -- part1', exit: 2 });
-  assert.equal(evidence.checks.at(-1).command.length, 500);
-  assert.doesNotMatch(JSON.stringify(evidence), /hunter22/);
-});
-
-test('a Proxy that refuses the check list as too large still gets the report, without the list', async () => {
-  const sinks = ledgers();
-  sinks.proxyFetch = async (method, path, body) => {
-    sinks.posts.push({ body });
-    return body.evidence.checks ? { ok: false, error: 'HTTP 400', status: 400, data: { recorded: false, error: 'evidence_too_large' } } : { ok: true, data: {} };
-  };
-  const outbox = await deliverPending(sinks, withQueued({}, [{ report: immediate({ checks: [{ command: 'npm test', exit: 0, failed: false }] }), sessionId: 'claude-code:s1' }], NOW), NOW);
-  assert.equal(Object.values(outbox)[0].sentAt, NOW);
-  assert.equal(sinks.posts.at(-1).body.evidence.check.passed, true);
+test('a report reveals no command, prompt or code', () => {
+  const report = immediate({ checks: [{ command: 'API_KEY=hunter22 npm test -- secret/path.js', exit: 0, failed: false }] });
+  assert.doesNotMatch(JSON.stringify(report), /hunter22|secret\/path|npm test/);
 });
 
 test('a correction or approval follow-up is L3 under the turn task id plus :correction', () => {
@@ -227,7 +210,7 @@ test('the status a newer Proxy passes through is kept with the rejection', () =>
 
 test('a reuse that cannot be judged is exposure only, without the unused penalty', () => {
   const report = immediate({ applied: 'unknown' });
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'partial', checks: [], source: 'observed', aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'partial', source: 'observed', aborted: false, stage: 'immediate' });
   assert.match(report.reason, /applied: unknown/);
   assert.equal(immediate({ applied: 'unknown', checks: [{ command: 'npm test', failed: false }] }).evidence.tier, 'none');
 });

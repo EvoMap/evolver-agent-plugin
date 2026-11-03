@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { DIFF_MAX_BYTES, projectSnapshotOf } from '../../lib/runtime/project.js';
+import { DIFF_MAX_BYTES } from '../../lib/distill/project-diff.js';
+import { projectSnapshotOf } from '../../lib/runtime/project.js';
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' });
 
@@ -43,7 +44,31 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 
   writeFileSync(join(dir, 'big.txt'), 'x'.repeat(DIFF_MAX_BYTES));
   const big = await projectSnapshotOf().snapshot(dir);
-  assert.deepEqual([big.diff, big.diff_truncated], [undefined, true]);
+  assert.deepEqual([big.diff, big.diff_omitted], [undefined, 'too_large']);
+});
+
+test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all', async (t) => {
+  for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n']]) {
+    const dir = repo(t);
+    writeFileSync(join(dir, file), text);
+    const snapshot = await projectSnapshotOf().snapshot(dir);
+    assert.deepEqual([snapshot.diff, snapshot.diff_omitted], [undefined, 'secret'], file);
+    assert.doesNotMatch(JSON.stringify(snapshot), /unique-secret-123|harmless/);
+  }
+});
+
+test('an untracked file whose name is not UTF-8 keeps the rest of the diff', async (t) => {
+  const dir = repo(t);
+  try {
+    writeFileSync(Buffer.concat([Buffer.from(`${dir}/`), Buffer.from([0x6e, 0xff, 0x2e, 0x74, 0x78, 0x74])]), 'x\n');
+  } catch {
+    t.skip('this file system takes UTF-8 names only');
+    return;
+  }
+  writeFileSync(join(dir, 'a.js'), 'export const a = 2;\n');
+  const { diff } = await projectSnapshotOf().snapshot(dir);
+  assert.match(diff, /\+export const a = 2;/);
+  assert.match(diff, /"b\/n\\377\.txt"/);
 });
 
 test('a folder outside any git repository, or one before its first commit, has no snapshot', async (t) => {
