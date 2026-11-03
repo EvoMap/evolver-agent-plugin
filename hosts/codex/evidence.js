@@ -46,8 +46,9 @@ function headerOf(output) {
 
 /**
  * A Bash result as PostToolUse hands it over. Codex gives the bare output, without the exit code the model sees, so
- * a check is judged by its output; an `Exit code:` or `Process exited with code` header, where one comes along,
- * decides, and a timed-out run failed. A run still going at its wait limit has no verdict until its completion.
+ * a check needs explicit passing or failing evidence in its output; ordinary stdout leaves it unknown. An
+ * `Exit code:` or `Process exited with code` header, where one comes along, decides, and a timed-out run failed.
+ * A run still going at its wait limit has no verdict until its completion.
  */
 function shellNoteOf(command, output, callId) {
   const ids = callId ? { callId } : {};

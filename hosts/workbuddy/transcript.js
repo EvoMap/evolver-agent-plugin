@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { isVerificationCommand, verificationFailed } from '../../lib/verification.js';
+import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
 // JSON record per line, `function_call` / `function_call_result` pairs joined by `callId`, messages with a `role`.
@@ -86,8 +86,7 @@ const shellOutputOf = (text) => {
 function shellFailed(result) {
   if (result.status !== 'completed') return true;
   const exit = EXIT_CODE.exec(result.text);
-  if (exit && Number(exit[1]) !== 0) return true;
-  return verificationFailed({ text: shellOutputOf(result.text) });
+  return verificationFailureOf({ exit: exit ? Number(exit[1]) : null, text: shellOutputOf(result.text) });
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
