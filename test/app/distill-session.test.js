@@ -152,6 +152,21 @@ test('with no headless model, distilling now hands the agent the prompt, and its
   assert.equal((await ports.drafts.read()).length, 0);
 });
 
+test('a draft write failure releases the claim so the same process can retry', async () => {
+  const { ports } = await withCandidate();
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  const submission = { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: asked.agentGene.writtenFor };
+  const updateDrafts = ports.drafts.update;
+  ports.drafts.update = async () => { throw new Error('disk full'); };
+
+  await assert.rejects(postAgentGene(ports, submission), /disk full/);
+  ports.drafts.update = updateDrafts;
+
+  assert.equal((await postAgentGene(ports, submission)).status, 'drafted');
+  assert.equal((await ports.drafts.read()).length, 1);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
 test('a Gene written for a candidate since replaced is not sent', async () => {
   const { ports, requests } = await withCandidate();
   assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: 1 })).status, 'dropped');
