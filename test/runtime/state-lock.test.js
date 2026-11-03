@@ -23,7 +23,9 @@ test('a failed admission release after acquiring a state token lets the next upd
   const { target, lock } = scratch(t);
   const unlink = fs.unlinkSync;
   fs.unlinkSync = (file) => {
-    if (dirname(file) === `${lock}.admission`) throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+    if (typeof file === 'string' && dirname(file) === `${lock}.admission`) {
+      throw Object.assign(new Error('refused by fixture'), { code: 'EPERM' });
+    }
     return unlink(file);
   };
   try {
