@@ -108,7 +108,7 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
 | Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
 | Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy`, `recallWhenStuck` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. Where a tool result's context reaches the model (`toolResultContext`, or a `tool-result` host), a failed test, build, lint or type-check recalls again, once per distinct failure and twice a turn at most, with a query built from its output and the turn's edits; a strategy that lands within the tool result's budget is added to that result and booked. |
-| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when a check ran; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
+| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when the last check has a known result; tier `none` with `reported_by: agent` when the agent only reported its checks). A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate. |
 | Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
 
 **State** lives in one directory per host, every file named `<host>-<kind>`. Writes go through an exclusive lock with
@@ -118,7 +118,12 @@ dead-owner takeover; hooks only append reports to a queue, and one process at a 
 the candidate turn, may answer `{"skip": …}`, and the Gene goes to `POST /conversation/distill` with
 `trigger: session_end`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
 and answers the Gene and Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes
-or discards it with `evolver-drafts`. A correction while the model answers stops the post; a candidate is retried at
+or discards it with `evolver-drafts`. Explicit publication of `publishable: false` drafts first calls
+`POST /asset/reverify` with `{ assets, persist: false }`, a 120-second budget and the command's cancellation signal.
+The Proxy's trusted verifier must authorize it; missing verification keeps the draft local. A successful response's
+complete bundle and receipt replace the local draft before `POST /asset/submit`, preserving them for retry.
+The plugin never configures the verifier or manufactures receipts; the Proxy validates the authorization.
+A correction while the model answers stops the post; a candidate is retried at
 the next session start and given up after three failed tries, and one no model here can take waits a day for an
 agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
 inside it. An agent with no model outside the conversation writes the Gene itself when asked.
@@ -215,10 +220,11 @@ scripts/               pack.mjs, publish-tag.sh
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional
   step the Hub did not return never brings it back.
 - **Task context.** Every recall sends `context` beside `text`: an object the Hub defines and the Proxy forwards
-  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (1500 characters, cleaned as
-  a prompt is), `trigger` is `turn_start` or `check_failed`, and `language` the touched files' languages. The Hub
-  judges each recalled asset's fit to the task with it, never recalls by it. The first 400 characters of a prompt are
-  often its boilerplate, and an error line alone names no task: an offline replay of 53 SWE runs fired on 15 failed
+  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (4000 characters, cleaned as
+  a prompt is, and cut further so the context stays within the Proxy's 4096-byte limit), `trigger` is `turn_start`
+  or `check_failed`, and `language` the touched files' languages. The Hub judges each recalled asset's fit to the
+  task with it, never recalls by it. A prompt's opening is often its boilerplate, and an error line alone names no
+  task: an offline replay of 53 SWE runs fired on 15 failed
   checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
   pools that held it.
 - **Estimated savings.** Claude Code's turn summary claims a saving only when the turn's last check passed, and never
@@ -242,7 +248,7 @@ scripts/               pack.mjs, publish-tag.sh
 
   | Report | `task_id` | `evidence` |
   |---|---|---|
-  | Turn end | `<host>:<session>:<turn>` | `tier` `L1` when a check ran, else `none`; `applied: used`; `check` `{kind, passed, fail_then_pass}`; `aborted`; `stage: immediate` |
+  | Turn end | `<host>:<session>:<turn>` | `tier` `L1` when the last check has a known result, else `none`; `applied: used`; `check` `{kind, passed, fail_then_pass}`; `aborted`; `stage: immediate` |
   | Next prompt corrects or approves | `…:correction` | `tier: L3`, `applied`, `stage: correction` |
   | Next session finds the edits kept or reverted | `…:retention` | `tier: L2`, `applied`, `stage: retention` |
 
@@ -250,6 +256,13 @@ scripts/               pack.mjs, publish-tag.sh
   followed it, and a reused turn is distilled like any other, the engine's intake dropping a Gene it already has.
   `fail_then_pass` compares checks with output trimming (`| tail -9`, `2>&1`) removed, so the same check piped
   differently is still the same check. The outcome follows the last check; with none it follows how the turn ended.
+  A finished check with no native exit code is unknown (`failed: null`) unless its output contains failure
+  evidence or a supported Node/TAP summary with a positive pass count and zero failed tests. An unknown last
+  result keeps the report at tier `none`, creates no candidate and claims no saving; it never falls back to an
+  earlier passing check. For Codex runs without an exit code, text-only Jest, Vitest, pytest, Go and Cargo
+  successes stay unknown unless they emit a supported summary. This can reduce L1 evidence and candidate
+  generation in those projects. Unknown checks stay labelled unknown in the distillation prompt and provide no
+  execution trace exit code. A native exit code of zero still passes without requiring output.
   A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. An older Proxy
   drops the new fields and the plugin runs unchanged.
 - **Report outbox.** Reports are keyed by task id and asset, queued once and retried for 8 days, long enough for a

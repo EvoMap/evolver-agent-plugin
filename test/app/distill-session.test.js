@@ -55,6 +55,29 @@ test('a live session keeps its candidate; only an ended one is a leftover', asyn
   assert.ok((await ports.candidates.read()).s1);
 });
 
+test('an explicit distillation cannot duplicate its process\'s running background distillation', async () => {
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  let completions = 0;
+  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE, async () => {
+    completions += 1;
+    started.resolve();
+    await finish.promise;
+  }) });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const background = distillLeftovers(ports);
+  await started.promise;
+  const explicit = distillSession(ports, { sessionId: 's1' });
+  await new Promise(setImmediate);
+  finish.resolve();
+  const [outcomes, answer] = await Promise.all([background, explicit]);
+  assert.equal(completions, 1);
+  assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
+  assert.equal(outcomes[0].status, 'drafted');
+  assert.equal(answer.status, 'busy');
+  assert.equal((await ports.drafts.read()).length, 1);
+});
+
 test('with no model outside the conversation, a leftover waits a day for an agent\'s Gene, then is dropped', async () => {
   const { ports } = await withCandidate();
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
@@ -115,7 +138,7 @@ test('a failing headless model keeps the candidate, and three failed tries give 
 });
 
 test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {
-  const { ports } = await withCandidate();
+  const { ports } = await withCandidate({ distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } } });
   const asked = await distillSession(ports, { sessionId: 's1' });
   assert.equal(asked.status, 'no_model');
   assert.match(asked.agentGene.prompt, /Turn it into one reusable Gene/);
@@ -127,6 +150,21 @@ test('with no headless model, distilling now hands the agent the prompt, and its
   const published = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
   assert.match(published.text, /^Submitted "Stabilise Redis retries"/);
   assert.equal((await ports.drafts.read()).length, 0);
+});
+
+test('a draft write failure releases the claim so the same process can retry', async () => {
+  const { ports } = await withCandidate();
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  const submission = { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: asked.agentGene.writtenFor };
+  const updateDrafts = ports.drafts.update;
+  ports.drafts.update = async () => { throw new Error('disk full'); };
+
+  await assert.rejects(postAgentGene(ports, submission), /disk full/);
+  ports.drafts.update = updateDrafts;
+
+  assert.equal((await postAgentGene(ports, submission)).status, 'drafted');
+  assert.equal((await ports.drafts.read()).length, 1);
+  assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
 test('a Gene written for a candidate since replaced is not sent', async () => {

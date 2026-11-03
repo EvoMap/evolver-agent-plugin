@@ -95,7 +95,7 @@ test('closing the connection ends the session: what it left is written for the n
   await client.close();
   const state = join(proxy.env.HOME, '.evolver', 'state');
   for (let tries = 0; tries < 50 && !readdirSync(state).includes('mcp-generic-reports-queue.jsonl'); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
-  const queued = readFileSync(join(state, 'mcp-generic-reports-queue.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).report);
+  const queued = readFileSync(join(state, 'mcp-generic-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line).report);
   assert.ok(queued.some((report) => report.evidence.aborted));
 });
 

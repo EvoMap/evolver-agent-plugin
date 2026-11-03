@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { recallStrategy, promptTextOf } from '../lib/recall.js';
+import { recallStrategy, promptTextOf, taskTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
@@ -28,8 +28,37 @@ const ASSET = {
 
 test('the prompt text is the typed prompt, trimmed and bounded', () => {
   assert.equal(promptTextOf('  add a retry to the uploader  '), 'add a retry to the uploader');
-  assert.equal(promptTextOf('x'.repeat(500)).length, 400);
+  assert.equal(promptTextOf('x'.repeat(2500)).length, 2000);
   assert.equal(promptTextOf(undefined), '');
+});
+
+test('the recall text and the task context reach past a long shared preamble', () => {
+  const prompt = `${'shared preamble '.repeat(60)}the task itself ${'detail '.repeat(800)}`;
+  assert.ok(promptTextOf(prompt).includes('the task itself'));
+  assert.ok(taskTextOf(prompt).startsWith(promptTextOf(prompt)));
+  assert.equal(taskTextOf(prompt).length, 4000);
+});
+
+test('the task context leaves for the Proxy whole when it fits 4096 bytes', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('a'.repeat(5000));
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start' } });
+  assert.equal(calls[0].body.context.task, task);
+  assert.equal(searches[0].context.task, task);
+});
+
+test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('上传失败后重试'.repeat(600));
+  const context = { task, trigger: 'check_failed', language: ['TypeScript', 'Go'] };
+  await recallStrategy(proxyFetch, 'upload retry fails', { context });
+  for (const sent of [calls[0].body.context, searches[0].context]) {
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 4096);
+    assert.ok(sent.task.length > 1300);
+    assert.ok(task.startsWith(sent.task));
+    assert.doesNotMatch(sent.task, /\uFFFD/u);
+    assert.deepEqual(sent.language, ['TypeScript', 'Go']);
+  }
 });
 
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {
