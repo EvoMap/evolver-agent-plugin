@@ -43,7 +43,8 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
     close: () => {
       server.close();
       server.closeAllConnections();
-      rmSync(home, { recursive: true, force: true });
+      // A detached worker the hooks started can still be writing its state here after the request a test waits on.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
