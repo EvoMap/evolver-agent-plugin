@@ -118,7 +118,12 @@ dead-owner takeover; hooks only append reports to a queue, and one process at a 
 the candidate turn, may answer `{"skip": …}`, and the Gene goes to `POST /conversation/distill` with
 `trigger: session_end`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
 and answers the Gene and Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes
-or discards it with `evolver-drafts`. A correction while the model answers stops the post; a candidate is retried at
+or discards it with `evolver-drafts`. Explicit publication of `publishable: false` drafts first calls
+`POST /asset/reverify` with `{ assets, persist: false }`, a 120-second budget and the command's cancellation signal.
+The Proxy's trusted verifier must authorize it; missing verification keeps the draft local. A successful response's
+complete bundle and receipt replace the local draft before `POST /asset/submit`, preserving them for retry.
+The plugin never configures the verifier or manufactures receipts; the Proxy validates the authorization.
+A correction while the model answers stops the post; a candidate is retried at
 the next session start and given up after three failed tries, and one no model here can take waits a day for an
 agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
 inside it. An agent with no model outside the conversation writes the Gene itself when asked.
