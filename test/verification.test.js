@@ -55,6 +55,30 @@ test('a known executable reached through a path still verifies, while a path in 
   }
 });
 
+test('supported wrapper options still leave the actual command in command position', () => {
+  for (const command of [
+    'sudo -u root npm test', 'sudo --user=root -- npm test', 'env -u CI npm test',
+    'env --unset=CI --chdir app npm test', 'timeout -s KILL 60 npm test', 'time -p npm test',
+    'exec npm test', '! npm test',
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    'sudo -u root echo npm test', 'sudo -u npm test', 'env -u npm test',
+    'env --chdir app echo npm test', 'exec echo npm test', '! echo npm test',
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
+test('literal quoted executables count only in command position', () => {
+  for (const command of [
+    '"./node_modules/.bin/jest"', "'./path with spaces/gradlew' build",
+    'sudo -u "build user" "./node_modules/.bin/jest"', '"/usr/bin/env" -u CI "./node_modules/.bin/jest"',
+    '"C:\\Program Files\\nodejs\\npm.cmd" test',
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    'echo "./node_modules/.bin/jest"', '"npm test"', '"$runner/jest"',
+    '"./node_modules/.bin/jest"-other', '"notes; npm test"',
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
 test('a non-zero exit fails the verification', () => {
   assert.equal(verificationFailed({ isError: true, text: '' }), true);
 });
