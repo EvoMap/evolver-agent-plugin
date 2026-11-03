@@ -176,6 +176,16 @@ test('orphan recovery cannot delete scratch without a child receipt proving both
   }
 });
 
+test('orphan recovery ignores a matching scratch marker with a nonpositive owner PID', async t => {
+  const { runner, config } = fixture(t);
+  const orphan = mkdtempSync(join(tmpdir(), 'evolver-model-'));
+  t.after(() => rmSync(orphan, { recursive: true, force: true }));
+  const origin = createHash('sha256').update(config).digest('hex');
+  writeFileSync(join(orphan, OWNER_FILE), JSON.stringify({ nonce: 'd'.repeat(32), ownerPid: 0, origin }));
+  assert.equal((await runner.complete(runner.capture({ alias: 'route-a' }), 'candidate')).answer, 'answer: candidate');
+  assert.equal(existsSync(orphan), true);
+});
+
 test('orphan recovery removes only a matching receipt with proof all owned processes are gone', async t => {
   const { runner, config, dir } = fixture(t);
   const orphan = mkdtempSync(join(tmpdir(), 'evolver-model-'));

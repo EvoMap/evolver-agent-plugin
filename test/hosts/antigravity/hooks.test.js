@@ -216,7 +216,7 @@ test('the candidate of a session whose Antigravity process is gone is distilled 
   await s.invoke();
 
   const [body] = await waitFor(() => proxy.requests.filter((request) => request.path === '/conversation/distill').map((request) => request.body), 5_000);
-  assert.deepEqual([body.platform, body.trigger, body.user_prompt, body.persist, body.publish], ['antigravity', 'session_end', 'add a retry to the uploader', true, false]);
+  assert.deepEqual([body.platform, body.trigger, body.user_prompt, body.persist, body.publish], ['antigravity', 'session_end', 'add a retry to the uploader', false, false]);
   assert.deepEqual(body.strategy, ['Measure.', 'Back off.']);
   assert.equal(body.distill_usage.inputTokens, 900);
   const [call] = readFileSync(join(home, 'fake-agy.log'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));

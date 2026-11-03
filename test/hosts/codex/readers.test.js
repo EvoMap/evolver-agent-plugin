@@ -62,7 +62,7 @@ test('a Bash result carries no exit code, so a check is judged by its output', (
   assert.deepEqual({ ...passed, output: undefined }, { kind: 'shell', command: 'node --test', exit: null, output: undefined, callId: 'call_4' });
   assert.deepEqual(checksOf(passed), [{ command: 'node --test', failed: false }]);
   assert.deepEqual(noteOf('PostToolUse.Bash.exit3'), { kind: 'shell', command: 'node -e "console.log(\'boom\'); process.exit(3)"', exit: null, output: 'boom\n', callId: 'call_6' });
-  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', failed: false }], 'a check that fails silently reads as passed');
+  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', failed: null }], 'output without a verdict is unknown');
   assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.patchAndFailingTests'])), [{ command: 'npm test', failed: true }]);
 });
 

@@ -176,7 +176,7 @@ test('the relay\'s distillation runs on the session\'s own model through the mod
   assert.equal(cc.seen.completions[0].model, captured.session.model);
   assert.match(cc.seen.completions[0].prompt, /npm test/);
   const { body } = cc.proxy.requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual([body.platform, body.persist, body.publish], ['claude-code', true, false]);
+  assert.deepEqual([body.platform, body.persist, body.publish], ['claude-code', false, false]);
 });
 
 test('commands answer as Claude Code shows them: evolve is sent as a prompt, others answer text, foreign ones pass on', async (t) => {
