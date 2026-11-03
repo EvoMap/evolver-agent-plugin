@@ -218,6 +218,27 @@ test('cancelling a pending completion waits for its owned native process before 
   nativeClosed(dir);
 });
 
+test('a stalled POSIX guardian retains ownership until it can stop the native group', { skip: process.platform === 'win32' }, async (t) => {
+  const { runner, dir } = fixture(t, 'hang');
+  const controller = new AbortController();
+  const completion = runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal);
+  const rejection = assert.rejects(completion, { code: 'ACP_CLEANUP_FAILED' });
+  await until(() => promptStarted(dir));
+  const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
+  const child = JSON.parse(readFileSync(join(receipt.home, CHILD_FILE), 'utf8'));
+  assert.equal(child.nativePid, receipt.pid);
+  process.kill(child.guardianPid, 'SIGSTOP');
+  try {
+    controller.abort();
+    await rejection;
+    assert.doesNotThrow(() => process.kill(child.guardianPid, 0));
+  } finally {
+    try { process.kill(child.guardianPid, 'SIGCONT'); } catch {}
+  }
+  await until(() => !existsSync(receipt.home));
+  nativeClosed(dir);
+});
+
 test('the native guardian cleans its process and marked scratch when its worker dies', async t => {
   const { config, dir } = fixture(t);
   const owner = spawn(process.execPath, [fileURLToPath(new URL('../fixtures/acp/owner.mjs', import.meta.url)), config, join(dir, 'receipt.json')], { windowsHide: true, stdio: 'ignore' });
