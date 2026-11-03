@@ -49,6 +49,19 @@ test('printing a check command does not verify a turn or raise its reuse evidenc
   assert.equal(reports[0].evidence.check, undefined);
 });
 
+test('a successful shell wrapper does not verify a turn when its check may have been skipped', async () => {
+  const { ports } = memoryPorts();
+  const command = 'true || npm test';
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command, exit: 0 } });
+  const { record, reports } = await end(ports, 's1');
+  assert.deepEqual(record.checks, [{ command, failed: null }]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(reports[0].evidence.tier, 'none');
+  assert.equal(reports[0].evidence.check, undefined);
+});
+
 test('a verified turn becomes the candidate; a correction drops it before revising the reports', async () => {
   const { ports, queued } = memoryPorts();
   await verifiedTurn(ports, 's1');

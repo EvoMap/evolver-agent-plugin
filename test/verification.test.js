@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { isFailedCheck, turnRecordOf } from '../lib/turn/record.js';
 import { isVerificationCommand, verificationFailed, verificationFailureOf } from '../lib/verification.js';
 
 test('test, build, lint and type-check runs are verifications; other commands are not', () => {
@@ -128,4 +129,31 @@ test('a heredoc body that names a check is data, not a check; the command lines 
   assert.equal(isVerificationCommand(editsReadme), false);
   assert.equal(isVerificationCommand("cat > notes.md <<EOF\nmake build\nEOF\nnpm test"), true);
   assert.equal(isVerificationCommand('npm test <<EOF\nanswers\nEOF'), true);
+});
+
+test('a compound shell result needs check output before it can verify the check', () => {
+  const compounds = ['true || npm test', 'npm test || true', 'npm test | tail -5', 'npm test &',
+    'npm test; echo done', 'false && npm test', 'echo start\nnpm test', '! npm test', 'time ! npm test',
+    'if npm test; then true; fi', 'bash -c "npm test || true"'];
+  for (const command of compounds) {
+    const result = { kind: 'shell', command };
+    for (const exit of [0, 1]) {
+      assert.deepEqual(turnRecordOf([{ ...result, exit }]).checks, [{ command, failed: null }]);
+      assert.equal(isFailedCheck({ ...result, exit }), false, command);
+      assert.equal(turnRecordOf([{ ...result, exit, output: '# pass 3\n# fail 0' }]).checks[0].failed, false, command);
+      assert.equal(isFailedCheck({ ...result, exit, output: '# pass 3\n# fail 1' }), true, command);
+    }
+  }
+});
+
+test('literal shell text and descriptor redirects preserve a direct check exit', () => {
+  const directoryCheck = { kind: 'shell', command: 'cd app && npm test' };
+  assert.equal(turnRecordOf([{ ...directoryCheck, exit: 0 }]).checks[0].failed, false);
+  assert.equal(turnRecordOf([{ ...directoryCheck, exit: 1 }]).checks[0].failed, null);
+  for (const command of ['npm test -- --grep "a|b; c && d"', 'npm test 2>&1',
+    'npm test &> report.log', 'npm test >| report.log', 'npm test # after; ignore',
+    "sh -c 'npm test'", 'npm test\n', 'npm test <<EOF\n&& ignore\nEOF']) {
+    assert.equal(turnRecordOf([{ kind: 'shell', command, exit: 0 }]).checks[0].failed, false, command);
+    assert.equal(isFailedCheck({ kind: 'shell', command, exit: 1 }), true, command);
+  }
 });

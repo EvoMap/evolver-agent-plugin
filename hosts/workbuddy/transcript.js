@@ -83,10 +83,10 @@ const shellOutputOf = (text) => {
   return stdout === -1 ? text : text.slice(stdout);
 };
 
-function shellFailed(result) {
-  if (result.status !== 'completed') return true;
+function shellFailed(command, result) {
+  if (result.status !== 'completed') return verificationFailureOf({ command, exit: 1 });
   const exit = EXIT_CODE.exec(result.text);
-  return verificationFailureOf({ exit: exit ? Number(exit[1]) : null, text: shellOutputOf(result.text) });
+  return verificationFailureOf({ command, exit: exit ? Number(exit[1]) : null, text: shellOutputOf(result.text) });
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
@@ -121,7 +121,7 @@ export function turnActivityOf(records) {
     edits: calls.filter((call) => EDIT_TOOLS.includes(call.name) && editSucceeded(call.result)).map((call) => editedPathOf(call.args)).filter(Boolean),
     checks: calls
       .filter((call) => isCheck(call) && call.result)
-      .map((call) => ({ command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), failed: shellFailed(call.result) })),
+      .map((call) => ({ command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), failed: shellFailed(call.args.command, call.result) })),
     answer: answerOf(records),
   };
 }
