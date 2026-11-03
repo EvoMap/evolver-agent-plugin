@@ -47,6 +47,19 @@ test('the task context leaves for the Proxy whole when it fits 4096 bytes', asyn
   assert.equal(searches[0].context.task, task);
 });
 
+test('quoted JSON credentials are redacted from the recall query and task context', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const prompt = 'Retry the uploader with this config: {"token":"fixtureCredential123456","mode":"retry"}';
+  await recallStrategy(proxyFetch, promptTextOf(prompt), { context: { task: taskTextOf(prompt), trigger: 'turn_start' } });
+  assert.equal(calls.length, 1);
+  assert.equal(searches.length, 1);
+  for (const body of [calls[0].body, searches[0]]) {
+    const sent = JSON.stringify(body);
+    assert.doesNotMatch(sent, /fixtureCredential123456/);
+    assert.match(sent, /retry/i);
+  }
+});
+
 test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const task = taskTextOf('上传失败后重试'.repeat(600));
