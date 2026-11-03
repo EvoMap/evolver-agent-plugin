@@ -280,7 +280,7 @@ test('hard-killing the exact Windows job keeper reaps native processes through k
   try {
     const job = await activeFixtureJob(dir, process.pid);
     const system = process.env.SystemRoot || process.env.WINDIR;
-    const powershell = join(system, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const powershell = windowsJobExecutable();
     // Hold the process handle while proving image, parent, start time and its unique fixture script.
     execFileSync(powershell, ['-NoProfile', '-NoLogo', '-NonInteractive', '-Command', String.raw`
 $ErrorActionPreference = 'Stop'
@@ -300,7 +300,7 @@ try {
 } finally { $keeper.Dispose() }
 `], { windowsHide: true, timeout: 5000, stdio: 'pipe', env: {
       SystemRoot: system, WINDIR: system, EVOLVER_TEST_KEEPER_PID: String(job.child.helperPid), EVOLVER_TEST_GUARDIAN_PID: String(job.child.guardianPid),
-      EVOLVER_TEST_KEEPER_IMAGE: windowsJobExecutable(), EVOLVER_TEST_KEEPER_SCRIPT: join(job.home, '.evolver-job.ps1'),
+      EVOLVER_TEST_KEEPER_IMAGE: powershell, EVOLVER_TEST_KEEPER_SCRIPT: join(job.home, '.evolver-job.ps1'),
     } });
     await rejected;
     await assertUnprovenFixtureJobStopped(job);
