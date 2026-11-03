@@ -15,8 +15,8 @@ test('Windows hooks find the host beyond cmd.exe and PowerShell, and fail closed
     [45, { ppid: 40, name: 'BASH.EXE' }],
     [40, { ppid: 1, name: 'node.exe' }],
   ]);
-  assert.equal(ownerProbeOf('parent', { platform: 'win32', probe: pid => table.get(pid) ?? null }).current(), 40);
-  assert.equal(ownerProbeOf('parent', { platform: 'win32', probe: () => null }).current(), null);
+  assert.equal(ownerProbeOf('parent', { platform: 'win32', windowsAncestry: true, probe: pid => table.get(pid) ?? null }).current(), 40);
+  assert.equal(ownerProbeOf('parent', { platform: 'win32', windowsAncestry: true, probe: () => null }).current(), null);
 });
 
 test('failed and cancelled model runs also remove their private configuration', async () => {
