@@ -59,7 +59,7 @@ test('supported wrapper options still leave the actual command in command positi
   for (const command of [
     'sudo -u root npm test', 'sudo --user=root -- npm test', 'env -u CI npm test',
     'env --unset=CI --chdir app npm test', 'timeout -s KILL 60 npm test', 'time -p npm test',
-    'exec npm test', '! npm test',
+    'exec npm test', '! npm test', 'time ! npm test',
   ]) assert.equal(isVerificationCommand(command), true, command);
   for (const command of [
     'sudo -u root echo npm test', 'sudo -u npm test', 'env -u npm test',
