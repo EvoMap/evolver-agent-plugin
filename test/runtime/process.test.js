@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +11,7 @@ import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
-import { readState } from '../../lib/runtime/store/file-lock.js';
+import { readState, writeState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
 const node = process.execPath;
@@ -34,7 +35,7 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
-test('a hook process arms one sleeping waiter, another only for an earlier time; a waiter that wakes gives up its record and runs', async (t) => {
+test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
   const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
   const profile = await profileNamed('codex');
@@ -53,9 +54,13 @@ test('a hook process arms one sleeping waiter, another only for an earlier time;
     }
   };
   const inAnHour = Date.now() + 60 * 60_000;
+  const stranger = spawn('sleep', ['30'], { stdio: 'ignore' });
+  started.push(stranger.pid);
+  writeState(stores.distillWaiter, { pid: stranger.pid, startedAt: Date.now() - 10 * 60_000, at: inAnHour });
   scheduler.wakeAt(inAnHour, ['distill']);
   const sleeping = waiter();
   started.push(sleeping.pid);
+  assert.notEqual(sleeping.pid, stranger.pid, 'a dead waiter whose pid another process took arms nothing');
   assert.equal(sleeping.at, inAnHour);
   scheduler.wakeAt(inAnHour + 1, ['distill']);
   assert.deepEqual(waiter(), sleeping, 'a later wake-up is already armed');
