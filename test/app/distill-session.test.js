@@ -288,9 +288,35 @@ test('a correction after the final candidate snapshot removes only the corrected
   } finally {
     resume.resolve();
   }
-  await running;
+  const outcome = await running;
+  assert.equal(outcome.status, 'draft_missing');
+  assert.equal(distillText(outcome).ok, false);
+  assert.match(distillText(outcome).text, /no longer available/);
   assert.equal((await ports.candidates.read()).s1, undefined);
   assert.deepEqual(await ports.drafts.read(), kept);
+});
+
+test('an agent Gene does not report a draft replaced with the same ID during settlement', async () => {
+  const { ports } = await withCandidate();
+  const writtenFor = (await ports.candidates.read()).s1.at;
+  const update = ports.candidates.update;
+  let replacement;
+  ports.candidates.update = async (mutate) => {
+    const next = await update(mutate);
+    if (!replacement && next && !next.s1) {
+      const [draft] = await ports.drafts.read();
+      replacement = { ...draft, title: 'Draft from another session', sessionId: 's2' };
+      await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+      await ports.drafts.update(() => [replacement]);
+    }
+    return next;
+  };
+
+  const outcome = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
+  assert.equal(outcome.status, 'draft_missing');
+  assert.equal(distillText(outcome).ok, false);
+  assert.equal(replacement.id, DRAFTED.distill_id);
+  assert.deepEqual(await ports.drafts.read(), [replacement]);
 });
 
 test('a correction removes the saved draft even after its candidate has settled', async () => {
@@ -301,6 +327,22 @@ test('a correction removes the saved draft even after its candidate has settled'
 
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
   assert.deepEqual(await ports.drafts.read(), []);
+});
+
+test('leftover distillation checks earlier drafts again before returning the batch', async () => {
+  const { ports, advance } = await withCandidate();
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  advance(1);
+  await verifiedTurn(ports, 's2');
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  let completions = 0;
+  ports.model = modelAnswering(GENE, async () => {
+    if (++completions === 2) await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  });
+
+  const outcomes = await distillLeftovers(ports);
+  assert.deepEqual(outcomes.map(({ status }) => status), ['draft_missing', 'drafted']);
+  assert.deepEqual(await ports.drafts.read(), [outcomes[1].draft]);
 });
 
 for (const [count, replace] of [[1, false], [25, false], [25, true]]) test(`a correction crossing a draft write keeps ${count} earlier drafts${replace ? ' and a concurrent same-id replacement' : ''}`, async () => {
