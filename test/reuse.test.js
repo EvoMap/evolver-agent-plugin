@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -163,7 +163,7 @@ test('a sent report retries a pre-write local failure without posting to the Hub
   assert.equal(up.posts.length, 0);
 });
 
-test('a ledger lock timeout retries the local write after Hub delivery', async (t) => {
+function useTemporaryLedger(t) {
   const home = mkdtempSync(join(tmpdir(), 'evolver-ledger-retry-'));
   const previous = process.env.EVOLVER_HOME;
   process.env.EVOLVER_HOME = home;
@@ -172,9 +172,14 @@ test('a ledger lock timeout retries the local write after Hub delivery', async (
     else process.env.EVOLVER_HOME = previous;
     rmSync(home, { recursive: true, force: true });
   });
+}
 
-  const ingest = t.mock.method(events.Ingestor.prototype, 'ingest', async () => {
-    if (ingest.mock.callCount() === 0) {
+test('a ledger lock timeout retries the local write after Hub delivery', async (t) => {
+  useTemporaryLedger(t);
+  let attempts = 0;
+  t.mock.method(events.Ingestor.prototype, 'ingest', async () => {
+    attempts += 1;
+    if (attempts === 1) {
       throw Object.assign(new Error('ledger lock timeout'), { code: 'LOCK_TIMEOUT' });
     }
   });
@@ -189,23 +194,50 @@ test('a ledger lock timeout retries the local write after Hub delivery', async (
 
   const recorded = await deliverPending(sinks, sent, NOW + 1);
   assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
-  assert.equal(ingest.mock.callCount(), 2);
+  assert.equal(attempts, 2);
   assert.equal(sinks.posts.length, 1);
 });
 
-test('an ambiguous local write is recorded without retrying either ledger', async () => {
-  const sinks = ledgers();
-  const writes = [];
-  sinks.recordLocally = async (request) => {
-    writes.push(request);
-    throw new Error('ledger failed after appending');
-  };
+test('a ledger path blocked by a directory retries locally after the path is repaired', async (t) => {
+  useTemporaryLedger(t);
+  const path = events.rootEventsPath();
+  mkdirSync(path, { recursive: true });
+
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  const queued = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(sinks, queued, NOW);
+  const [pending] = Object.values(sent);
+  assert.equal(pending.sentAt, NOW);
+  assert.equal(pending.localFailures, 1);
+  assert.equal(pending.localUncertainAt, undefined);
+
+  rmdirSync(path);
+  const recorded = await deliverPending(sinks, sent, NOW + 1);
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  await deliverPending(sinks, recorded, NOW + 2);
+  assert.equal(sinks.posts.length, 1);
+  const entries = new events.Ingestor({ path }).readAllStrict();
+  assert.deepEqual(entries.map(({ type, payload }) => ({ type, payload })), [
+    { type: 'value.reuse_hit', payload: { assetId: ASSET.assetId, cycleId: 'claude-code:s1' } },
+  ]);
+});
+
+test('an error after appending never retries either ledger', async (t) => {
+  useTemporaryLedger(t);
+  const ingest = events.Ingestor.prototype.ingest;
+  const attempted = t.mock.method(events.Ingestor.prototype, 'ingest', async function (event) {
+    await ingest.call(this, event);
+    throw Object.assign(new Error('ledger failed after appending'), { code: 'EISDIR' });
+  });
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
   const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
   let outbox = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
   for (let i = 0; i < 5; i += 1) outbox = await deliverPending(sinks, outbox, NOW + i);
 
   assert.equal(sinks.posts.length, 1);
-  assert.equal(writes.length, 1);
+  assert.equal(attempted.mock.callCount(), 1);
+  assert.equal(new events.Ingestor({ path: events.rootEventsPath() }).readAllStrict().length, 1);
   assert.equal(Object.values(outbox)[0].sentAt, NOW);
   assert.equal(Object.values(outbox)[0].localUncertainAt, NOW);
   assert.equal(Object.values(outbox)[0].localAt, undefined);
