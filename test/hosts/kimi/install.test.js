@@ -169,6 +169,59 @@ test('a failed rollback retains the old package for explicit recovery', t => {
   assert.equal(JSON.parse(readFileSync(join(home, 'plugins', 'installed.json'), 'utf8')).plugins[0].root, installed.path);
 });
 
+test('a later installer run recovers an update interrupted after the backup rename', t => {
+  const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
+  const registry = join(home, 'plugins', 'installed.json');
+  const oldRegistry = JSON.parse(readFileSync(registry, 'utf8'));
+  oldRegistry.plugins[0].enabled = false;
+  writeFileSync(registry, JSON.stringify(oldRegistry));
+  writeFileSync(join(installed.path, 'keep-on-failure'), 'previous package');
+  const module = new URL('../../../scripts/install-kimi.mjs', import.meta.url).href;
+  const interrupt = `import fs from 'node:fs';
+import { installKimi } from ${JSON.stringify(module)};
+const [home, target] = process.argv.slice(1);
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  rename(from, to);
+  if (from === target) process.exit(73);
+};
+installKimi({ home, operation: 'update', version: '2.0.0' });
+`;
+  const crashAfterBackup = () => {
+    assert.throws(() => execFileSync(process.execPath, ['--input-type=module', '-e', interrupt, home, installed.path], {
+      timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'],
+    }), { status: 73 });
+    assert.equal(existsSync(installed.path), false);
+    assert.deepEqual(JSON.parse(readFileSync(registry, 'utf8')), oldRegistry);
+  };
+  crashAfterBackup();
+  const stage = readdirSync(home).find(name => name.startsWith('.evolver-install-'));
+  const duplicate = mkdtempSync(join(home, '.evolver-install-'));
+  cpSync(join(home, stage), duplicate, { recursive: true });
+  assert.throws(() => installKimi({ home, operation: 'status' }), /Multiple interrupted Kimi updates/);
+  assert.equal(existsSync(installed.path), false);
+  assert.equal(readFileSync(join(duplicate, 'previous', 'keep-on-failure'), 'utf8'), 'previous package');
+  rmSync(duplicate, { recursive: true, force: true });
+
+  assert.equal(installKimi({ home, operation: 'status' }).version, '1.2.3');
+  assert.equal(readFileSync(join(installed.path, 'keep-on-failure'), 'utf8'), 'previous package');
+  assert.deepEqual(JSON.parse(readFileSync(registry, 'utf8')), oldRegistry);
+  assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
+
+  crashAfterBackup();
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (String(from).endsWith(`${sep}package`) && to === installed.path) throw new Error('fixture activation failure');
+    return rename(from, to);
+  });
+  assert.throws(() => installKimi({ home, operation: 'update', version: '3.0.0' }), /fixture activation failure/);
+  t.mock.restoreAll();
+  assert.equal(readFileSync(join(installed.path, 'keep-on-failure'), 'utf8'), 'previous package');
+  assert.equal(installKimi({ home, operation: 'update', version: '3.0.0' }).version, '3.0.0');
+  assert.deepEqual(JSON.parse(readFileSync(registry, 'utf8')), oldRegistry);
+  assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
+});
+
 test('a concurrent installer cannot replace a package while a failed registry write is rolling back', async t => {
   const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
   const registry = join(home, 'plugins', 'installed.json'), ready = join(home, 'rollback-ready'), release = join(home, 'allow-rollback');

@@ -68,6 +68,33 @@ function underInstallLock(plugins, work) {
   return result;
 }
 
+// Before activation, both packages are still in staging. After activation, "package" has been moved away.
+function recoverPackage(root, target) {
+  let interrupted;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\.evolver-install-[a-z0-9]{6}$/i.test(entry.name)) continue;
+    const stage = join(root, entry.name);
+    ordinaryDirectory(stage);
+    const backup = join(stage, 'previous'), prepared = join(stage, 'package');
+    if (!fs.existsSync(backup) || !fs.existsSync(prepared)) continue;
+    const previous = packageOf(backup);
+    if (!previous || !packageOf(prepared)) continue;
+    if (interrupted) throw new Error('Multiple interrupted Kimi updates found. Restore the intended backup before retrying.');
+    interrupted = { stage, backup, prepared, previous };
+  }
+  if (!interrupted) return null;
+  fs.renameSync(interrupted.backup, target);
+  fs.rmSync(interrupted.prepared, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  if (fs.readdirSync(interrupted.stage).length === 0) fs.rmdirSync(interrupted.stage);
+  return interrupted.previous;
+}
+
+function installationOf(root, target, registryFile, recover = false) {
+  const own = ownEntry(registryOf(registryFile), target);
+  const previous = packageOf(target) ?? (recover && own ? recoverPackage(root, target) : null);
+  return { own, previous };
+}
+
 /** Installs only the owned managed package and native registry entry; account/config/state stay outside them. */
 export function installKimi({ operation = 'install', home = kimiHomeOf(process.env), dryRun = false, version } = {}) {
   if (!['install', 'update', 'status', 'remove'].includes(operation)) throw new Error('Expected install, update, status or remove.');
@@ -76,7 +103,7 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
   for (const dir of [root, plugins, managed, target]) ordinaryDirectory(dir);
   const registryFile = join(plugins, 'installed.json');
   if (operation === 'remove' && !dryRun) return underInstallLock(plugins, () => {
-    const packageRetained = Boolean(packageOf(target));
+    const packageRetained = Boolean(installationOf(root, target, registryFile, true).previous);
     updateState(registryFile, { version: 1, plugins: [] }, current => {
       validRegistry(current);
       if (!ownEntry(current, target)) return undefined;
@@ -85,7 +112,10 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
     // Native removal unregisters the plugin and retains its managed bytes.
     return { installed: false, registered: false, path: target, packageRetained };
   });
-  const registry = registryOf(registryFile), own = ownEntry(registry, target), previous = packageOf(target);
+  let { own, previous } = installationOf(root, target, registryFile);
+  if (!dryRun && own && !previous) {
+    ({ own, previous } = underInstallLock(plugins, () => installationOf(root, target, registryFile, true)));
+  }
   const registered = Boolean(own), installed = registered && Boolean(previous);
   if (operation === 'status') return { installed, registered, path: target, ...(previous ? { version: previous.version } : {}), ...(own ? { enabled: own.enabled !== false } : {}) };
   if (operation === 'update' && !installed) throw new Error('Kimi plugin is not installed; use install first.');
@@ -102,7 +132,9 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
     underInstallLock(plugins, () => {
       try {
         updateState(registryFile, { version: 1, plugins: [] }, current => {
-          validRegistry(current); const currentOwn = ownEntry(current, target), currentPackage = packageOf(target);
+          validRegistry(current);
+          const currentOwn = ownEntry(current, target);
+          const currentPackage = packageOf(target) ?? (currentOwn ? recoverPackage(root, target) : null);
           if (operation === 'update' && (!currentOwn || !currentPackage)) throw new Error('Kimi plugin changed before activation; retry after checking status.');
           if (currentPackage) { fs.renameSync(target, backup); moved = true; }
           fs.renameSync(prepared, target); activated = true;
