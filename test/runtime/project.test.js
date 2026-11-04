@@ -48,8 +48,9 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 });
 
 test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all; a name that only holds such a name does not', async (t) => {
-  for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'], ['deploy.yml', 'deploy_token: unique-secret-123\n']]) {
+  for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'], ['deploy.yml', 'deploy_token: unique-secret-123\n'], ['.docker/config.json', '{"harmless": true}\n']]) {
     const dir = repo(t);
+    mkdirSync(join(dir, file, '..'), { recursive: true });
     writeFileSync(join(dir, file), text);
     const snapshot = await projectSnapshotOf().snapshot(dir);
     assert.deepEqual(snapshot, { diff_omitted: 'secret' }, file);
