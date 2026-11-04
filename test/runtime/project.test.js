@@ -57,7 +57,10 @@ test('a work tree whose diff holds a secret, or touches a file keys are kept in,
   }
   const dir = repo(t);
   writeFileSync(join(dir, 'docs .env example.txt'), 'harmless\n');
-  assert.match((await projectSnapshotOf().snapshot(dir)).diff, /\+harmless/);
+  writeFileSync(join(dir, 'client.js'), "fetch(url, { credentials: 'include' });\n");
+  const { diff } = await projectSnapshotOf().snapshot(dir);
+  assert.match(diff, /\+harmless/);
+  assert.match(diff, /\+fetch\(url, \{ credentials: 'include' \}\);/);
 });
 
 test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a change inside a submodule', async (t) => {

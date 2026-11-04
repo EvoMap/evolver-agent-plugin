@@ -11,12 +11,14 @@ test('a check run with credentials on its command line goes in the trace without
     { command: "curl -u 'sentinel-user:CANARY_QUOTED' -H 'Authorization: Bearer CANARY_BEARER' https://internal.example.test", exit: 0, failed: false },
     { command: 'npm test -- --password "CANARY PASS"', exit: 0, failed: false },
     { command: "env PASSWORD='abc CANARY_SPACED' npm test", exit: 0, failed: false },
+    { command: `curl -H 'Authorization: Digest username="u", response="CANARY_DIGEST"' -H 'Proxy-Authorization: Basic CANARYb' https://x.test`, exit: 0, failed: false },
   ];
   const candidate = candidateOf({ prompt: 'Fix the client', record: { checks, commands: [], paths: [], answer: 'Fixed.' }, model: null, turn: 1, pid: 1, now: 1, source: 'observed' });
   const body = distillBody({ platform: 'codex', sessionId: 's1', candidate, args: {} });
   assert.doesNotMatch(JSON.stringify(body), /CANARY/);
   assert.deepEqual(body.execution.trace.map(({ command }) => command), ['curl -u [redacted] https://internal.example.test', 'npm test -- --token [redacted]',
-    "curl -u [redacted] -H '[redacted]' https://internal.example.test", 'npm test -- --password [redacted]', 'env [redacted] npm test']);
+    "curl -u [redacted] -H '[redacted]' https://internal.example.test", 'npm test -- --password [redacted]', 'env [redacted] npm test',
+    "curl -H '[redacted]' -H '[redacted]' https://x.test"]);
 });
 
 test('an earlier unknown check stays unknown in the model record and supplies no fabricated exit code', () => {
