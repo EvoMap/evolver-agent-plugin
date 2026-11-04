@@ -467,6 +467,28 @@ test('a superseded draft stays blocked when distillation cannot undo its write',
   assert.equal(requests.some(({ path }) => path === '/asset/reverify' || path === '/asset/submit'), false);
 });
 
+test('distillation does not advertise a corrected draft that cleanup could not remove', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  const updateDrafts = ports.drafts.update;
+  let writes = 0;
+  ports.drafts.update = async (mutate) => {
+    if (++writes === 2) {
+      ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+      try {
+        await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+      } finally {
+        ports.drafts.update = updateDrafts;
+      }
+    }
+    return updateDrafts(mutate);
+  };
+
+  const outcome = await distillSession(ports, { sessionId: 's1' });
+  assert.equal((await ports.drafts.read()).length, 1);
+  assert.equal(outcome.status, 'draft_missing');
+  assert.equal(distillText(outcome).ok, false);
+});
+
 test('a failing headless model keeps the candidate, and three failed tries give it up', async () => {
   const { ports } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
