@@ -150,7 +150,7 @@ test('a correction while a draft request is pending discards its late reply', as
   finish.resolve();
   const outcome = await running;
   assert.equal(outcome.status, 'dropped');
-  assert.match(distillText(outcome).text, /turn that is no longer current/i);
+  assert.equal(distillText(outcome).text, 'A newer turn replaced the one this Gene was written for.');
   assert.deepEqual(await ports.drafts.read(), []);
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
