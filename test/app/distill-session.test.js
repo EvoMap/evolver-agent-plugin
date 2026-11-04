@@ -148,7 +148,36 @@ test('a correction while a draft request is pending discards its late reply', as
   await started.promise;
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
   finish.resolve();
-  assert.equal((await running).status, 'dropped');
+  const outcome = await running;
+  assert.equal(outcome.status, 'dropped');
+  assert.match(distillText(outcome).text, /turn that is no longer current/i);
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a correction while a request is pending still reports a Gene the Proxy stored', async () => {
+  const stored = { status: 'stored', gene: DRAFTED.gene };
+  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), distillAnswer: stored });
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const reply = await request(...args);
+    if (args[1] === '/conversation/distill') {
+      started.resolve();
+      await finish.promise;
+    }
+    return reply;
+  };
+
+  const running = runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
+  await started.promise;
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  finish.resolve();
+  const answer = await running;
+  assert.equal(answer.ok, true);
+  assert.deepEqual(JSON.parse(answer.text), stored);
+  assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
   assert.deepEqual(await ports.drafts.read(), []);
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
