@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
+import { processStartTime } from '../../lib/runtime/process/owner.js';
 import { withLock } from '../../lib/runtime/store/file-lock.js';
 import { lockContenders, until } from '../helpers/lock-contenders.js';
 
@@ -77,6 +78,52 @@ test('an old mtime never evicts a live owner, which can refresh and release its 
   }), true);
   assert.equal(existsSync(lock), false);
   assert.deepEqual(readdirSync(dir), []);
+});
+
+test('only a stale worker lock with proof of PID reuse can displace a live PID', async (t) => {
+  const birth = processStartTime(process.pid);
+  const prefix = `${process.pid}:deadbeef`;
+  for (const token of [prefix, `${prefix}:${birth}`, `${prefix}:${birth - 1_000}`, `${prefix}:invalid`]) {
+    const { lock } = scratch(t, token);
+    utimesSync(lock, STALE, STALE);
+    assert.equal(await withLock(lock, () => assert.fail('owner identity is not disproved')), false);
+    assert.equal(readFileSync(join(lock, 'owner'), 'utf8'), token);
+  }
+
+  const { dir, lock } = scratch(t, `${prefix}:${birth - 10_000}`);
+  assert.equal(await withLock(lock, () => assert.fail('the lease is still fresh')), false);
+  utimesSync(lock, STALE, STALE);
+  assert.equal(await withLock(lock, () => {
+    assert.match(readFileSync(join(lock, 'owner'), 'utf8'), new RegExp(`^${process.pid}:[a-f0-9]+:${birth}$`));
+  }), true);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('a foreign PID probe leaves admission free and cannot remove a different worker token', async (t) => {
+  const pid = process.ppid;
+  const birth = Date.now();
+  const old = `${pid}:aaaa:${birth - 10_000}`;
+  const replacement = `${pid}:bbbb:${birth - 10_000}`;
+  const { lock } = scratch(t, old);
+  utimesSync(lock, STALE, STALE);
+  const spawn = childProcess.spawnSync;
+  let probes = 0;
+  childProcess.spawnSync = () => {
+    probes += 1;
+    assert.equal(existsSync(`${lock}.admission`), false);
+    writeFileSync(join(lock, 'owner'), replacement);
+    const stdout = process.platform === 'win32' ? String(birth) : new Date(birth).toUTCString().replace(/ GMT$/, '');
+    return { status: 0, stdout };
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await withLock(lock, () => assert.fail('the observed token was replaced')), false);
+  } finally {
+    childProcess.spawnSync = spawn;
+    syncBuiltinESMExports();
+  }
+  assert.equal(probes, 1);
+  assert.equal(readFileSync(join(lock, 'owner'), 'utf8'), replacement);
 });
 
 test('a transient owner read error never turns a stale live lock into a legacy lock', async (t) => {
