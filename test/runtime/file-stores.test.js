@@ -90,3 +90,18 @@ test('a session file outlives the outbox: a session resumed within a month still
   stores.prune(Date.now() + 31 * day);
   assert.deepEqual(await stores.sessions.read('s1'), {});
 });
+
+test('a recorded draft correction survives reopening and pruning the source session', async () => {
+  const { dir, stores: first } = stores();
+  await first.sessions.update('s1', () => ({ turn: 2, sessionEpoch: 10 }));
+  await first.draftCorrections.mark('s1', 2, 10);
+  await first.draftCorrections.mark('s1', 2, 10);
+  first.prune(Date.now() + 31 * 24 * 60 * 60 * 1000);
+
+  const reopened = fileStoresOf({ dir, agent: 'cursor' });
+  assert.deepEqual(await reopened.sessions.read('s1'), {});
+  assert.equal(await reopened.draftCorrections.has('s1', 2, 10), true);
+  assert.equal(await reopened.draftCorrections.has('s1', 2, 20), false);
+  assert.equal(await reopened.draftCorrections.has('s1', 1, 10), false);
+  assert.equal(await reopened.draftCorrections.has('s2', 2, 10), false);
+});

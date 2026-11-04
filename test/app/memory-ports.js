@@ -67,6 +67,7 @@ const lines = () => {
 
 export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
   const sessions = new Map();
+  const draftCorrections = new Set();
   const notes = lines();
   const edits = lines();
   const requests = [];
@@ -109,6 +110,10 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     candidates: { ...table({}), referenceOf: candidateReferenceOf },
     drafts: table([]),
+    draftCorrections: {
+      mark: async (id, turn, epoch) => { draftCorrections.add(JSON.stringify([id, turn, epoch])); },
+      has: async (id, turn, epoch) => draftCorrections.has(JSON.stringify([id, turn, epoch])),
+    },
     reports: { enqueue: async (entries) => queued.push(...entries) },
     outbox: { drain: async () => true },
     retention: {

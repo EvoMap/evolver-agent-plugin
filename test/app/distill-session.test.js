@@ -381,7 +381,7 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
     const { ports } = await withCandidate({ model: modelAnswering(GENE) });
     const candidate = (await ports.candidates.read()).s1;
     const previous = { id: DRAFTED.distill_id, title: 'Earlier method', createdAt: ports.clock.now(), sessionId: 's1' };
-    if (other === 'same candidate') previous.sourceCandidate = { at: candidate.at, turn: candidate.turn };
+    if (other === 'same candidate') previous.sourceCandidate = { at: candidate.at, turn: candidate.turn, sessionEpoch: candidate.sessionEpoch };
     const replacement = { ...previous, title: 'Concurrent method', sourceCandidate: { at: candidate.at, turn: candidate.turn + 1 } };
     if (other === 'other session') Object.assign(replacement, { sessionId: 's2', sourceCandidate: { at: candidate.at, turn: candidate.turn } });
     const before = { ...previous, id: 'before', sourceCandidate: { at: candidate.at - 1, turn: candidate.turn - 1 } };
@@ -445,6 +445,27 @@ for (const entry of ['headless model', 'agent Gene']) {
     assert.deepEqual(await ports.drafts.read(), []);
   });
 }
+
+test('a superseded draft stays blocked when distillation cannot undo its write', async () => {
+  const { ports, requests } = await withCandidate({
+    model: modelAnswering(GENE),
+    distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } },
+  });
+  const updateDrafts = ports.drafts.update;
+  ports.drafts.update = async (mutate) => {
+    const written = await updateDrafts(mutate);
+    await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, turn: pending.s1.turn + 1 } }));
+    ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+    return written;
+  };
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'cleanup_failed');
+  ports.drafts.update = updateDrafts;
+  assert.equal((await ports.drafts.read()).length, 1);
+  const result = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(result.ok, false);
+  assert.match(result.text, /not confirmed by distillation/i);
+  assert.equal(requests.some(({ path }) => path === '/asset/reverify' || path === '/asset/submit'), false);
+});
 
 test('a failing headless model keeps the candidate, and three failed tries give it up', async () => {
   const { ports } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });

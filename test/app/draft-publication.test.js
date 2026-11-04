@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import { hub } from '@evomap/evolver-core';
 
 import { runCommand } from '../../lib/app/commands/index.js';
+import { promptSubmitted } from '../../lib/app/prompt.js';
+import { sessionEnded } from '../../lib/app/session-end.js';
 import { draftOf } from '../../lib/distill.js';
 import { memoryPorts } from './memory-ports.js';
 
@@ -22,6 +24,57 @@ async function withDraft(result) {
   await made.ports.drafts.update(() => [draft]);
   return { ...made, draft };
 }
+
+for (const publishable of [false, true]) {
+  test(`a correction blocks a lingering ${publishable ? 'verified' : 'local-only'} draft after cleanup fails`, async () => {
+    const { ports, requests, draft } = await withDraft({ ...RESULT, publishable, ...(publishable && { publish_receipt: RECEIPT }) });
+    const corrected = { ...draft, sourceCandidate: { turn: 2, at: 20 } };
+    const earlier = { ...draft, id: 'earlier', publishable: true, publish_receipt: RECEIPT, sourceCandidate: { turn: 1, at: 10 } };
+    await ports.sessions.update('s1', () => ({ turn: 2 }));
+    await ports.drafts.update(() => [corrected, earlier]);
+    const updateDrafts = ports.drafts.update;
+    ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+    await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+    ports.drafts.update = updateDrafts;
+    await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+
+    const publish = (args) => runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args });
+    const result = await publish('publish 1');
+    assert.equal(result.ok, false);
+    assert.match(result.text, /invalidated by a correction/i);
+    assert.deepEqual(requests, []);
+    assert.deepEqual(await ports.drafts.read(), [corrected, earlier]);
+    assert.equal((await publish('publish 2')).ok, true);
+    assert.deepEqual(requests.map(({ path }) => path), ['/asset/submit']);
+    assert.equal((await publish('discard 1')).ok, true);
+    assert.deepEqual(await ports.drafts.read(), []);
+  });
+}
+
+test('a correction during reverification blocks submit even if it cannot remove the draft', async () => {
+  const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
+  const source = { ...draft, sourceCandidate: { turn: 1, at: 10 } };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [source]);
+  const updateDrafts = ports.drafts.update;
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    if (path !== '/asset/reverify') return { ok: true };
+    ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+    try {
+      await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+    } finally {
+      ports.drafts.update = updateDrafts;
+    }
+    return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } };
+  };
+
+  const result = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
+  assert.deepEqual(await ports.drafts.read(), [source]);
+});
 
 test('explicit publication preserves the Proxy receipt and its complete bound bundle', async () => {
   const { ports, requests } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT, event: EVENT });
