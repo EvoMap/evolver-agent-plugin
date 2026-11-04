@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
@@ -19,6 +21,36 @@ test('a run past its timeout is killed and says so; a missing command reads as E
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
   assert.equal((await runProcess('evolver-no-such-command-xyz', [])).error.code, 'ENOENT');
+});
+
+test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async () => {
+  const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
+  const child = `
+    const { spawn } = require('node:child_process');
+    const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore', windowsHide: true });
+    console.log(JSON.stringify([process.pid, descendant.pid]));
+    setTimeout(() => {}, 5000);
+  `;
+  const fixture = `
+    import { setTimeout as delay } from 'node:timers/promises';
+    const env = { ...process.env };
+    for (const key of Object.keys(process.env)) {
+      if (/^(systemroot|windir|comspec)$/i.test(key)) delete process.env[key];
+    }
+    const { runProcess } = await import(${JSON.stringify(runtime)});
+    const result = await runProcess(process.execPath, ['--input-type=commonjs', '-e', ${JSON.stringify(child)}], { env, timeoutMs: 1500 });
+    if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
+    const pids = JSON.parse(result.stdout);
+    const alive = pid => {
+      try { process.kill(pid, 0); return true; }
+      catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+    };
+    const deadline = Date.now() + 2000;
+    while (pids.some(alive) && Date.now() < deadline) await delay(50);
+    console.log(JSON.stringify({ code: result.error?.code, alive: pids.map(alive) }));
+  `;
+  const { stdout } = await promisify(execFile)(node, ['--input-type=module', '-e', fixture], { timeout: 12000, windowsHide: true });
+  assert.deepEqual(JSON.parse(stdout), { code: 'ETIMEDOUT', alive: [false, false] });
 });
 
 test('a cancelled run is ended and reported cancelled', async () => {
