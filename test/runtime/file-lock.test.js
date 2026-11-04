@@ -319,18 +319,19 @@ test('an admission cleanup failure is surfaced instead of silently orphaning a l
   }
   assert.equal(entered, false);
   assert.equal(existsSync(lock), false, 'the failed acquire must not leave a work lock');
-  assert.match(readdirSync(admission)[0], new RegExp(`^owner-${process.pid}-`));
+  assert.ok(readdirSync(admission).some((name) => name.startsWith(`owner-${process.pid}-`)));
   assert.equal(await withLock(lock, async () => { entered = true; }), true);
   assert.equal(entered, true);
 });
 
-test('successful work is not reported as failed after its lock was removed', async (t) => {
-  const { lock } = scratch(t);
+test('another process reclaims a failed admission release while the original owner is alive', async (t) => {
+  const { dir, lock } = scratch(t);
+  const admission = `${lock}.admission`;
   const unlink = fs.unlinkSync;
   try {
     assert.equal(await withLock(lock, () => {
       fs.unlinkSync = (target) => {
-        if (dirname(target) === `${lock}.admission`) throw Object.assign(new Error('fixture cleanup refusal'), { code: 'EPERM' });
+        if (dirname(target) === admission) throw Object.assign(new Error('fixture cleanup refusal'), { code: 'EPERM' });
         return unlink(target);
       };
     }), true);
@@ -338,7 +339,31 @@ test('successful work is not reported as failed after its lock was removed', asy
     fs.unlinkSync = unlink;
   }
   assert.equal(existsSync(lock), false);
-  assert.equal(await withLock(lock, () => {}), true, 'the stranded admission can be reclaimed');
+  assert.ok(readdirSync(admission).some((name) => name.startsWith(`owner-${process.pid}-`)));
+
+  const other = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    const [runtime, lock, owner] = process.argv.slice(1);
+    const { withLock } = await import(runtime);
+    process.kill(Number(owner), 0);
+    assert.equal(await withLock(lock, () => {}), true, 'the stranded admission can be reclaimed');
+  `, RUNTIME, lock, String(process.pid)], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+  assert.ifError(other.error);
+  assert.equal(other.status, 0, other.stderr);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('admission recovery resumes after the abandoned owner has already been removed', async (t) => {
+  const { dir, lock } = scratch(t);
+  const guard = holdAdmission(lock);
+  const marker = join(guard.admission, `abandoned-owner-${process.pid}-abcd`);
+  writeFileSync(marker, '');
+  assert.equal(await withLock(lock, () => assert.fail('a different owner is still active')), false);
+  assert.equal(existsSync(guard.owner), true);
+
+  unlinkSync(guard.owner);
+  assert.equal(await withLock(lock, () => {}), true);
+  assert.deepEqual(readdirSync(dir), []);
 });
 
 test('a transient admission cleanup refusal retries and leaves later work unblocked', async (t) => {
@@ -379,11 +404,11 @@ test('an old admission stays held by the same process, but a reused PID can be r
   } finally {
     fs.unlinkSync = unlink;
   }
-  const [original] = readdirSync(admission);
+  const original = readdirSync(admission).find((name) => name.startsWith(`owner-${process.pid}-`));
   const birth = original.split('-')[3];
   assert.match(birth ?? '', /^\d{13}$/);
   const replaceOwner = (name) => {
-    unlinkSync(join(admission, readdirSync(admission)[0]));
+    for (const name of readdirSync(admission)) unlinkSync(join(admission, name));
     writeFileSync(join(admission, name), '');
     utimesSync(admission, STALE, STALE);
   };
