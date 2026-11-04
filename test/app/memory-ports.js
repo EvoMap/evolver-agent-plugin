@@ -71,6 +71,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
   const requests = [];
   const queued = [];
   const scheduled = [];
+  const wakeUps = [];
   const retained = [];
   let time = now;
   const ports = {
@@ -127,12 +128,12 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     model,
     owner: { current: () => owner, self: () => 7, isGone: (pid) => gone.has(pid) },
     project: { snapshot: async () => project },
-    scheduler: { schedule: (tasks) => scheduled.push(...tasks) },
+    scheduler: { schedule: (tasks) => scheduled.push(...tasks), wakeAt: (at, tasks) => wakeUps.push({ at, tasks }) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
     ledger: { record: async () => true },
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
     signIn: { latest: async () => null, joinOrStart: async () => null, forget: async () => {} },
   };
-  return { ports, requests, queued, scheduled, retained, sessions, advance: (ms) => { time += ms; } };
+  return { ports, requests, queued, scheduled, wakeUps, retained, sessions, advance: (ms) => { time += ms; } };
 }
