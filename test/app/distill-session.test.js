@@ -183,7 +183,8 @@ test('the next wake-up is when the earliest candidate no live process holds come
     ['a retry later than the quiet deadline', { s1: { at: NOW - 1_000, pid: LIVE, retryAt: NOW + IDLE_DISTILL_MS } }, NOW + IDLE_DISTILL_MS],
     ['claimed by a live process, which settles it', { s1: { at: NOW - 1_000, pid: LIVE, claimedBy: LIVE } }, null],
     ['over and waiting out its retry', { s1: { at: NOW - 1_000, pid: DEAD, retryAt: NOW + RETRY_BASE_MS } }, NOW + RETRY_BASE_MS],
-    ['the earliest, past one due now', { due: { at: NOW - IDLE_DISTILL_MS, pid: LIVE }, later: { at: NOW - 1_000, pid: LIVE }, sooner: { at: NOW - 2_000, pid: LIVE } }, NOW - 2_000 + IDLE_DISTILL_MS],
+    ['the earliest of several', { later: { at: NOW - 1_000, pid: LIVE }, sooner: { at: NOW - 2_000, pid: LIVE } }, NOW - 2_000 + IDLE_DISTILL_MS],
+    ['one due already, as due now', { due: { at: NOW - IDLE_DISTILL_MS, pid: LIVE }, later: { at: NOW - 1_000, pid: LIVE } }, NOW],
     ['no candidates', {}, null],
   ];
   for (const [name, pending, expected] of rows) assert.equal(nextDueAt(pending, { now: NOW, isGone }), expected, name);

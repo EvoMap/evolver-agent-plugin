@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
+import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
@@ -81,6 +82,22 @@ test('a verified turn in a session left open is distilled with no further event:
   const { retryAt, attempts } = (await ports.candidates.read()).s1;
   assert.equal(attempts, 1);
   assert.deepEqual(wakeUps.slice(1), [{ at: retryAt, tasks: ['distill'] }]);
+});
+
+test('a candidate that comes due while another is distilled is woken for shortly after, not left to the next event', async () => {
+  let duringModel = () => {};
+  const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { duringModel(); throw new Error('model offline'); } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  await verifiedTurn(ports, 's2');
+  await end(ports, 's2', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  duringModel = () => advance(IDLE_DISTILL_MS / 2);
+  await runBackgroundTasks(ports, ['distill']);
+  const pending = await ports.candidates.read();
+  assert.deepEqual([pending.s1.attempts, pending.s2.attempts], [1, 0]);
+  assert.deepEqual(wakeUps.at(-1), { at: ports.clock.now() + MIN_WAKE_DELAY_MS, tasks: ['distill'] });
 });
 
 test('a plugin command turn recalls nothing, keeps the last reuses for labelling and is no candidate', async () => {
