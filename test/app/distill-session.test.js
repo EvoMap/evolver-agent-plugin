@@ -3,13 +3,13 @@ import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { runCommand } from '../../lib/app/commands/index.js';
-import { distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -171,6 +171,33 @@ test('a failing headless model keeps the candidate, tries again only after a dou
   advance(RETRY_BASE_MS);
   assert.equal((await distillDue(ports))[0].status, 'model_failed');
   assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('the next wake-up is when the earliest candidate no live process holds comes due', () => {
+  const NOW = 10 * IDLE_DISTILL_MS;
+  const LIVE = 1;
+  const DEAD = 2;
+  const isGone = (pid) => pid === DEAD;
+  const rows = [
+    ['quiet once its session has been idle long enough', { s1: { at: NOW - 5_000, activeAt: NOW - 1_000, pid: LIVE } }, NOW - 1_000 + IDLE_DISTILL_MS],
+    ['a retry later than the quiet deadline', { s1: { at: NOW - 1_000, pid: LIVE, retryAt: NOW + IDLE_DISTILL_MS } }, NOW + IDLE_DISTILL_MS],
+    ['claimed by a live process, which settles it', { s1: { at: NOW - 1_000, pid: LIVE, claimedBy: LIVE } }, null],
+    ['over and waiting out its retry', { s1: { at: NOW - 1_000, pid: DEAD, retryAt: NOW + RETRY_BASE_MS } }, NOW + RETRY_BASE_MS],
+    ['the earliest of several', { later: { at: NOW - 1_000, pid: LIVE }, sooner: { at: NOW - 2_000, pid: LIVE } }, NOW - 2_000 + IDLE_DISTILL_MS],
+    ['one due already, as due now', { due: { at: NOW - IDLE_DISTILL_MS, pid: LIVE }, later: { at: NOW - 1_000, pid: LIVE } }, NOW],
+    ['no candidates', {}, null],
+  ];
+  for (const [name, pending, expected] of rows) assert.equal(nextDueAt(pending, { now: NOW, isGone }), expected, name);
+});
+
+test('a wake-up keeps a candidate\'s own time when it is still to come, and waits a minute for one already due', async () => {
+  const { ports, wakeUps } = memoryPorts({ model: { complete: async () => ({ answer: '' }) } });
+  const now = ports.clock.now();
+  await ports.candidates.update(() => ({ soon: { at: now + 10_000 - IDLE_DISTILL_MS, pid: 1 } }));
+  await armDistillWakeUp(ports);
+  await ports.candidates.update(() => ({ due: { at: now - IDLE_DISTILL_MS, pid: 1 } }));
+  await armDistillWakeUp(ports);
+  assert.deepEqual(wakeUps.map(({ at }) => at), [now + 10_000, now + MIN_WAKE_DELAY_MS]);
 });
 
 test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {

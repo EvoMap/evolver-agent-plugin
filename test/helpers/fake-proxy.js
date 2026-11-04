@@ -1,10 +1,22 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { isSameProcess } from '../../lib/runtime/process/identity.js';
 import { ASSET, recalledFor } from '../app/memory-ports.js';
 import { recipeSearchAnswer } from './recipe-search.js';
+
+// A verified turn's hook arms a detached waiter for background distillation, which would sleep on past the test.
+function endWaiters(home) {
+  for (const record of readdirSync(home, { recursive: true }).filter((name) => name.endsWith('-distill-waiter.json'))) {
+    try {
+      const { pid, startedAt } = JSON.parse(readFileSync(join(home, record), 'utf8'));
+      if (isSameProcess(pid, startedAt)) process.kill(pid);
+    } catch {
+    }
+  }
+}
 
 /**
  * A loopback Proxy that answers recall with the assets the text names (`recalledFor`) and records every request,
@@ -43,6 +55,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
     close: () => {
       server.close();
       server.closeAllConnections();
+      endWaiters(home);
       rmSync(home, { recursive: true, force: true });
     },
   };
