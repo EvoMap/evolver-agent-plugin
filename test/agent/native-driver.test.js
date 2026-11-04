@@ -29,10 +29,10 @@ function fixture(t) {
   const call = (event, extra = {}) => driver.handle(event, { ...payload, hook_event_name: event, ...extra });
   const id = profile.payload.sessionId(payload, { env, nativeScope: made.ports.native.scope });
   const loop = event => ({ type: 'context.append_loop_event', agentId: 'main', event });
-  return { ...made, env, id, call, add, loop, project, captured };
+  return { ...made, env, id, call, add, loop, project, agent, captured };
 }
 
-test('native driver captures selected route before recall and waits for native terminal after Stop', async t => {
+test('native driver captures the route and waits for both the terminal and an earlier background check', async t => {
   const f = fixture(t);
   const reply = await f.call('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] });
   assert.match(reply.message, /Evolution Memory/);
@@ -46,6 +46,8 @@ test('native driver captures selected route before recall and waits for native t
   f.add(
     f.loop({ type: 'tool.call', uuid: 'edit-call', turnId: 0, toolCallId: 'edit', name: 'Edit', args: { path: 'a.js' } }),
     f.loop({ type: 'tool.result', parentUuid: 'edit-call', toolCallId: 'edit', result: { output: '', durationMs: 2 } }),
+    f.loop({ type: 'tool.call', uuid: 'lint-call', turnId: 0, toolCallId: 'lint', name: 'Bash', args: { command: 'npm run lint', run_in_background: true } }),
+    f.loop({ type: 'tool.result', parentUuid: 'lint-call', toolCallId: 'lint', result: { output: 'task_id: lint-task\nstatus: running', durationMs: 2 } }),
     f.loop({ type: 'tool.call', uuid: 'check-call', turnId: 0, toolCallId: 'check', name: 'Bash', args: { command: 'npm test' } }),
     f.loop({ type: 'tool.result', parentUuid: 'check-call', toolCallId: 'check', result: { output: '', durationMs: 2 } }),
     { type: 'llm.request', agentId: 'main', modelAlias: 'selected', thinkingEffort: 'off', model: 'upstream-model', provider: 'openai' },
@@ -58,9 +60,17 @@ test('native driver captures selected route before recall and waits for native t
   f.add({ type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' });
   await f.call('Notification');
   assert.equal(f.sessions.get(f.id).open, false);
+  assert.equal(f.sessions.get(f.id).native.pending, true);
+  assert.deepEqual(await f.ports.candidates.read(), {});
+
+  const tasks = join(f.agent, 'tasks');
+  mkdirSync(tasks);
+  writeFileSync(join(tasks, 'lint-task.json'), JSON.stringify({ taskId: 'lint-task', kind: 'process', parentToolCallId: 'lint', command: 'npm run lint', status: 'completed', exitCode: 0 }));
+  await f.call('Notification');
+  assert.equal(f.sessions.get(f.id).native.pending, false);
   const candidate = (await f.ports.candidates.read())[f.id];
   assert.deepEqual(candidate.model, route);
-  assert.deepEqual(candidate.checks, [{ command: 'npm test', failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm run lint', failed: false }, { command: 'npm test', failed: false }]);
   assert.ok(f.retained[0].editedBefore.has(join(f.project, 'a.js')));
   assert.equal(f.queued.length, 1);
   assert.equal(f.queued[0].report.task_id.includes(f.env.KIMI_CODE_HOME), false, 'native profile paths stay out of Hub task identifiers');

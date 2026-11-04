@@ -6,7 +6,7 @@ import { promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { distillLeftovers, distillSession, dropExpiredLeftovers } from '../../lib/app/distill-session.js';
-import { UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { candidateOf, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts, PROMPT } from './memory-ports.js';
 
 const route = { alias: 'route-b', providerId: 'account-b', model: 'upstream-b', protocol: 'openai', endpoint: 'https://api.example/v1', effort: 'off', binding: 'captured-account', configRevision: 'same-config' };
@@ -294,18 +294,60 @@ test('failed and cancelled native turns stop polling pending checks that cannot 
   }
 });
 
-test('an eligible turn with an earlier pending check cannot recreate its consumed candidate on later polls', async () => {
-  const made = await pending({ distillAnswer: { status: 'stored' } });
+test('a pending background check blocks native distillation until dead-owner recovery sees its result', async () => {
+  const made = await pending({ distillAnswer: { status: 'stored' }, gone: new Set([4242]) });
   let completions = 0;
   made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
   const observed = facts();
   observed.record.checks.unshift({ command: 'npm run lint', failed: null });
-  assert.equal((await reconcileNativeTurn(made.ports, at, observed)).waiting, true);
-  assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'stored');
-  await reconcileNativeTurn(made.ports, at, observed);
+  made.ports.native.read = async () => observed;
+  const first = await reconcileNativeTurn(made.ports, at, observed);
+  assert.equal(first.waiting, true);
+  assert.equal(first.ended.isCandidate, false);
+  assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'nothing');
+  assert.equal((await recoverNativeTurns(made.ports))[0].waiting, true);
+  assert.deepEqual(await distillLeftovers(made.ports), []);
+  assert.equal(completions, 0);
+  assert.equal(made.requests.some(({ path }) => path === '/conversation/distill'), false);
   assert.deepEqual(await made.ports.candidates.read(), {});
+
   observed.record.checks[0].failed = false;
-  assert.equal((await reconcileNativeTurn(made.ports, at, observed)).waiting, false);
+  assert.equal((await recoverNativeTurns(made.ports))[0].waiting, false);
+  assert.deepEqual((await distillLeftovers(made.ports)).map(({ status }) => status), ['stored']);
+  await recoverNativeTurns(made.ports);
+  assert.deepEqual(await distillLeftovers(made.ports), []);
   assert.deepEqual(await made.ports.candidates.read(), {});
   assert.equal(completions, 1);
+  assert.equal(made.requests.filter(({ path }) => path === '/conversation/distill').length, 1);
 });
+
+for (const [stage, turn] of [['provisional', 1], ['provisional', 2], ['activated', 1]]) {
+  test(`recovery cannot distill a previously ${stage} candidate with a pending check (current turn ${turn})`, async () => {
+    const made = await pending({ gone: new Set([4242]) });
+    const observed = facts();
+    observed.record.checks.unshift({ command: 'npm run lint', failed: null });
+    const candidate = candidateOf({ prompt: PROMPT, record: observed.record, model: route, turn: 1, pid: 4242,
+      now: made.ports.clock.now(), finalizationPending: stage === 'provisional' });
+    await made.ports.candidates.update(() => ({ session: candidate }));
+    await made.ports.sessions.update('session', stored => ({ ...stored, turn, open: false,
+      native: { ...stored.native, turn, settled: true, pending: turn === 1, candidateMade: turn === 1 } }));
+    made.ports.native.read = async () => ({ status: 'unreadable' });
+    made.ports.model.complete = () => assert.fail('a pending check must not request a model');
+
+    assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'busy');
+    assert.deepEqual(await distillLeftovers(made.ports), []);
+    await recoverNativeTurns(made.ports);
+    assert.deepEqual((await made.ports.candidates.read()).session, candidate);
+    assert.deepEqual(await distillLeftovers(made.ports), []);
+    assert.equal(made.requests.some(({ path }) => path === '/conversation/distill'), false);
+
+    if (turn === 1) {
+      observed.record.checks[0].failed = false;
+      made.ports.native.read = async () => observed;
+      await recoverNativeTurns(made.ports);
+      const ready = (await made.ports.candidates.read()).session;
+      assert.deepEqual(ready.checks, observed.record.checks);
+      assert.equal(ready.finalizationPending, undefined);
+    }
+  });
+}
