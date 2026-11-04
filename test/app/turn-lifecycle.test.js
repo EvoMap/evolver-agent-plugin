@@ -183,12 +183,14 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
 });
 
 test('a turn whose work tree cannot be read is still the candidate, without its project', async () => {
-  const { ports } = memoryPorts();
-  ports.project.snapshot = async () => { throw new Error('git failed'); };
-  await verifiedTurn(ports, 's1');
-  assert.equal((await end(ports, 's1')).isCandidate, true);
-  assert.equal((await ports.candidates.read()).s1.project, undefined);
-  assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
+  for (const project of [{ snapshot: async () => { throw new Error('git failed'); } }, undefined]) {
+    const { ports } = memoryPorts();
+    ports.project = project;
+    await verifiedTurn(ports, 's1');
+    assert.equal((await end(ports, 's1')).isCandidate, true);
+    assert.equal((await ports.candidates.read()).s1.project, undefined);
+    assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
+  }
 });
 
 test('the wait for a turn end still writing runs from when that turn began closing, after a settle wait', async () => {

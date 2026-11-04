@@ -44,17 +44,20 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 
   writeFileSync(join(dir, 'big.txt'), 'x'.repeat(DIFF_MAX_BYTES));
   const big = await projectSnapshotOf().snapshot(dir);
-  assert.deepEqual([big.diff, big.diff_omitted], [undefined, 'too_large']);
+  assert.deepEqual(big, { diff_omitted: 'too_large' });
 });
 
-test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all', async (t) => {
+test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all; a name that only holds such a name does not', async (t) => {
   for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'], ['deploy.yml', 'deploy_token: unique-secret-123\n']]) {
     const dir = repo(t);
     writeFileSync(join(dir, file), text);
     const snapshot = await projectSnapshotOf().snapshot(dir);
-    assert.deepEqual([snapshot.diff, snapshot.diff_omitted], [undefined, 'secret'], file);
+    assert.deepEqual(snapshot, { diff_omitted: 'secret' }, file);
     assert.doesNotMatch(JSON.stringify(snapshot), /unique-secret-123|harmless/);
   }
+  const dir = repo(t);
+  writeFileSync(join(dir, 'docs .env example.txt'), 'harmless\n');
+  assert.match((await projectSnapshotOf().snapshot(dir)).diff, /\+harmless/);
 });
 
 test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a change inside a submodule', async (t) => {
@@ -64,14 +67,14 @@ test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a c
 
   const latin1 = repo(t);
   writeFileSync(join(latin1, 'legacy.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
-  assert.equal((await projectSnapshotOf().snapshot(latin1)).diff_omitted, 'not_utf8');
+  assert.deepEqual(await projectSnapshotOf().snapshot(latin1), { diff_omitted: 'not_utf8' });
 
   const parent = repo(t);
   const child = repo(t);
   git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'vendor');
   git(parent, 'commit', '-qm', 'vendor');
   writeFileSync(join(parent, 'vendor', 'a.js'), 'export const a = 2;\n');
-  assert.equal((await projectSnapshotOf().snapshot(parent)).diff_omitted, 'submodule');
+  assert.deepEqual(await projectSnapshotOf().snapshot(parent), { diff_omitted: 'submodule' });
 });
 
 test('an untracked file whose name is not UTF-8 keeps the rest of the diff', async (t) => {
