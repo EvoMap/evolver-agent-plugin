@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { runCommand } from '../../lib/app/commands/index.js';
-import { distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
@@ -188,6 +188,16 @@ test('the next wake-up is when the earliest candidate no live process holds come
     ['no candidates', {}, null],
   ];
   for (const [name, pending, expected] of rows) assert.equal(nextDueAt(pending, { now: NOW, isGone }), expected, name);
+});
+
+test('a wake-up keeps a candidate\'s own time when it is still to come, and waits a minute for one already due', async () => {
+  const { ports, wakeUps } = memoryPorts({ model: { complete: async () => ({ answer: '' }) } });
+  const now = ports.clock.now();
+  await ports.candidates.update(() => ({ soon: { at: now + 10_000 - IDLE_DISTILL_MS, pid: 1 } }));
+  await armDistillWakeUp(ports);
+  await ports.candidates.update(() => ({ due: { at: now - IDLE_DISTILL_MS, pid: 1 } }));
+  await armDistillWakeUp(ports);
+  assert.deepEqual(wakeUps.map(({ at }) => at), [now + 10_000, now + MIN_WAKE_DELAY_MS]);
 });
 
 test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {

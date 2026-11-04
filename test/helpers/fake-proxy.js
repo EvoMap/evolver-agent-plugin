@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { isSameProcess } from '../../lib/runtime/process/identity.js';
 import { ASSET, recalledFor } from '../app/memory-ports.js';
 import { recipeSearchAnswer } from './recipe-search.js';
 
@@ -10,7 +11,8 @@ import { recipeSearchAnswer } from './recipe-search.js';
 function endWaiters(home) {
   for (const record of readdirSync(home, { recursive: true }).filter((name) => name.endsWith('-distill-waiter.json'))) {
     try {
-      process.kill(JSON.parse(readFileSync(join(home, record), 'utf8')).pid);
+      const { pid, startedAt } = JSON.parse(readFileSync(join(home, record), 'utf8'));
+      if (isSameProcess(pid, startedAt)) process.kill(pid);
     } catch {
     }
   }

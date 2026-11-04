@@ -54,7 +54,7 @@ test('a hook process arms one sleeping waiter, another only for an earlier time 
     }
   };
   const inAnHour = Date.now() + 60 * 60_000;
-  const stranger = spawn('sleep', ['30'], { stdio: 'ignore' });
+  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { stdio: 'ignore' });
   started.push(stranger.pid);
   writeState(stores.distillWaiter, { pid: stranger.pid, startedAt: Date.now() - 10 * 60_000, at: inAnHour });
   scheduler.wakeAt(inAnHour, ['distill']);
