@@ -60,11 +60,26 @@ test('supported wrapper options still leave the actual command in command positi
   for (const command of [
     'sudo -u root npm test', 'sudo --user=root -- npm test', 'env -u CI npm test',
     'env --unset=CI --chdir app npm test', 'timeout -s KILL 60 npm test', 'time -p npm test',
-    'exec npm test', '! npm test',
+    'exec npm test', '! npm test', 'time ! npm test',
   ]) assert.equal(isVerificationCommand(command), true, command);
   for (const command of [
     'sudo -u root echo npm test', 'sudo -u npm test', 'env -u npm test',
     'env --chdir app echo npm test', 'exec echo npm test', '! echo npm test',
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
+test('literal shell and package-manager wrappers recognise only the command they execute', () => {
+  for (const command of [
+    "/bin/bash -c 'npm test'", 'bash -lc "npm test"', "/usr/bin/bash -lc 'cd app && npm test'",
+    'corepack pnpm test', 'corepack yarn vitest run', 'command npm test', 'command -p -- npm test',
+    'npm exec -- vitest run', 'npm exec --yes --package typescript -- tsc --noEmit',
+    'corepack npm exec --package=vitest -- vitest run',
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    "echo /bin/bash -c 'npm test'", '/bin/bash -c "echo npm test"', 'bash -lc "$CHECK"', "bash -lc\n'npm test'",
+    'corepack enable pnpm', 'corepack echo npm test', 'command -v npm test', 'command -V npm test',
+    'command -- echo npm test', 'command ! npm test', 'npm exec -- echo "vitest run"', 'npm exec --package=vitest -- echo vitest',
+    "npm exec -c 'echo vitest run'",
   ]) assert.equal(isVerificationCommand(command), false, command);
 });
 
@@ -134,7 +149,9 @@ test('a heredoc body that names a check is data, not a check; the command lines 
 test('a compound shell result needs check output before it can verify the check', () => {
   const compounds = ['true || npm test', 'npm test || true', 'npm test | tail -5', 'npm test &',
     'npm test; echo done', 'false && npm test', 'echo start\nnpm test', '! npm test', 'time ! npm test',
-    'if npm test; then true; fi', 'bash -c "npm test || true"'];
+    'if npm test; then true; fi', 'bash -c "npm test || true"',
+    "/bin/bash -c 'true || npm test'", 'bash -lc "npm test || true"',
+    'corepack pnpm test | tail -5', 'command npm test || true', 'npm exec -- vitest run || true'];
   for (const command of compounds) {
     const result = { kind: 'shell', command };
     for (const exit of [0, 1]) {
@@ -152,7 +169,8 @@ test('literal shell text and descriptor redirects preserve a direct check exit',
   assert.equal(turnRecordOf([{ ...directoryCheck, exit: 1 }]).checks[0].failed, null);
   for (const command of ['npm test -- --grep "a|b; c && d"', 'npm test 2>&1',
     'npm test &> report.log', 'npm test >| report.log', 'npm test # after; ignore',
-    "sh -c 'npm test'", 'npm test\n', 'npm test <<EOF\n&& ignore\nEOF']) {
+    "sh -c 'npm test'", 'npm test\n', 'npm test <<EOF\n&& ignore\nEOF',
+    "/bin/bash -c 'npm test'", 'bash -lc "npm test"', 'corepack pnpm test', 'command npm test', 'npm exec -- vitest run']) {
     assert.equal(turnRecordOf([{ kind: 'shell', command, exit: 0 }]).checks[0].failed, false, command);
     assert.equal(isFailedCheck({ kind: 'shell', command, exit: 1 }), true, command);
   }
