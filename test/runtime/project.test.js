@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { DIFF_MAX_BYTES } from '../../lib/distill/project-diff.js';
+import { distillBody } from '../../lib/distill/prompt.js';
 import { projectSnapshotOf } from '../../lib/runtime/project.js';
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' });
@@ -26,6 +27,7 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
   writeFileSync(join(dir, 'a.js'), 'export const a = 2;\n');
   mkdirSync(join(dir, 'lib'));
   writeFileSync(join(dir, 'lib', 'new.js'), 'export const b = 3;\n');
+  writeFileSync(join(dir, 'settings.json'), '{"maxTokens":"4096","monkey":"example"}\n');
   mkdirSync(join(dir, 'node_modules'));
   writeFileSync(join(dir, 'node_modules', 'dep.js'), 'ignored\n');
   const statusBefore = git(dir, 'status', '--porcelain');
@@ -33,6 +35,8 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
   assert.equal(git(dir, 'status', '--porcelain'), statusBefore);
   assert.deepEqual([snapshot.root, snapshot.head], [git(dir, 'rev-parse', '--show-toplevel').trim(), git(dir, 'rev-parse', 'HEAD').trim()]);
   assert.doesNotMatch(snapshot.diff, /node_modules/);
+  assert.match(snapshot.diff, /"maxTokens":"4096"/);
+  assert.match(snapshot.diff, /"monkey":"example"/);
 
   const copy = mkdtempSync(join(tmpdir(), 'evolver-copy-'));
   t.after(() => rmSync(copy, { recursive: true, force: true }));
@@ -53,10 +57,13 @@ test('a work tree whose diff holds a secret, or touches a file keys are kept in,
     ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'],
     ['settings.json', '{"token":"opaque-example-123456789"}\n'],
     ['deploy.json', '{"DEPLOY_TOKEN":"opaque-example-123456789"}\n'],
+    ['settings.json', '{"accessToken":"opaque-example-123456789"}\n'],
   ]) {
     const dir = repo(t);
     writeFileSync(join(dir, file), text);
     const snapshot = await projectSnapshotOf().snapshot(dir);
+    const body = distillBody({ platform: 'codex', sessionId: 's1', candidate: { checks: [], project: snapshot }, args: {} });
+    assert.doesNotMatch(JSON.stringify(body.project), /unique-secret-123|harmless|opaque-example/);
     assert.deepEqual([snapshot.diff, snapshot.diff_omitted], [undefined, 'secret'], file);
     assert.doesNotMatch(JSON.stringify(snapshot), /unique-secret-123|harmless|opaque-example/);
   }

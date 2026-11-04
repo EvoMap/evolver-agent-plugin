@@ -17,7 +17,7 @@ test('an earlier unknown check stays unknown in the model record and supplies no
 test('the Proxy body omits a stored snapshot with a quoted JSON credential', () => {
   const project = {
     root: '/project', head: 'abc123',
-    diff: 'diff --git a/settings.json b/settings.json\n+{"token":"opaque-example-123456789"}\n',
+    diff: 'diff --git a/settings.json b/settings.json\n+{"refreshToken":"opaque-example-123456789"}\n',
   };
   const candidate = { checks: [], project };
   const body = distillBody({ platform: 'codex', sessionId: 's1', candidate, args: {} });
