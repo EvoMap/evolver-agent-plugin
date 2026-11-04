@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { hub } from '@evomap/evolver-core';
 
@@ -10,6 +14,7 @@ import { draftOf } from '../../lib/distill.js';
 import { proxyFetchOf } from '../../lib/runtime/proxy.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { fakeProxy } from '../helpers/fake-proxy.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { type: 'Gene', asset_id: 'sha256:gene' };
@@ -140,6 +145,96 @@ test('a correction can finish while a dispatched submit waits for the Proxy repl
     reply.resolve(new Response('{"message_id":"fixture-submit"}'));
     assert.equal((await publishing).ok, true);
   }
+});
+
+test('two dead-owner recoverers cannot dispatch a draft after correction', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-draft-recovery-'));
+  const state = fileStoresOf({ dir, agent: 'testagent' });
+  const url = (path) => JSON.stringify(new URL(path, import.meta.url).href);
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import { join } from 'node:path';
+    import { runCommand } from ${url('../../lib/app/commands/index.js')};
+    import { promptSubmitted } from ${url('../../lib/app/prompt.js')};
+    import { proxyFetchOf } from ${url('../../lib/runtime/proxy.js')};
+    import { fileStoresOf } from ${url('../../lib/runtime/store/file-stores.js')};
+    import { memoryPorts } from ${url('./memory-ports.js')};
+    import { until } from ${url('../helpers/lock-contenders.js')};
+    const [dir, lock, role] = process.argv.slice(1);
+    const marker = (name) => join(dir, name);
+    const { sessions, drafts, draftCorrections } = fileStoresOf({ dir, agent: 'testagent' });
+    const { ports } = memoryPorts();
+    Object.assign(ports, { sessions, drafts, draftCorrections, settings: { recall: false } });
+    if (role === 'correction') {
+      const stat = fs.statSync;
+      fs.statSync = (file, ...args) => {
+        const snapshot = stat(file, ...args);
+        if (file === lock) {
+          fs.statSync = stat;
+          fs.writeFileSync(marker('stale-read'), '');
+          const deadline = Date.now() + 10_000;
+          while (!fs.existsSync(marker('resume'))) {
+            if (Date.now() >= deadline) throw new Error('timed out resuming correction');
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+        }
+        return snapshot;
+      };
+      ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+      await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+      fs.writeFileSync(marker('corrected'), '');
+    } else {
+      const { has, withSession } = draftCorrections;
+      let inGate = false;
+      draftCorrections.has = async (...args) => {
+        const corrected = await has(...args);
+        if (inGate && !corrected) await until(() => fs.existsSync(marker('corrected')));
+        return corrected;
+      };
+      draftCorrections.withSession = (id, work, signal) => {
+        const result = withSession(id, () => {
+          inGate = true;
+          return work();
+        }, signal);
+        fs.writeFileSync(marker('publish-attempted'), '');
+        return result;
+      };
+      globalThis.fetch = async (url) => {
+        assert.equal(new URL(url).pathname, '/asset/submit');
+        fs.writeFileSync(marker('submitted'), '');
+        return new Response('{}');
+      };
+      ports.proxy.request = proxyFetchOf({ HOME: dir });
+      const result = await runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+      fs.writeFileSync(marker('result'), JSON.stringify(result));
+    }
+  `;
+  const lockName = createHash('sha256').update('s1').digest('hex').slice(0, 16);
+  const lock = join(dir, 'testagent-distill-corrections', `${lockName}.lock`);
+  const { run, results } = lockContenders(t, dir, script, [dir, lock], ['resume', 'corrected']);
+  const dead = spawnSync(process.execPath, ['-e', ''], { windowsHide: true });
+  assert.equal(dead.status, 0);
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner'), `${dead.pid}:deadbeef`);
+  utimesSync(lock, new Date(0), new Date(0));
+  await state.sessions.update('s1', () => ({ turn: 1 }));
+  const draft = { ...draftOf({ ...RESULT, publishable: true, publish_receipt: RECEIPT }, { title: 'Verified method', sessionId: 's1' }, 100), sourceCandidate: { turn: 1, at: 10 } };
+  await state.drafts.update(() => [draft]);
+
+  run('correction');
+  await until(() => existsSync(join(dir, 'stale-read')));
+  run('publish');
+  await until(() => existsSync(join(dir, 'publish-attempted')));
+  writeFileSync(join(dir, 'resume'), '');
+  const outcomes = await results();
+  assert.ok(outcomes.every(({ code }) => code === 0), JSON.stringify(outcomes));
+  assert.equal(await state.draftCorrections.has('s1', 1), true);
+  assert.equal(existsSync(join(dir, 'submitted')), false);
+  const result = JSON.parse(readFileSync(join(dir, 'result'), 'utf8'));
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(await state.drafts.read(), [draft]);
 });
 
 test('explicit publication preserves the Proxy receipt and its complete bound bundle', async () => {
