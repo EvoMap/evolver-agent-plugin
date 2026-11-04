@@ -84,7 +84,7 @@ const shellOutputOf = (text) => {
 };
 
 function shellFailed(command, result) {
-  if (result.status !== 'completed') return verificationFailureOf({ command, exit: 1 });
+  if (result.status !== 'completed') return true;
   const exit = EXIT_CODE.exec(result.text);
   return verificationFailureOf({ command, exit: exit ? Number(exit[1]) : null, text: shellOutputOf(result.text) });
 }
