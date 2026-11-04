@@ -67,6 +67,21 @@ test('supported wrapper options still leave the actual command in command positi
   ]) assert.equal(isVerificationCommand(command), false, command);
 });
 
+test('literal shell and package-manager wrappers recognise only the command they execute', () => {
+  for (const command of [
+    "/bin/bash -c 'npm test'", 'bash -lc "npm test"', "/usr/bin/bash -lc 'cd app && npm test'",
+    'corepack pnpm test', 'corepack yarn vitest run', 'command npm test', 'command -p -- npm test',
+    'npm exec -- vitest run', 'npm exec --yes --package typescript -- tsc --noEmit',
+    'corepack npm exec --package=vitest -- vitest run',
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    "echo /bin/bash -c 'npm test'", '/bin/bash -c "echo npm test"', 'bash -lc "$CHECK"', "bash -lc\n'npm test'",
+    'corepack enable pnpm', 'corepack echo npm test', 'command -v npm test', 'command -V npm test',
+    'command -- echo npm test', 'command ! npm test', 'npm exec -- echo "vitest run"', 'npm exec --package=vitest -- echo vitest',
+    "npm exec -c 'echo vitest run'",
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
 test('literal quoted executables count only in command position', () => {
   for (const command of [
     '"./node_modules/.bin/jest"', "'./path with spaces/gradlew' build",
