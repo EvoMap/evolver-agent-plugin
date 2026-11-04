@@ -10,7 +10,7 @@ import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { candidateReferenceOf, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -187,7 +187,7 @@ test('a correction while a request is pending still reports a Gene the Proxy sto
 
 test('a correction while an agent Gene request is pending discards its late draft', async () => {
   const { ports } = await withCandidate();
-  const writtenFor = (await ports.candidates.read()).s1.at;
+  const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
   const started = Promise.withResolvers();
   const finish = Promise.withResolvers();
   const request = ports.proxy.request;
@@ -298,7 +298,7 @@ test('a correction after the final candidate snapshot removes only the corrected
 
 test('an agent Gene does not report a draft replaced with the same ID during settlement', async () => {
   const { ports } = await withCandidate();
-  const writtenFor = (await ports.candidates.read()).s1.at;
+  const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
   const update = ports.candidates.update;
   let replacement;
   ports.candidates.update = async (mutate) => {
@@ -408,7 +408,7 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
 for (const entry of ['headless model', 'agent Gene']) {
   test(`a failed correction cleanup is reported for a draft from the ${entry}`, async (t) => {
     const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
-    const writtenFor = (await ports.candidates.read()).s1.at;
+    const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
     const update = ports.drafts.update;
     let writes = 0;
     let signal;
@@ -487,6 +487,38 @@ test('a Gene written for a candidate since replaced is not sent', async () => {
   const { ports, requests } = await withCandidate();
   assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: 1 })).status, 'dropped');
   assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
+});
+
+test('a Gene from an older turn cannot post against a new candidate with the same timestamp', async () => {
+  const { ports, requests } = await withCandidate();
+  const earlier = (await ports.candidates.read()).s1;
+  const oldRequest = await distillSession(ports, { sessionId: 's1' });
+  await verifiedTurn(ports, 's1', 'still failing');
+  const newer = (await ports.candidates.read()).s1;
+  assert.equal(newer.at, earlier.at);
+  assert.equal(newer.turn, earlier.turn + 1);
+
+  const gene = { sessionId: 's1', text: JSON.stringify(GENE) };
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: oldRequest.agentGene.writtenFor })).status, 'dropped');
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: earlier.at })).status, 'dropped');
+  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
+  const fresh = await distillSession(ports, { sessionId: 's1' });
+  assert.notEqual(fresh.agentGene.writtenFor, oldRequest.agentGene.writtenFor);
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: fresh.agentGene.writtenFor })).status, 'drafted');
+});
+
+test('a terminal Gene selects its session even when another candidate has the same timestamp and turn', async () => {
+  const { ports, requests } = await withCandidate();
+  await verifiedTurn(ports, 's2');
+  const { s1, s2 } = await ports.candidates.read();
+  assert.deepEqual([s1.at, s1.turn], [s2.at, s2.turn]);
+  const { agentGene } = await distillSession(ports, { sessionId: 's2' });
+  const gene = { text: JSON.stringify(GENE), writtenFor: agentGene.writtenFor };
+
+  assert.equal((await postAgentGene(ports, { ...gene, sessionId: 's1' })).status, 'dropped');
+  assert.equal((await postAgentGene(ports, { ...gene, sessionId: 'terminal', anySession: true })).status, 'drafted');
+  assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.session_id), ['testagent:s2']);
+  assert.equal((await ports.candidates.read()).s1.turn, s1.turn);
 });
 
 test('every command answers from the plugin; evolve is the one prompt for the agent', async () => {

@@ -46,9 +46,10 @@ test('a recalled turn is reported under its turn_id, agent-reported, and its Gen
   assert.match(recalled, /Apply them where they fit\./);
   const turnId = turnIdOf(recalled);
   const reported = textOf(await call(client, 'evolver_report', { turn_id: turnId, outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] }));
-  const writtenFor = Number(/written_for (\d+)/.exec(reported)?.[1]);
-  assert.ok(writtenFor > 0);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor + 1, gene: GENE })), /newer turn replaced/);
+  const writtenFor = /written_for "(v1-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
+  assert.ok(writtenFor);
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: GENE })), /newer turn replaced/);
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 123, gene: GENE })), /newer turn replaced/);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: GENE })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
   const delivered = () => proxy.requests.find((request) => request.path === '/asset/reuse-result')?.body;

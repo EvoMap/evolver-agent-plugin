@@ -48,7 +48,7 @@ function agentGeneRequest({ text, agentGene }, payload) {
     'Write the Gene with your own model: answer the request below with the JSON object only, put it between the',
     'two marker lines of this command, run the command with your shell tool, and show the user what it prints.',
     '',
-    `${env.join(' ')} node ${shellQuoted(payload.script)} ${AGENT_NAME} evolver-distill --post ${agentGene.writtenFor} <<'${end}'`,
+    `${env.join(' ')} node ${shellQuoted(payload.script)} ${AGENT_NAME} evolver-distill --post ${shellQuoted(agentGene.writtenFor)} <<'${end}'`,
     '<the JSON object>',
     end,
     '',

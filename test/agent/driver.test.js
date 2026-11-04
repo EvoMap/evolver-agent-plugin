@@ -100,7 +100,7 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   const recalled = await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
   assert.match(recalled.content[0].text, /Apply them where they fit\.\n\nturn_id: t1 /);
   const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] });
-  assert.match(reported.content[0].text, /call evolver_distill with written_for \d+/);
+  assert.match(reported.content[0].text, /call evolver_distill with written_for "v1-[A-Za-z0-9_-]{43}"/);
   assert.equal(queued[0].report.evidence.reported_by, 'agent');
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });
