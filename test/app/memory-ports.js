@@ -64,7 +64,7 @@ const lines = () => {
   };
 };
 
-export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000 } = {}) {
+export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null } = {}) {
   const sessions = new Map();
   const notes = lines();
   const edits = lines();
@@ -126,6 +126,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     model,
     owner: { current: () => owner, self: () => 7, isGone: (pid) => gone.has(pid) },
+    project: { snapshot: async () => project },
     scheduler: { schedule: (tasks) => scheduled.push(...tasks) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },

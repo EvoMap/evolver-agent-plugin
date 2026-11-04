@@ -15,7 +15,6 @@ const COMPLETED = new Set(['DONE', 'ERROR']);
 const EXIT_LINE = /^The command exited with code (-?\d+)\./m;
 const EXIT_IN_ERROR = /\bexit (?:status|code)\D*(-?\d+)/i;
 const OUTPUT_MARKER = /^Output:\n?/m;
-const FAILED_WITHOUT_CODE = 1;
 
 const isFailed = (result) => !result || result.status === 'ERROR' || Boolean(result.error);
 
@@ -27,8 +26,7 @@ export function editedFileOf(toolCall) {
 
 function exitCodeOf(result) {
   const match = EXIT_LINE.exec(String(result.content ?? '')) ?? EXIT_IN_ERROR.exec(String(result.error ?? ''));
-  if (match) return Number(match[1]);
-  return isFailed(result) ? FAILED_WITHOUT_CODE : null;
+  return match ? Number(match[1]) : null;
 }
 
 function outputOf(content) {
@@ -40,7 +38,8 @@ function outputOf(content) {
 // A command with no result step, or one whose step has not completed (moved to the background), has no verdict.
 function shellNote(command, result) {
   if (!result || !COMPLETED.has(result.status)) return { kind: 'shell', command, running: true };
-  return { kind: 'shell', command, exit: exitCodeOf(result), output: outputOf(result.content) };
+  const exit = exitCodeOf(result);
+  return { kind: 'shell', command, exit, ...(exit === null && isFailed(result) && { failed: true }), output: outputOf(result.content) };
 }
 
 function noteOf({ name, args, result }) {

@@ -58,7 +58,7 @@ test('the request keeps each check once, as its last run, only project-relative 
   });
   assert.equal(method, 'POST');
   assert.equal(path, '/conversation/distill');
-  assert.deepEqual(body.execution.trace, [{ command: 'tsc', exit: 0 }, { command: 'npm test', exit: 0 }]);
+  assert.deepEqual(body.execution.trace, [{ command: 'tsc', ok: true }, { command: 'npm test', ok: true }]);
   assert.deepEqual(body.validation, ['tsc', 'npm test']);
   assert.deepEqual(body.artifacts, ['src/upload.js', 'src/retry.js']);
   assert.equal(body.persist, false);
@@ -72,7 +72,7 @@ test('the last unknown run replaces an earlier pass without inventing a successf
     checks: [{ command: 'npm test', failed: false }, { command: 'npm test', failed: null }, { command: 'tsc', failed: false }], paths: [],
     sessionId: 's1', platform: 'codex',
   });
-  assert.deepEqual(body.execution.trace, [{ command: 'tsc', exit: 0 }]);
+  assert.deepEqual(body.execution.trace, [{ command: 'tsc', ok: true }]);
   assert.deepEqual(body.validation, ['tsc']);
 });
 

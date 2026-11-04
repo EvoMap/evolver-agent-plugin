@@ -3,13 +3,13 @@ import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { runCommand } from '../../lib/app/commands/index.js';
-import { distillLeftovers, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
+import { distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -19,6 +19,8 @@ const DRAFTED = {
   capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: GENE.summary },
 };
 
+const PROJECT = { root: '/proj', head: 'f'.repeat(40), diff: 'diff --git a/lib/redis.js b/lib/redis.js\n' };
+
 const modelAnswering = (answer, onCall = () => {}) => ({
   complete: async () => {
     await onCall();
@@ -27,7 +29,7 @@ const modelAnswering = (answer, onCall = () => {}) => ({
 });
 
 async function withCandidate(options = {}) {
-  const made = memoryPorts({ distillAnswer: DRAFTED, ...options });
+  const made = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, ...options });
   const { ports } = made;
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'fix the flaky redis retries', waitMs: 1_000 });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
@@ -39,20 +41,46 @@ async function withCandidate(options = {}) {
 test('a session-end distillation the Proxy answers as a draft is kept as a draft and settles the candidate', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillLeftovers(ports);
+  const [outcome] = await distillDue(ports);
   assert.equal(outcome.status, 'drafted');
   assert.equal((await ports.candidates.read()).s1, undefined);
   assert.equal((await ports.drafts.read())[0].title, GENE.title);
   const { body } = requests.find((request) => request.path === '/conversation/distill');
   assert.deepEqual([body.platform, body.trigger, body.session_id, body.persist, body.publish], ['testagent', 'session_end', 'testagent:s1', true, false]);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test', exit: 0 }] });
+  assert.deepEqual(body.execution, { trace: [{ command: 'npm test', exit: 0, source: 'observed' }] });
+  assert.deepEqual(body.project, PROJECT);
   assert.deepEqual(body.distill_usage, { inputTokens: 10, outputTokens: 5 });
 });
 
-test('a live session keeps its candidate; only an ended one is a leftover', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  assert.deepEqual(await distillLeftovers(ports), []);
+test('a diff that would push the distillation past the Proxy\'s 256 KiB body limit is left out and marked truncated', async () => {
+  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), project: { ...PROJECT, diff: 'x'.repeat(256 * 1024 - 100) } });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await distillDue(ports);
+  const { body } = requests.find((request) => request.path === '/conversation/distill');
+  assert.deepEqual(body.project, { diff_omitted: 'too_large' });
+});
+
+test('a live session\'s candidate is distilled once the session has been quiet long enough, with trigger idle', async () => {
+  const { ports, requests, advance } = await withCandidate({ model: modelAnswering(GENE) });
+  advance(IDLE_DISTILL_MS - 1);
+  assert.deepEqual(await distillDue(ports), []);
   assert.ok((await ports.candidates.read()).s1);
+  advance(1);
+  assert.deepEqual((await distillDue(ports)).map((outcome) => outcome.status), ['drafted']);
+  assert.equal(requests.find((request) => request.path === '/conversation/distill').body.trigger, 'idle');
+});
+
+test('a session still active keeps its candidate waiting; once it is quiet, a prompt in any session schedules the distillation', async () => {
+  const { ports, scheduled, advance } = await withCandidate({ model: modelAnswering(GENE) });
+  const distillsScheduled = () => scheduled.filter((task) => task === TASKS.DISTILL).length;
+  advance(IDLE_DISTILL_MS - 1);
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'now explain the build', waitMs: 0 });
+  advance(1);
+  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the build', waitMs: 0 });
+  assert.equal(distillsScheduled(), 0);
+  advance(IDLE_DISTILL_MS);
+  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the tests', waitMs: 0 });
+  assert.equal(distillsScheduled(), 1);
 });
 
 test('an explicit distillation cannot duplicate its process\'s running background distillation', async () => {
@@ -65,7 +93,7 @@ test('an explicit distillation cannot duplicate its process\'s running backgroun
     await finish.promise;
   }) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const background = distillLeftovers(ports);
+  const background = distillDue(ports);
   await started.promise;
   const explicit = distillSession(ports, { sessionId: 's1' });
   await new Promise(setImmediate);
@@ -103,7 +131,7 @@ test('a process shutting down stops a leftover\'s model call without counting a 
   const { ports } = await withCandidate({ model: waitsForever });
   ports.scheduler = { ...ports.scheduler, signal: stopping.signal };
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const running = distillLeftovers(ports);
+  const running = distillDue(ports);
   await new Promise((resolve) => setImmediate(resolve));
   stopping.abort();
   assert.deepEqual((await running).map((outcome) => outcome.status), ['stopped']);
@@ -114,7 +142,7 @@ test('a process shutting down stops a leftover\'s model call without counting a 
 test('the model may decline, which settles the candidate without calling the Proxy', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering({ skip: 'routine edit' }) });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillLeftovers(ports);
+  const [outcome] = await distillDue(ports);
   assert.deepEqual([outcome.status, outcome.reason], ['declined', 'routine edit']);
   assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
   assert.equal((await ports.candidates.read()).s1, undefined);
@@ -125,15 +153,23 @@ test('a candidate dropped by a correction while the model answers is not posted'
   const { ports, requests } = made;
   ports.model = modelAnswering(GENE, () => ports.candidates.update(({ s1, ...rest }) => rest));
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillLeftovers(ports);
+  const [outcome] = await distillDue(ports);
   assert.equal(outcome.status, 'dropped');
   assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
 });
 
-test('a failing headless model keeps the candidate, and three failed tries give it up', async () => {
-  const { ports } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
+test('a failing headless model keeps the candidate, tries again only after a doubling wait, and three failed tries give it up', async () => {
+  const { ports, advance } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  for (let attempt = 1; attempt <= 3; attempt += 1) assert.equal((await distillLeftovers(ports))[0].status, 'model_failed');
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
+  advance(RETRY_BASE_MS - 1);
+  assert.deepEqual(await distillDue(ports), [], 'the first retry waits its delay');
+  advance(1);
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
+  advance(RETRY_BASE_MS);
+  assert.deepEqual(await distillDue(ports), [], 'the second wait is twice as long');
+  advance(RETRY_BASE_MS);
+  assert.equal((await distillDue(ports))[0].status, 'model_failed');
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
