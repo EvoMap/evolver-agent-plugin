@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,4 +105,35 @@ test('a recorded draft correction survives reopening and pruning the source sess
   assert.equal(await reopened.draftCorrections.has('s1', 2, 20), false);
   assert.equal(await reopened.draftCorrections.has('s1', 1, 10), false);
   assert.equal(await reopened.draftCorrections.has('s2', 2, 10), false);
+});
+
+test('a publish gate in another process waits for the source session correction', async (t) => {
+  const { dir, stores: parent } = stores();
+  const module = new URL('../../lib/runtime/store/file-stores.js', import.meta.url).href;
+  const script = `import { once } from 'node:events';
+import { fileStoresOf } from ${JSON.stringify(module)};
+const { draftCorrections } = fileStoresOf({ dir: ${JSON.stringify(dir)}, agent: 'cursor' });
+await draftCorrections.withSession('s1', async () => {
+  const release = once(process, 'message');
+  process.send('locked');
+  await release;
+  await draftCorrections.mark('s1', 2, 10);
+});
+process.disconnect();`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  t.after(() => child.kill());
+  const exited = once(child, 'exit');
+  const locked = once(child, 'message');
+  const [ready] = await Promise.race([locked, exited]);
+  assert.equal(ready, 'locked');
+
+  let checked = false;
+  const publication = parent.draftCorrections.withSession('s1', async () => {
+    checked = true;
+    return parent.draftCorrections.has('s1', 2, 10);
+  });
+  assert.equal(checked, false);
+  child.send('release');
+  assert.equal(await publication, true);
+  assert.deepEqual(await exited, [0, null]);
 });

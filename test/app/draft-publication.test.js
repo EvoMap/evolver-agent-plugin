@@ -7,6 +7,9 @@ import { runCommand } from '../../lib/app/commands/index.js';
 import { promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { draftOf } from '../../lib/distill.js';
+import { proxyFetchOf } from '../../lib/runtime/proxy.js';
+import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
+import { fakeProxy } from '../helpers/fake-proxy.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { type: 'Gene', asset_id: 'sha256:gene' };
@@ -74,6 +77,69 @@ test('a correction during reverification blocks submit even if it cannot remove 
   assert.match(result.text, /invalidated by a correction/i);
   assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
   assert.deepEqual(await ports.drafts.read(), [source]);
+});
+
+test('a correction after the publication check cannot slip into submit dispatch', async (t) => {
+  const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
+  const proxy = await fakeProxy();
+  t.after(proxy.close);
+  ports.proxy.request = proxyFetchOf(proxy.env);
+  ports.draftCorrections = fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections;
+  const correctionPorts = { ...ports, draftCorrections: fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections };
+  const source = { ...draft, sourceCandidate: { turn: 1, at: 10 } };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [source]);
+  const hasCorrection = ports.draftCorrections.has;
+  const updateDrafts = ports.drafts.update;
+  let checked = false;
+  ports.draftCorrections.has = async (...args) => {
+    const observed = await hasCorrection(...args);
+    if (!checked) {
+      checked = true;
+      ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+      try {
+        await assert.rejects(promptSubmitted(correctionPorts, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+      } finally {
+        ports.drafts.update = updateDrafts;
+      }
+    }
+    return observed;
+  };
+
+  const result = await runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(checked, true);
+  assert.deepEqual(proxy.requests, []);
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(await ports.drafts.read(), [source]);
+});
+
+test('a correction can finish while a dispatched submit waits for the Proxy reply', async (t) => {
+  const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
+  const proxy = await fakeProxy();
+  t.after(proxy.close);
+  ports.proxy.request = proxyFetchOf(proxy.env);
+  ports.draftCorrections = fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections;
+  const correctionPorts = { ...ports, settings: { recall: false }, draftCorrections: fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [{ ...draft, sourceCandidate: { turn: 1, at: 10 } }]);
+
+  const dispatched = Promise.withResolvers();
+  const reply = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', (url) => {
+    dispatched.resolve(new URL(url).pathname);
+    return reply.promise;
+  });
+  const publishing = runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+  try {
+    assert.equal(await dispatched.promise, '/asset/submit');
+    await promptSubmitted(correctionPorts, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+    assert.equal(await correctionPorts.draftCorrections.has('s1', 1), true);
+    assert.deepEqual(await ports.drafts.read(), []);
+  } finally {
+    reply.resolve(new Response('{"message_id":"fixture-submit"}'));
+    assert.equal((await publishing).ok, true);
+  }
 });
 
 test('explicit publication preserves the Proxy receipt and its complete bound bundle', async () => {

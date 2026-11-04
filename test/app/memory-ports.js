@@ -111,6 +111,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     candidates: { ...table({}), referenceOf: candidateReferenceOf },
     drafts: table([]),
     draftCorrections: {
+      withSession: async (_id, work) => work(),
       mark: async (id, turn, epoch) => { draftCorrections.add(JSON.stringify([id, turn, epoch])); },
       has: async (id, turn, epoch) => draftCorrections.has(JSON.stringify([id, turn, epoch])),
     },
