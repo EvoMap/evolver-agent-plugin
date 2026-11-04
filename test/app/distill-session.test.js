@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
+import { distillText } from '../../lib/app/commands/distill.js';
 import { runCommand } from '../../lib/app/commands/index.js';
 import { distillLeftovers, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
@@ -232,6 +233,42 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped');
     const expected = other === 'newer turn' || other === 'other session' ? [replacement] : [];
     assert.deepEqual(await ports.drafts.read(), [before, ...expected, after]);
+  });
+}
+
+for (const entry of ['headless model', 'agent Gene']) {
+  test(`a failed correction cleanup is reported for a draft from the ${entry}`, async (t) => {
+    const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
+    const writtenFor = (await ports.candidates.read()).s1.at;
+    const update = ports.drafts.update;
+    let writes = 0;
+    let signal;
+    if (entry === 'headless model') {
+      t.mock.timers.enable({ apis: ['setInterval'] });
+      const request = ports.proxy.request;
+      ports.proxy.request = (...args) => {
+        if (args[1] === '/conversation/distill') signal = args[3].signal;
+        return request(...args);
+      };
+    }
+    ports.drafts.update = async (mutate) => {
+      if (++writes === 2) throw Object.assign(new Error('fixture cleanup denied'), { code: 'EACCES' });
+      await update(mutate);
+      await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+      if (signal) t.mock.timers.tick(1_000);
+    };
+
+    const outcome = entry === 'headless model'
+      ? await distillSession(ports, { sessionId: 's1' })
+      : await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
+    if (entry === 'headless model') assert.equal(signal.aborted, true);
+    assert.equal(writes, 2);
+    assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
+    assert.equal((await ports.candidates.read()).s1, undefined);
+    assert.deepEqual((await ports.drafts.read()).map(({ id }) => id), [DRAFTED.distill_id]);
+    assert.equal(outcome.status, 'cleanup_failed');
+    assert.equal(distillText(outcome).ok, false);
+    assert.match(distillText(outcome).text, /could not remove it/i);
   });
 }
 
