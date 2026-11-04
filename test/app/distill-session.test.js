@@ -10,7 +10,7 @@ import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { candidateReferenceOf, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -187,7 +187,7 @@ test('a correction while a request is pending still reports a Gene the Proxy sto
 
 test('a correction while an agent Gene request is pending discards its late draft', async () => {
   const { ports } = await withCandidate();
-  const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
+  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
   const started = Promise.withResolvers();
   const finish = Promise.withResolvers();
   const request = ports.proxy.request;
@@ -298,7 +298,7 @@ test('a correction after the final candidate snapshot removes only the corrected
 
 test('an agent Gene does not report a draft replaced with the same ID during settlement', async () => {
   const { ports } = await withCandidate();
-  const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
+  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
   const update = ports.candidates.update;
   let replacement;
   ports.candidates.update = async (mutate) => {
@@ -408,7 +408,7 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
 for (const entry of ['headless model', 'agent Gene']) {
   test(`a failed correction cleanup is reported for a draft from the ${entry}`, async (t) => {
     const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
-    const writtenFor = candidateReferenceOf('s1', (await ports.candidates.read()).s1);
+    const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
     const update = ports.drafts.update;
     let writes = 0;
     let signal;

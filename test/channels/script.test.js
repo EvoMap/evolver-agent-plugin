@@ -5,7 +5,6 @@ import { after, before, test } from 'node:test';
 
 import { defineProfile } from '../../lib/agent/profile.js';
 import { runCommandScript } from '../../lib/channels/script/runner.js';
-import { candidateReferenceOf } from '../../lib/distill/candidate.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { fakeProxy } from '../helpers/fake-proxy.js';
 
@@ -69,7 +68,7 @@ test('the terminal sends a Gene reference unchanged to the candidate it names', 
 
   assert.match(await run('evolver-distill', { input, argv: ['--post', String(candidate.at)], env: { TEST_SESSION_ID: 's1' } }), /^A newer turn replaced/);
   assert.equal(posted().length, 0);
-  assert.match(await run('evolver-distill', { input, argv: ['--post', candidateReferenceOf('s1', candidate)] }), /not_in_this_test/);
+  assert.match(await run('evolver-distill', { input, argv: ['--post', candidates.referenceOf('s1', candidate)] }), /not_in_this_test/);
   assert.deepEqual(posted().map(({ body }) => body.session_id), ['testscript:s1']);
 });
 
