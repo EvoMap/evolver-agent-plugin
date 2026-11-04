@@ -29,12 +29,15 @@ const modelAnswering = (answer, onCall = () => {}) => ({
 
 async function withCandidate(options = {}) {
   const made = memoryPorts({ distillAnswer: DRAFTED, ...options });
-  const { ports } = made;
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'fix the flaky redis retries', waitMs: 1_000 });
-  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
-  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
-  await turnEnded(ports, { sessionId: 's1', reason: 'answer', answer: 'Fixed the retries.', model: 'model-x', projectDir: '/proj' });
+  await verifiedTurn(made.ports, 's1');
   return made;
+}
+
+async function verifiedTurn(ports, sessionId, prompt = 'fix the flaky redis retries') {
+  await promptSubmitted(ports, { sessionId, prompt, waitMs: 1_000 });
+  await toolFinished(ports, { sessionId, note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId, note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
+  await turnEnded(ports, { sessionId, reason: 'answer', answer: 'Fixed the retries.', model: 'model-x', projectDir: '/proj' });
 }
 
 test('a session-end distillation the Proxy answers as a draft is kept as a draft and settles the candidate', async () => {
@@ -205,6 +208,56 @@ test('a correction while an agent Gene request is pending discards its late draf
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
+test('a corrected request reaching the draft store late preserves a newer draft with the same ID', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  const earlier = (await ports.candidates.read()).s1;
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const update = ports.drafts.update;
+  let pauseFirst = true;
+  ports.drafts.update = async (mutate) => {
+    if (pauseFirst) {
+      pauseFirst = false;
+      started.resolve();
+      await finish.promise;
+    }
+    return update(mutate);
+  };
+
+  const late = distillSession(ports, { sessionId: 's1' });
+  await started.promise;
+  let newer;
+  try {
+    await verifiedTurn(ports, 's1', 'still failing');
+    ports.model = modelAnswering({ ...GENE, title: 'Newer verified retries' });
+    newer = await distillSession(ports, { sessionId: 's1' });
+    assert.equal(newer.status, 'drafted');
+    assert.equal(newer.draft.id, DRAFTED.distill_id);
+    assert.equal(newer.draft.sourceCandidate.at, earlier.at);
+    assert.equal(newer.draft.sourceCandidate.turn, earlier.turn + 1);
+    assert.deepEqual(await ports.drafts.read(), [newer.draft]);
+  } finally {
+    finish.resolve();
+  }
+
+  assert.equal((await late).status, 'dropped');
+  assert.deepEqual(await ports.drafts.read(), [newer.draft]);
+});
+
+test('an older candidate from another session settles without replacing a newer same-ID draft', async () => {
+  const { ports, advance } = await withCandidate({ model: modelAnswering(GENE) });
+  advance(1);
+  await verifiedTurn(ports, 's2');
+  const newer = await distillSession(ports, { sessionId: 's2' });
+  assert.equal(newer.status, 'drafted');
+
+  const outcome = await distillSession(ports, { sessionId: 's1' });
+  assert.equal(outcome.status, 'superseded');
+  assert.match(distillText(outcome).text, /same ID is already saved/);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.deepEqual(await ports.drafts.read(), [newer.draft]);
+});
+
 for (const [count, replace] of [[1, false], [25, false], [25, true]]) test(`a correction crossing a draft write keeps ${count} earlier drafts${replace ? ' and a concurrent same-id replacement' : ''}`, async () => {
   const { ports } = await withCandidate({ model: modelAnswering(GENE) });
   const kept = Array.from({ length: count }, (_, index) => ({ id: `earlier-${index}`, title: 'Keep this method', createdAt: ports.clock.now() }));
@@ -282,9 +335,10 @@ for (const entry of ['headless model', 'agent Gene']) {
     }
     ports.drafts.update = async (mutate) => {
       if (++writes === 2) throw Object.assign(new Error('fixture cleanup denied'), { code: 'EACCES' });
-      await update(mutate);
+      const written = await update(mutate);
       await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
       if (signal) t.mock.timers.tick(1_000);
+      return written;
     };
 
     const outcome = entry === 'headless model'
