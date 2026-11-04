@@ -26,6 +26,19 @@ test('check names in arguments, quoted data and comments are not executions', ()
   }
 });
 
+test('a hash after an escaped separator stays in the current shell word', () => {
+  for (const command of [
+    String.raw`echo arg\ #literal && npm test`, 'echo arg\\\t#literal; npm test',
+    String.raw`echo arg\\\ #literal; npm test`, String.raw`echo $(echo arg\ #literal) && npm test`,
+    String.raw`echo arg\;#literal && npm test`,
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    String.raw`echo arg\\ # comment; npm test`, String.raw`echo arg\  # comment; npm test`,
+    'echo "arg " # "$(; npm test\npwd',
+  ]) assert.equal(isVerificationCommand(command), false, command);
+  assert.equal(isVerificationCommand('echo # "$( ignored\nnpm test'), true);
+});
+
 test('command positions in chains, pipelines, environment assignments and npx wrappers still count', () => {
   for (const command of [
     'sleep 2; node --test', 'npm test 2>&1 | tail -5', 'CI=1 npm test', 'env CI=1 npm test',
@@ -74,12 +87,14 @@ test('literal shell and package-manager wrappers recognise only the command they
     'corepack pnpm test', 'corepack yarn vitest run', 'command npm test', 'command -p -- npm test',
     'npm exec -- vitest run', 'npm exec --yes --package typescript -- tsc --noEmit',
     'corepack npm exec --package=vitest -- vitest run',
+    'pnpm exec vitest run', 'pnpm exec -- vitest run', 'corepack pnpm exec vitest run', 'pnpm -r exec jest', 'pnpm exec --recursive jest',
   ]) assert.equal(isVerificationCommand(command), true, command);
   for (const command of [
     "echo /bin/bash -c 'npm test'", '/bin/bash -c "echo npm test"', 'bash -lc "$CHECK"', "bash -lc\n'npm test'",
     'corepack enable pnpm', 'corepack echo npm test', 'command -v npm test', 'command -V npm test',
     'command -- echo npm test', 'command ! npm test', 'npm exec -- echo "vitest run"', 'npm exec --package=vitest -- echo vitest',
     "npm exec -c 'echo vitest run'",
+    'echo pnpm exec vitest run', 'pnpm exec echo vitest run', 'pnpm exec --help vitest',
   ]) assert.equal(isVerificationCommand(command), false, command);
 });
 
