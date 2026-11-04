@@ -49,13 +49,13 @@ test('the task context leaves for the Proxy whole when it fits 4096 bytes', asyn
 
 test('quoted JSON credentials are redacted from the recall query and task context', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
-  const prompt = 'Retry the uploader with this config: {"token":"fixtureCredential123456","mode":"retry"}';
+  const prompt = 'Retry the uploader with this config: {"token":"fixtureCredential123456","accessToken":"fixtureAccess123456","mode":"retry"}';
   await recallStrategy(proxyFetch, promptTextOf(prompt), { context: { task: taskTextOf(prompt), trigger: 'turn_start' } });
   assert.equal(calls.length, 1);
   assert.equal(searches.length, 1);
   for (const body of [calls[0].body, searches[0]]) {
     const sent = JSON.stringify(body);
-    assert.doesNotMatch(sent, /fixtureCredential123456/);
+    assert.doesNotMatch(sent, /fixture(?:Credential|Access)123456/);
     assert.match(sent, /retry/i);
   }
 });
