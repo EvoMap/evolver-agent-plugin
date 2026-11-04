@@ -62,7 +62,7 @@ test('a run without dsh 0.2\'s structured value is read off the markers its text
   const run = (text, extra = {}) => toolNoteOf({ name: 'bash', arguments: { command: 'npm test' }, result: { isError: false, content: [{ type: 'text', text }], ...extra } });
   assert.equal(run('ℹ fail 1\n[exit code: 1]').exit, 1);
   assert.equal(run('ℹ pass 4').exit, null, 'missing markers must not invent a native exit code');
-  assert.deepEqual(turnRecordOf([run('ℹ pass 4\nℹ fail 0')]).checks, [{ command: 'npm test', exit: 0, failed: false }]);
+  assert.deepEqual(turnRecordOf([run('ℹ pass 4\nℹ fail 0')]).checks, [{ command: 'npm test', exit: null, failed: false }]);
   assert.deepEqual(turnRecordOf([run('done')]).checks, [{ command: 'npm test', exit: null, failed: null }]);
   assert.equal(run('partial\n[timed out after 60000ms]\n[killed by signal: SIGTERM]').exit, 124);
   assert.equal(run('done', { value: 'ok\n[Command finished with exit code 2]' }).exit, 2);

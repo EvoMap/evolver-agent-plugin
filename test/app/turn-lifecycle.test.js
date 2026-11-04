@@ -278,6 +278,17 @@ test('a turn judged again keeps its candidate\'s stamp and claim; an agent\'s re
   assert.deepEqual((await ports.candidates.read()).agent, first);
 });
 
+test('a turn judged again after its session ended starts the distillation its candidate is due for', async () => {
+  const { ports, scheduled } = memoryPorts({ model: {} });
+  const verified = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' });
+  await promptSubmitted(ports, { sessionId: 'host', prompt: PROMPT, turnId: 't1', ...WAIT });
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  await sessionEnded(ports, { sessionId: 'host', projectDir: '/proj' });
+  scheduled.length = 0;
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  assert.deepEqual(scheduled, ['distill']);
+});
+
 test('a correction that slips in while a re-judge reads its record still drops the candidate', async () => {
   const { ports } = memoryPorts();
   const verified = { checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' };

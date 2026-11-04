@@ -91,7 +91,7 @@ test('a host that keeps a transcript hands the turn record over from it', async 
   const { driver, ports } = driverOf(profile, memoryPorts(), transcripts);
   await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT, transcript_path: '/t.jsonl' });
   await driver.handle('Stop', { ...base, transcript_path: '/t.jsonl', last_assistant_message: 'Fixed.' });
-  assert.deepEqual((await ports.candidates.read()).s1.checks, [{ command: 'npm test', exit: 0, failed: false }]);
+  assert.deepEqual((await ports.candidates.read()).s1.checks, [{ command: 'npm test', exit: null, failed: false }]);
 });
 
 test('the MCP profile turns tool calls into a turn whose report is agent-reported and asks for a Gene', async () => {

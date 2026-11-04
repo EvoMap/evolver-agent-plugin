@@ -79,7 +79,7 @@ test('a tool response given as text, as the Qoder IDE documents it, is judged by
   const failing = 'not ok 1 - readme\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n# fail 1\n';
   const asText = { ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: failing };
   assert.deepEqual(qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' }), { kind: 'shell', command: 'npm test', exit: null, output: failing });
-  assert.deepEqual(turnRecordOf([qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' })]).checks, [{ command: 'npm test', exit: 1, failed: true }]);
+  assert.deepEqual(turnRecordOf([qoder.evidence.toolNote(asText, { hostEvent: 'PostToolUse' })]).checks, [{ command: 'npm test', exit: null, failed: true }]);
 });
 
 test('an Edit or Write that succeeded edits its file, by the lines its input names; one that failed only names it', () => {

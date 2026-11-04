@@ -48,13 +48,30 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 });
 
 test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all', async (t) => {
-  for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n']]) {
+  for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'], ['deploy.yml', 'deploy_token: unique-secret-123\n']]) {
     const dir = repo(t);
     writeFileSync(join(dir, file), text);
     const snapshot = await projectSnapshotOf().snapshot(dir);
     assert.deepEqual([snapshot.diff, snapshot.diff_omitted], [undefined, 'secret'], file);
     assert.doesNotMatch(JSON.stringify(snapshot), /unique-secret-123|harmless/);
   }
+});
+
+test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a change inside a submodule', async (t) => {
+  const replacement = repo(t);
+  writeFileSync(join(replacement, 'a.js'), 'export const mark = "\uFFFD";\n');
+  assert.match((await projectSnapshotOf().snapshot(replacement)).diff, /\+export const mark = "\uFFFD";/, 'U+FFFD is text like any other');
+
+  const latin1 = repo(t);
+  writeFileSync(join(latin1, 'legacy.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+  assert.equal((await projectSnapshotOf().snapshot(latin1)).diff_omitted, 'not_utf8');
+
+  const parent = repo(t);
+  const child = repo(t);
+  git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'vendor');
+  git(parent, 'commit', '-qm', 'vendor');
+  writeFileSync(join(parent, 'vendor', 'a.js'), 'export const a = 2;\n');
+  assert.equal((await projectSnapshotOf().snapshot(parent)).diff_omitted, 'submodule');
 });
 
 test('an untracked file whose name is not UTF-8 keeps the rest of the diff', async (t) => {

@@ -104,7 +104,8 @@ test('a result past 128 KiB arrives as the model-facing text, whose exit line st
   const truncated = grok.evidence.toolNote({ ...base, toolResult: 'exit: 2\nlots of output', toolResultTruncated: true });
   assert.deepEqual(truncated, { kind: 'shell', command: 'sh check.sh', exit: 2, output: 'lots of output', callId: 'call_3' });
   assert.deepEqual(grok.evidence.toolNote({ ...base, isBackgrounded: true }), { kind: 'shell', command: 'sh check.sh', running: true, callId: 'call_3' });
-  assert.equal(grok.evidence.toolNote({ ...base, toolResult: { ...base.toolResult, exit_code: null, timed_out: true } }).exit, 1, 'a timeout failed');
+  const timedOut = grok.evidence.toolNote({ ...base, toolResult: { ...base.toolResult, exit_code: null, timed_out: true } });
+  assert.deepEqual([timedOut.exit, timedOut.failed], [null, true], 'a timeout failed, with no exit code made up');
 });
 
 test('an applied edit or write is an edit; an edit grok could not make is not, and other tools leave no note', () => {

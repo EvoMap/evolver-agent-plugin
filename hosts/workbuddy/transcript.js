@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { checkExitOf } from '../../lib/checks.js';
 import { CHECK_COMMAND_MAX_CHARS } from '../../lib/turn/record.js';
 import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
 
@@ -96,7 +95,7 @@ function shellFailed(result) {
 
 function checkOf(call) {
   const failed = shellFailed(call.result);
-  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: checkExitOf({ exit: exitCodeOf(call.result), failed }), failed };
+  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: exitCodeOf(call.result), failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
