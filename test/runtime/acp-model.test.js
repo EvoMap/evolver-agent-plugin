@@ -218,6 +218,27 @@ test('cancelling a pending completion waits for its owned native process before 
   nativeClosed(dir);
 });
 
+test('cancelling after native completion during cleanup rejects the answer after releasing ownership', async t => {
+  const { runner, dir, declaration } = fixture(t);
+  const controller = new AbortController();
+  const decode = declaration.facts.decode;
+  let cancelledDuringCleanup = false;
+  declaration.facts.decode = records => {
+    const facts = decode(records);
+    assert.equal(facts.reason, 'completed');
+    const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
+    assert.throws(() => process.kill(receipt.pid, 0), 'native completion has exited before cleanup');
+    assert.equal(existsSync(receipt.home), true, 'the owned scratch is still awaiting release');
+    cancelledDuringCleanup = true;
+    controller.abort(new Error('fixture cancellation during cleanup'));
+    return facts;
+  };
+
+  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
+  assert.equal(cancelledDuringCleanup, true);
+  nativeClosed(dir);
+});
+
 test('a stalled POSIX guardian retains ownership until it can stop the native group', { skip: process.platform === 'win32' }, async (t) => {
   const { runner, dir } = fixture(t, 'hang');
   const controller = new AbortController();
