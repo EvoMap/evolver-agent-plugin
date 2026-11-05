@@ -3,7 +3,7 @@
 Evolver for the Grok CLI (`grok`), powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): for each prompt it recalls one proven strategy and hands it to the model at the turn's
 first tool result, reports at the turn's end how the turn that used it went (with the checks it ran as evidence),
-and distills the session's verified work into a draft Gene when the session ends.
+and distills the session's verified work into a draft Gene once the session has been quiet for 30 minutes or ends.
 
 The plugin runs entirely from Grok hooks. It registers **no tools, skills or MCP servers**, so nothing of Evolver
 enters the model's context but the recalled steps, which end with `Apply them where they fit.`, and the one
@@ -87,9 +87,9 @@ The marketplace installs the repository's `release` branch, so the plugin is its
 node ~/.grok/installed-plugins/<folder>/dist/grok/bin/command.mjs grok evolver-status
 ```
 
-## Session-end distillation
+## Background distillation
 
-When the session ends, a detached process runs Grok itself headless on your own config —
+Once the session has been quiet for 30 minutes, or when it ends, a detached process runs Grok itself headless on your own config —
 `grok --prompt-file <folder>/prompt.md --output-format json --verbatim --no-subagents --no-plan --disable-web-search
 --max-turns 1` with no tools offered, in an empty folder — to write a Gene from a digest of the candidate turn
 (task, commands, paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's

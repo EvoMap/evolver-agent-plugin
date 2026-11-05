@@ -79,7 +79,7 @@ test('one call recalls by text and injects that asset\'s strategy alone', async 
   const { ids, text } = await recallStrategy(proxyFetch, 'add a retry to the uploader');
 
   assert.deepEqual(calls.map((call) => call.path), ['/asset/fetch']);
-  assert.deepEqual(calls[0].body, { text: 'add a retry to the uploader' }, 'no limit: the Hub default applies');
+  assert.deepEqual(calls[0].body, { text: 'add a retry to the uploader', signals: ['retry', 'uploader'] }, 'no limit: the Hub default applies');
   assert.ok(!('asset_ids' in calls[0].body), 'ids would turn the recall back into a lookup');
   assert.deepEqual(ids, ['sha256:abc']);
   assert.match(text, /\[Evolution Memory\] Retry the upload with backoff\. \(EvoMap network\)/);
