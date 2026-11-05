@@ -53,7 +53,7 @@ test('a shell result carries its exit code; failure then pass reads as a fixed c
 test('a call grok moves to the background has no verdict until its task\'s output settles it under the same call id', () => {
   const started = noteOf('PostToolUse.run_terminal_command.background');
   assert.deepEqual(started, { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
-  assert.deepEqual(turnRecordOf([started]).checks, [{ command: 'sleep 2; npm test', failed: null }], 'a check still running keeps its place with no verdict');
+  assert.deepEqual(turnRecordOf([started]).checks, [{ command: 'sleep 2; npm test', exit: null, failed: null }], 'a check still running keeps its place with no verdict');
   const output = noteOf('PostToolUse.get_command_or_subagent_output');
   assert.deepEqual(output, { kind: 'shell', command: 'sleep 2; npm test', exit: 1, output: '\n> test\n> sh check.sh\n\n1 failing\n', callId: 'call_3' });
   const record = turnRecordOf([noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput'), output]);
@@ -68,7 +68,7 @@ test('a background task killed before it finished reports no exit code and settl
   const cancelled = noteOf('PostToolUse.get_command_or_subagent_output.cancelled');
   assert.deepEqual(cancelled, { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' });
   const started = { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' };
-  assert.deepEqual(turnRecordOf([started, cancelled]).checks, [{ command: 'sleep 30; npm test', failed: null }], 'a run that never finished stays unknown');
+  assert.deepEqual(turnRecordOf([started, cancelled]).checks, [{ command: 'sleep 30; npm test', exit: null, failed: null }], 'a run that never finished stays unknown');
 });
 
 test('a later background check blocks an earlier pass until its own native task result settles it', () => {

@@ -95,7 +95,7 @@ test('an exit-code header decides, a timeout fails, and a run still going waits 
   assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.timedOut'])), [{ command: 'npm test', exit: null, failed: true }]);
   const running = bash(RESPONSES_0144['bash.stillRunning']);
   assert.deepEqual(running, { kind: 'shell', command: 'npm test', running: true, callId: 'call_suite' });
-  assert.deepEqual(turnRecordOf([running]).checks, [{ command: 'npm test', failed: null }], 'a pending check keeps its unknown verdict');
+  assert.deepEqual(turnRecordOf([running]).checks, [{ command: 'npm test', exit: null, failed: null }], 'a pending check keeps its unknown verdict');
   const completed = turnRecordOf([running, bash(RESPONSES_0144['bash.finishedFailing'])]);
   assert.deepEqual(completed.checks, [{ command: 'npm test', exit: null, failed: true }]);
   assert.deepEqual(completed.commands, ['npm test'], 'its completion is the same command');
