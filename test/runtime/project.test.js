@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { DIFF_MAX_BYTES } from '../../lib/distill/project-diff.js';
-import { distillBody } from '../../lib/distill/prompt.js';
 import { projectSnapshotOf } from '../../lib/runtime/project.js';
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' });
@@ -27,7 +26,6 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
   writeFileSync(join(dir, 'a.js'), 'export const a = 2;\n');
   mkdirSync(join(dir, 'lib'));
   writeFileSync(join(dir, 'lib', 'new.js'), 'export const b = 3;\n');
-  writeFileSync(join(dir, 'settings.json'), '{"maxTokens":"4096","monkey":"example"}\n');
   mkdirSync(join(dir, 'node_modules'));
   writeFileSync(join(dir, 'node_modules', 'dep.js'), 'ignored\n');
   const statusBefore = git(dir, 'status', '--porcelain');
@@ -35,8 +33,6 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
   assert.equal(git(dir, 'status', '--porcelain'), statusBefore);
   assert.deepEqual([snapshot.root, snapshot.head], [git(dir, 'rev-parse', '--show-toplevel').trim(), git(dir, 'rev-parse', 'HEAD').trim()]);
   assert.doesNotMatch(snapshot.diff, /node_modules/);
-  assert.match(snapshot.diff, /"maxTokens":"4096"/);
-  assert.match(snapshot.diff, /"monkey":"example"/);
 
   const copy = mkdtempSync(join(tmpdir(), 'evolver-copy-'));
   t.after(() => rmSync(copy, { recursive: true, force: true }));
@@ -48,25 +44,48 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 
   writeFileSync(join(dir, 'big.txt'), 'x'.repeat(DIFF_MAX_BYTES));
   const big = await projectSnapshotOf().snapshot(dir);
-  assert.deepEqual([big.diff, big.diff_omitted], [undefined, 'too_large']);
+  assert.deepEqual(big, { diff_omitted: 'too_large' });
 });
 
-test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all', async (t) => {
+test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all; a name that only holds such a name does not', async (t) => {
   for (const [file, text] of [
-    ['credentials.txt', 'harmless\n'],
-    ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'],
-    ['settings.json', '{"token":"opaque-example-123456789"}\n'],
+    ['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'],
+    ['deploy.yml', 'deploy_token: unique-secret-123\n'], ['.docker/config.json', '{"harmless": true}\n'],
+    ['settings.json', '{"token":"opaque-example-123456789"}\n'], ['settings.json', '{"accessToken":"opaque-example-123456789"}\n'],
     ['deploy.json', '{"DEPLOY_TOKEN":"opaque-example-123456789"}\n'],
-    ['settings.json', '{"accessToken":"opaque-example-123456789"}\n'],
   ]) {
     const dir = repo(t);
+    mkdirSync(join(dir, file, '..'), { recursive: true });
     writeFileSync(join(dir, file), text);
     const snapshot = await projectSnapshotOf().snapshot(dir);
-    const body = distillBody({ platform: 'codex', sessionId: 's1', candidate: { checks: [], project: snapshot }, args: {} });
-    assert.doesNotMatch(JSON.stringify(body.project), /unique-secret-123|harmless|opaque-example/);
-    assert.deepEqual([snapshot.diff, snapshot.diff_omitted], [undefined, 'secret'], file);
+    assert.deepEqual(snapshot, { diff_omitted: 'secret' }, file);
     assert.doesNotMatch(JSON.stringify(snapshot), /unique-secret-123|harmless|opaque-example/);
   }
+  const dir = repo(t);
+  writeFileSync(join(dir, 'docs .env example.txt'), 'harmless\n');
+  writeFileSync(join(dir, 'client.js'), "fetch(url, { credentials: 'include' });\n");
+  writeFileSync(join(dir, 'settings.json'), '{"primaryKey":"orders.id","maxTokens":"4096","monkey":"example"}\n');
+  const { diff } = await projectSnapshotOf().snapshot(dir);
+  assert.match(diff, /\+harmless/);
+  assert.match(diff, /\+fetch\(url, \{ credentials: 'include' \}\);/);
+  assert.match(diff, /\+\{"primaryKey":"orders.id","maxTokens":"4096","monkey":"example"\}/);
+});
+
+test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a change inside a submodule', async (t) => {
+  const replacement = repo(t);
+  writeFileSync(join(replacement, 'a.js'), 'export const mark = "\uFFFD";\n');
+  assert.match((await projectSnapshotOf().snapshot(replacement)).diff, /\+export const mark = "\uFFFD";/, 'U+FFFD is text like any other');
+
+  const latin1 = repo(t);
+  writeFileSync(join(latin1, 'legacy.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+  assert.deepEqual(await projectSnapshotOf().snapshot(latin1), { diff_omitted: 'not_utf8' });
+
+  const parent = repo(t);
+  const child = repo(t);
+  git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'vendor');
+  git(parent, 'commit', '-qm', 'vendor');
+  writeFileSync(join(parent, 'vendor', 'a.js'), 'export const a = 2;\n');
+  assert.deepEqual(await projectSnapshotOf().snapshot(parent), { diff_omitted: 'submodule' });
 });
 
 test('an untracked file whose name is not UTF-8 keeps the rest of the diff', async (t) => {

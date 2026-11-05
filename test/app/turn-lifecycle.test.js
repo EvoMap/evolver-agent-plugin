@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { runBackgroundTasks } from '../../lib/app/background.js';
+import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
 import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
+import { IDLE_DISTILL_MS } from '../../lib/distill/candidate.js';
 import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 
@@ -66,6 +69,35 @@ test('a failed, interrupted, errored or unverified turn leaves no candidate', as
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'cat lib/redis.js', exit: 0 } });
   await end(ports, 's1');
   assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a verified turn in a session left open is distilled with no further event: woken once it is quiet, again for a failed try\'s retry', async () => {
+  const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { throw new Error('model offline'); } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  const { at } = (await ports.candidates.read()).s1;
+  assert.deepEqual(wakeUps, [{ at: at + IDLE_DISTILL_MS, tasks: ['distill'] }]);
+  advance(at + IDLE_DISTILL_MS - ports.clock.now());
+  await runBackgroundTasks(ports, wakeUps[0].tasks);
+  const { retryAt, attempts } = (await ports.candidates.read()).s1;
+  assert.equal(attempts, 1);
+  assert.deepEqual(wakeUps.slice(1), [{ at: retryAt, tasks: ['distill'] }]);
+});
+
+test('a candidate that comes due while another is distilled is woken for shortly after, not left to the next event', async () => {
+  let duringModel = () => {};
+  const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { duringModel(); throw new Error('model offline'); } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  await verifiedTurn(ports, 's2');
+  await end(ports, 's2', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  duringModel = () => advance(IDLE_DISTILL_MS / 2);
+  await runBackgroundTasks(ports, ['distill']);
+  const pending = await ports.candidates.read();
+  assert.deepEqual([pending.s1.attempts, pending.s2.attempts], [1, 0]);
+  assert.deepEqual(wakeUps.at(-1), { at: ports.clock.now() + MIN_WAKE_DELAY_MS, tasks: ['distill'] });
 });
 
 test('a plugin command turn recalls nothing, keeps the last reuses for labelling and is no candidate', async () => {
@@ -183,12 +215,14 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
 });
 
 test('a turn whose work tree cannot be read is still the candidate, without its project', async () => {
-  const { ports } = memoryPorts();
-  ports.project.snapshot = async () => { throw new Error('git failed'); };
-  await verifiedTurn(ports, 's1');
-  assert.equal((await end(ports, 's1')).isCandidate, true);
-  assert.equal((await ports.candidates.read()).s1.project, undefined);
-  assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
+  for (const project of [{ snapshot: async () => { throw new Error('git failed'); } }, undefined]) {
+    const { ports } = memoryPorts();
+    ports.project = project;
+    await verifiedTurn(ports, 's1');
+    assert.equal((await end(ports, 's1')).isCandidate, true);
+    assert.equal((await ports.candidates.read()).s1.project, undefined);
+    assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
+  }
 });
 
 test('the wait for a turn end still writing runs from when that turn began closing, after a settle wait', async () => {
@@ -276,6 +310,17 @@ test('a turn judged again keeps its candidate\'s stamp and claim; an agent\'s re
   const first = (await ports.candidates.read()).agent;
   assert.equal(await end(ports, 'agent', { turnId: 'r1', recordOf: record(true), source: AGENT_REPORTED }), null);
   assert.deepEqual((await ports.candidates.read()).agent, first);
+});
+
+test('a turn judged again after its session ended starts the distillation its candidate is due for', async () => {
+  const { ports, scheduled } = memoryPorts({ model: {} });
+  const verified = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' });
+  await promptSubmitted(ports, { sessionId: 'host', prompt: PROMPT, turnId: 't1', ...WAIT });
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  await sessionEnded(ports, { sessionId: 'host', projectDir: '/proj' });
+  scheduled.length = 0;
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  assert.deepEqual(scheduled, ['distill']);
 });
 
 test('a correction that slips in while a re-judge reads its record still drops the candidate', async () => {
