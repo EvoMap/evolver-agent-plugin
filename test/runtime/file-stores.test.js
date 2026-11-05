@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -76,6 +77,159 @@ test('a corrupt draft file is preserved for every packaged host', async () => {
     await assert.rejects(host.drafts.update(() => assert.fail('mutator must not run')), { code: 'EINVALIDSTATE' });
     assert.equal(fs.readFileSync(target, 'utf8'), '[unfinished', agent);
   }
+});
+
+test('a refused state lock preserves drafts and never runs their mutator', async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  const lock = `${target}.lock`;
+  const original = '[{"title":"keep this draft"}]';
+  writeFileSync(target, original);
+  const write = fs.writeFileSync;
+  t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+    if (file === lock) throw Object.assign(new Error('fixture lock creation denial'), { code: 'EROFS' });
+    return write(file, ...args);
+  });
+  let mutations = 0;
+  try {
+    await assert.rejects(cursor.drafts.update(drafts => { mutations += 1; return [...drafts, { title: 'new draft' }]; }), { code: 'ELOCKED' });
+  } finally {
+    t.mock.restoreAll();
+  }
+  assert.equal(mutations, 0);
+  assert.equal(fs.readFileSync(target, 'utf8'), original);
+  assert.deepEqual(readdirSync(dir), ['cursor-distill-drafts.json']);
+});
+
+test('a held live state lock preserves drafts and never runs their mutator after waiting', async () => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  const lock = `${target}.lock`;
+  const original = '[{"title":"keep this draft"}]';
+  const held = `${process.pid}:fixture-live-owner`;
+  writeFileSync(target, original);
+  writeFileSync(lock, held);
+  let mutations = 0;
+  await assert.rejects(cursor.drafts.update(drafts => { mutations += 1; return [...drafts, { title: 'new draft' }]; }), { code: 'ELOCKED' });
+  assert.equal(mutations, 0);
+  assert.equal(fs.readFileSync(target, 'utf8'), original);
+  assert.equal(fs.readFileSync(lock, 'utf8'), held);
+});
+
+for (const closeFails of [false, true]) test(`a partial temporary state write preserves drafts and cleans up before a retry${closeFails ? ' even when close also fails' : ''}`, async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  const previous = [{ title: 'keep this draft' }];
+  await cursor.drafts.update(() => previous);
+  const original = fs.readFileSync(target, 'utf8');
+  const temporary = file => typeof file === 'string' && file.startsWith(target + '.') && file.endsWith('.tmp');
+  const descriptors = new Set();
+  const open = fs.openSync, write = fs.writeFileSync, close = fs.closeSync;
+  t.mock.method(fs, 'openSync', (file, ...args) => {
+    const descriptor = open(file, ...args);
+    if (temporary(file)) descriptors.add(descriptor);
+    return descriptor;
+  });
+  let failed = false;
+  let closeFailed = false;
+  const writeFailure = Object.assign(new Error('fixture storage exhausted after a partial write'), { code: 'ENOSPC' });
+  if (closeFails) t.mock.method(fs, 'closeSync', descriptor => {
+    const owned = descriptors.delete(descriptor);
+    const result = close(descriptor);
+    if (owned) {
+      closeFailed = true;
+      throw Object.assign(new Error('fixture close failure after closing the descriptor'), { code: 'EIO' });
+    }
+    return result;
+  });
+  t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+    if (!failed && (temporary(file) || descriptors.has(file))) {
+      failed = true;
+      write(file, '[{"partial":', ...args.slice(1));
+      throw writeFailure;
+    }
+    return write(file, ...args);
+  });
+  try {
+    await assert.rejects(cursor.drafts.update(drafts => [...drafts, { title: 'new draft' }]), error => {
+      assert.equal(error, writeFailure);
+      assert.equal(error.code, 'ENOSPC');
+      return true;
+    });
+  } finally {
+    t.mock.restoreAll();
+  }
+  assert.equal(failed, true);
+  assert.equal(closeFailed, closeFails);
+  assert.equal(fs.readFileSync(target, 'utf8'), original);
+  assert.deepEqual(readdirSync(dir), ['cursor-distill-drafts.json']);
+  await cursor.drafts.update(drafts => [...drafts, { title: 'retry succeeded' }]);
+  assert.deepEqual(await cursor.drafts.read(), [...previous, { title: 'retry succeeded' }]);
+});
+
+test('a temporary descriptor close failure preserves drafts without replacing the target and permits a retry', async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  const previous = [{ title: 'keep this draft' }];
+  await cursor.drafts.update(() => previous);
+  const original = fs.readFileSync(target, 'utf8');
+  const descriptors = new Set();
+  const open = fs.openSync, close = fs.closeSync, rename = fs.renameSync;
+  t.mock.method(fs, 'openSync', (file, ...args) => {
+    const descriptor = open(file, ...args);
+    if (typeof file === 'string' && file.startsWith(target + '.') && file.endsWith('.tmp')) descriptors.add(descriptor);
+    return descriptor;
+  });
+  let failed = false;
+  t.mock.method(fs, 'closeSync', descriptor => {
+    const owned = descriptors.delete(descriptor);
+    const result = close(descriptor);
+    if (owned) {
+      failed = true;
+      throw Object.assign(new Error('fixture close failure after closing the descriptor'), { code: 'EIO' });
+    }
+    return result;
+  });
+  let replacements = 0;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === target) replacements += 1;
+    return rename(from, to);
+  });
+  try {
+    await assert.rejects(cursor.drafts.update(drafts => [...drafts, { title: 'new draft' }]), { code: 'EIO' });
+  } finally {
+    t.mock.restoreAll();
+  }
+  assert.equal(failed, true);
+  assert.equal(replacements, 0);
+  assert.equal(fs.readFileSync(target, 'utf8'), original);
+  assert.deepEqual(readdirSync(dir), ['cursor-distill-drafts.json']);
+  await cursor.drafts.update(drafts => [...drafts, { title: 'retry succeeded' }]);
+  assert.deepEqual(await cursor.drafts.read(), [...previous, { title: 'retry succeeded' }]);
+});
+
+test('a temporary file collision preserves the existing file and releases the state lock', async t => {
+  const { dir, stores: cursor } = stores();
+  const target = join(dir, 'cursor-distill-drafts.json');
+  await cursor.drafts.update(() => [{ title: 'keep this draft' }]);
+  const original = fs.readFileSync(target, 'utf8');
+  const suffix = '010203040506';
+  const collision = `${target}.${process.pid}.${suffix}.tmp`;
+  const collisionContents = 'another invocation owns these bytes';
+  writeFileSync(collision, collisionContents);
+  const random = crypto.randomBytes;
+  t.mock.method(crypto, 'randomBytes', (size, ...args) => size === 6 ? Buffer.from(suffix, 'hex') : random(size, ...args));
+  try {
+    await assert.rejects(cursor.drafts.update(drafts => [...drafts, { title: 'new draft' }]), { code: 'EEXIST' });
+  } finally {
+    t.mock.restoreAll();
+  }
+  assert.equal(fs.readFileSync(target, 'utf8'), original);
+  assert.equal(fs.readFileSync(collision, 'utf8'), collisionContents);
+  assert.equal(existsSync(`${target}.lock`), false);
+  await cursor.drafts.update(drafts => [...drafts, { title: 'retry succeeded' }]);
+  assert.deepEqual(await cursor.drafts.read(), [{ title: 'keep this draft' }, { title: 'retry succeeded' }]);
+  assert.equal(fs.readFileSync(collision, 'utf8'), collisionContents);
 });
 
 test('a failed draft replacement preserves the previous file, releases its lock and removes its temporary file', async t => {
@@ -160,7 +314,7 @@ for (let i = 0; i < 25; i += 1) updateState(${JSON.stringify(target)}, {}, (stat
 });
 
 test('transient sharing denial while releasing a state lock leaves no orphaned lock', t => {
-  for (const operation of ['readFileSync', 'rmSync']) {
+  for (const operation of ['readFileSync', 'unlinkSync']) {
     const { dir } = stores();
     const target = join(dir, 'counter.json'), lock = `${target}.lock`;
     const original = fs[operation];
