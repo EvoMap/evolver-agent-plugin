@@ -98,6 +98,24 @@ test('literal shell and package-manager wrappers recognise only the command they
   ]) assert.equal(isVerificationCommand(command), false, command);
 });
 
+test('a literal shell script runs in a chained or wrapped command position', () => {
+  for (const command of [
+    "cd app && /bin/bash -c 'npm test'",
+    'env CI=1 bash -c "npm test"',
+    "sudo -u root -- bash -c 'npm test'",
+    "cd app && env -i CI=1 sudo -n '/usr/bin/bash' -lc 'npm test'",
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    "cd app && echo bash -c 'npm test'",
+    "env CI=1 bash -c 'echo npm test'",
+    "sudo -u bash -c 'npm test'",
+    'sudo -n bash -c "$CHECK"',
+    'cd app && bash -c "$(echo npm test)"',
+    "cd app && bash -c 'npm test'$EXTRA",
+    "echo $(bash -c 'npm test')",
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
 test('literal quoted executables count only in command position', () => {
   for (const command of [
     '"./node_modules/.bin/jest"', "'./path with spaces/gradlew' build",
@@ -175,6 +193,19 @@ test('a compound shell result needs check output before it can verify the check'
       assert.equal(turnRecordOf([{ ...result, exit, output: '# pass 3\n# fail 0' }]).checks[0].failed, false, command);
       assert.equal(isFailedCheck({ ...result, exit, output: '# pass 3\n# fail 1' }), true, command);
     }
+  }
+});
+
+test('a wrapped shell script does not give its compound exit to the check inside it', () => {
+  for (const command of [
+    "env CI=1 bash -c 'true || npm test'",
+    "sudo -n bash -c 'npm test | tail -5'",
+    "cd app && /bin/bash -c 'npm test || true'",
+  ]) {
+    assert.equal(verificationFailureOf({ command, exit: 0 }), null, command);
+    assert.equal(verificationFailureOf({ command, exit: 1 }), null, command);
+    assert.equal(verificationFailureOf({ command, exit: 0, text: '# pass 1\n# fail 0' }), false, command);
+    assert.equal(verificationFailureOf({ command, exit: 0, text: '# pass 0\n# fail 1' }), true, command);
   }
 });
 
