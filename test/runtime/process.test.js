@@ -40,17 +40,26 @@ test('a run past its timeout is killed and says so; a missing command reads as E
 test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async () => {
   const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
   const child = `
+    const assert = require('node:assert/strict');
     const { spawn } = require('node:child_process');
+    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'native child received a system directory variable');
     const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore', windowsHide: true });
     console.log(JSON.stringify([process.pid, descendant.pid]));
     setTimeout(() => {}, 5000);
   `;
   const fixture = `
+    import assert from 'node:assert/strict';
     import { setTimeout as delay } from 'node:timers/promises';
-    const env = { ...process.env };
-    for (const key of Object.keys(process.env)) {
-      if (/^(systemroot|windir|comspec)$/i.test(key)) delete process.env[key];
+    // Seed every key so stripping is exercised even when the host already omitted it.
+    const env = { ...process.env, SystemRoot: 'fixture-root', WINDIR: 'fixture-root', COMSPEC: 'fixture-shell' };
+    for (const key of Object.keys(env)) {
+      if (/^(systemroot|windir|comspec)$/i.test(key)) {
+        delete env[key];
+        delete process.env[key];
+      }
     }
+    assert.deepEqual(Object.keys(env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'child env still contains a system directory variable');
+    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'runtime imported with a system directory variable');
     const { runProcess } = await import(${JSON.stringify(runtime)});
     const result = await runProcess(process.execPath, ['--input-type=commonjs', '-e', ${JSON.stringify(child)}], { env, timeoutMs: 1500 });
     if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
