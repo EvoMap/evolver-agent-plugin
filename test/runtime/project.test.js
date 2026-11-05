@@ -14,6 +14,7 @@ function repo(t) {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-project-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   git(dir, 'init', '-q');
+  git(dir, 'config', 'core.autocrlf', 'false');
   writeFileSync(join(dir, 'a.js'), 'export const a = 1;\n');
   writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
   git(dir, 'add', '.');
@@ -36,7 +37,7 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
 
   const copy = mkdtempSync(join(tmpdir(), 'evolver-copy-'));
   t.after(() => rmSync(copy, { recursive: true, force: true }));
-  git(copy, 'clone', '-q', dir, '.');
+  git(copy, 'clone', '-q', '--config', 'core.autocrlf=false', dir, '.');
   git(copy, 'checkout', '-q', snapshot.head);
   execFileSync('git', ['apply'], { cwd: copy, input: snapshot.diff });
   assert.equal(readFileSync(join(copy, 'a.js'), 'utf8'), 'export const a = 2;\n');
