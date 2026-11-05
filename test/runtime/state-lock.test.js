@@ -76,6 +76,59 @@ test('a settled state write stays successful and its stranded token can be recla
   assert.equal(existsSync(lock), false);
 });
 
+for (const stage of ['mutator', 'read', 'replacement']) {
+  test(`an original ${stage} failure survives a release denial and its stranded state token is reclaimed on retry`, t => {
+    const { dir, target, lock } = scratch(t);
+    const original = readFileSync(target, 'utf8');
+    const failure = Object.assign(new Error(`fixture ${stage} failure`), { code: stage === 'read' ? 'EACCES' : 'EIO' });
+    const read = fs.readFileSync, rename = fs.renameSync, unlink = fs.unlinkSync;
+    if (stage === 'read') t.mock.method(fs, 'readFileSync', (file, ...args) => {
+      if (file === target) throw failure;
+      return read(file, ...args);
+    });
+    if (stage === 'replacement') t.mock.method(fs, 'renameSync', (from, to) => {
+      if (to === target) throw failure;
+      return rename(from, to);
+    });
+    let releaseDenials = 0;
+    t.mock.method(fs, 'unlinkSync', (file, ...args) => {
+      if (file === lock) {
+        releaseDenials += 1;
+        throw Object.assign(new Error('fixture state token release denial'), { code: 'EPERM' });
+      }
+      return unlink(file, ...args);
+    });
+    let mutations = 0;
+    try {
+      assert.throws(() => updateState(target, {}, state => {
+        mutations += 1;
+        assert.deepEqual(state, { count: 0 });
+        if (stage === 'mutator') throw failure;
+        return { count: state.count + 1 };
+      }), error => {
+        if (stage === 'read') {
+          assert.equal(error.code, 'ESTATEIO');
+          assert.equal(error.cause, failure);
+        } else assert.equal(error, failure);
+        return true;
+      });
+    } finally {
+      t.mock.restoreAll();
+    }
+    assert.equal(mutations, stage === 'read' ? 0 : 1);
+    assert.ok(releaseDenials > 0, 'the state token release was actually refused');
+    assert.equal(readFileSync(target, 'utf8'), original);
+    assert.equal(existsSync(lock), true);
+    assert.match(readFileSync(lock, 'utf8'), new RegExp(`^${process.pid}:`));
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['state.json', 'state.json.lock']);
+    let retries = 0;
+    assert.deepEqual(updateState(target, {}, state => { retries += 1; return { count: state.count + 1 }; }), { count: 1 });
+    assert.equal(retries, 1);
+    assert.deepEqual(JSON.parse(readFileSync(target, 'utf8')), { count: 1 });
+    assert.deepEqual(fs.readdirSync(dir), ['state.json']);
+  });
+}
+
 test('a held state lock never runs an unguarded mutator after its wait expires', (t) => {
   const { target, lock } = scratch(t);
   const held = `${process.pid}:alive`;

@@ -3,7 +3,7 @@
 Evolver for Codex, powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): before each prompt it recalls one proven strategy, reports at the turn's end how the
 turn that used it went (with the checks it ran as evidence), and distills the session's verified work into a draft
-Gene when the session ends.
+Gene once the session has been quiet for 30 minutes or ends.
 
 The plugin runs entirely from Codex hooks. It registers **no tools and no skill**, so nothing of Evolver enters the
 model's context but the recalled steps, which end with `Apply them where they fit.`
@@ -106,9 +106,9 @@ The same commands run in a terminal, where no session is current, so `evolver-di
 node ~/.codex/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs codex evolver-status
 ```
 
-## Session-end distillation
+## Background distillation
 
-When the session ends, a detached process runs Codex itself headless on the session's model —
+Once the session has been quiet for 30 minutes, or when it ends, a detached process runs Codex itself headless on the session's model —
 `codex exec --ephemeral --json --sandbox read-only --disable hooks --disable plugins --disable shell_tool …`
 in an empty folder, with the prompt on stdin — to write a Gene from a digest of the candidate turn (task,
 commands, paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's

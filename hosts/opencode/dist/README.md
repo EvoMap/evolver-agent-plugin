@@ -1,7 +1,7 @@
 # Evolver for OpenCode
 
 Recalls a proven strategy behind each prompt, reports whether it held up at the turn's end, and distills the
-session's verified work into a draft Gene after the session ends. Nothing of Evolver but the recalled steps
+session's verified work into a draft Gene once the session has been quiet for 30 minutes or ends. Nothing of Evolver but the recalled steps
 enters the model's context: no tools, no skill, no instructions.
 
 ## Install

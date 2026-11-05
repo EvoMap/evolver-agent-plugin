@@ -1,10 +1,22 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { isSameProcess } from '../../lib/runtime/process/identity.js';
 import { ASSET, recalledFor } from '../app/memory-ports.js';
 import { recipeSearchAnswer } from './recipe-search.js';
+
+// A verified turn's hook arms a detached waiter for background distillation, which would sleep on past the test.
+function endWaiters(home) {
+  for (const record of readdirSync(home, { recursive: true }).filter((name) => name.endsWith('-distill-waiter.json'))) {
+    try {
+      const { pid, startedAt } = JSON.parse(readFileSync(join(home, record), 'utf8'));
+      if (isSameProcess(pid, startedAt)) process.kill(pid);
+    } catch {
+    }
+  }
+}
 
 /**
  * A loopback Proxy that answers recall with the assets the text names (`recalledFor`) and records every request,
@@ -36,13 +48,14 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.47' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.49' } }));
   return {
     requests,
     env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
     close: () => {
       server.close();
       server.closeAllConnections();
+      endWaiters(home);
       rmSync(home, { recursive: true, force: true });
     },
   };

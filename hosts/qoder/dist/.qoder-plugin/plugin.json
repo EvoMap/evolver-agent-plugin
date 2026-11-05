@@ -2,7 +2,7 @@
   "name": "evolver-plugin",
   "displayName": "Evolver",
   "version": "1.0.0",
-  "description": "Evolver for Qoder: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work at session end, all from hooks, with no tools in the model's context.",
+  "description": "Evolver for Qoder: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work once the session goes quiet or ends, all from hooks, with no tools in the model's context.",
   "author": {
     "name": "EvoMap",
     "email": "team@evomap.ai",
