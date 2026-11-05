@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { profileNamed } from '../../lib/agent/registry.js';
@@ -37,16 +38,14 @@ test('a run past its timeout is killed and says so; a missing command reads as E
   assert.equal((await runProcess('evolver-no-such-command-xyz', [])).error.code, 'ENOENT');
 });
 
-test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async () => {
+test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async (t) => {
   const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
-  const child = `
-    const assert = require('node:assert/strict');
-    const { spawn } = require('node:child_process');
-    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'native child received a system directory variable');
-    const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore', windowsHide: true });
-    console.log(JSON.stringify([process.pid, descendant.pid]));
-    setTimeout(() => {}, 5000);
-  `;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-stripped-process-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const child = join(dir, 'child.exe');
+  // A fresh Node 22 child can fail its native RNG bootstrap before any JavaScript runs without SystemRoot.
+  const compiler = join(process.env.SystemRoot || process.env.WINDIR, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  await promisify(execFile)(compiler, ['/nologo', '/target:exe', '/out:' + child, fileURLToPath(new URL('../fixtures/process/windows-child.cs', import.meta.url))], { timeout: 12000, windowsHide: true });
   const fixture = `
     import assert from 'node:assert/strict';
     import { setTimeout as delay } from 'node:timers/promises';
@@ -61,7 +60,7 @@ test('Windows timeout ends the process tree without system directory environment
     assert.deepEqual(Object.keys(env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'child env still contains a system directory variable');
     assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'runtime imported with a system directory variable');
     const { runProcess } = await import(${JSON.stringify(runtime)});
-    const result = await runProcess(process.execPath, ['--input-type=commonjs', '-e', ${JSON.stringify(child)}], { env, timeoutMs: 1500 });
+    const result = await runProcess(${JSON.stringify(child)}, [], { env, timeoutMs: 1500 });
     if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
     const pids = JSON.parse(result.stdout);
     const alive = pid => {

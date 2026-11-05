@@ -300,7 +300,7 @@ async function assertUnprovenFixtureJobStopped({ home, pids }) {
   }));
   assert.equal(existsSync(home), true, 'scratch stays when no live job-empty proof was delivered');
   assert.equal(JSON.parse(readFileSync(join(home, CHILD_FILE), 'utf8')).jobEmpty, false);
-  rmSync(home, { recursive: true }); // Only this fixture's now-dead, nonce-owned tree.
+  rmSync(home, { recursive: true, maxRetries: 5, retryDelay: 20 }); // Only this fixture's now-dead, nonce-owned tree.
 }
 
 test('an abrupt Windows guardian death kills the whole job but retains scratch without a job-empty proof', { skip: process.platform !== 'win32' }, async t => {
