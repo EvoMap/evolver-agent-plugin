@@ -6,19 +6,21 @@ import { distillBody, distillPrompt } from '../lib/distill/prompt.js';
 import { containsSecret, withoutSecrets } from '../lib/redact.js';
 
 test('redaction removes the complete JSON string and leaves unrelated fields', () => {
-  const text = JSON.stringify({ API_KEY: 'fixture "quoted" \\ tail', topic: 'retry' });
+  const text = JSON.stringify({ API_KEY: 'fixture "quoted" \\ tail', DEPLOY_KEY: 'fixture deploy', token: 'short', topic: 'retry' });
   assert.equal(containsSecret(text), true);
-  assert.deepEqual(JSON.parse(withoutSecrets(text)), { API_KEY: '[redacted]', topic: 'retry' });
+  assert.deepEqual(JSON.parse(withoutSecrets(text)), { API_KEY: '[redacted]', DEPLOY_KEY: '[redacted]', token: '[redacted]', topic: 'retry' });
   assert.equal(containsSecret(withoutSecrets(text)), false);
   assert.equal(withoutSecrets('token=fixtureCredential123456'), '[redacted]');
 });
 
 test('camelCase JSON credentials are redacted without removing ordinary keys', () => {
-  const ordinary = { maxTokens: '4096', monkey: 'example' };
-  const text = JSON.stringify({ accessToken: 'fixture access', refreshToken: 'fixture "quoted" \\ tail', dbPassword: 'fixture password', ...ordinary });
+  const ordinary = { primaryKey: 'orders.id', primary_key: 'orders.id', foreignKey: 'customers.id', cacheKey: 'retry-cache', maxTokens: '4096', monkey: 'example' };
+  const credentials = { accessToken: 'fixture access', refreshToken: 'fixture "quoted" \\ tail', refresh_token: 'fixture refresh', openaiApiKey: 'fixture key', dbPassword: 'fixture password' };
+  assert.equal(containsSecret(JSON.stringify(ordinary)), false);
+  const text = JSON.stringify({ ...credentials, ...ordinary });
   assert.equal(containsSecret(text), true);
   const redacted = withoutSecrets(text);
-  assert.deepEqual(JSON.parse(redacted), { accessToken: '[redacted]', refreshToken: '[redacted]', dbPassword: '[redacted]', ...ordinary });
+  assert.deepEqual(JSON.parse(redacted), { ...Object.fromEntries(Object.keys(credentials).map((key) => [key, '[redacted]'])), ...ordinary });
   assert.equal(containsSecret(redacted), false);
   assert.equal(withoutSecrets(redacted), redacted);
 });
