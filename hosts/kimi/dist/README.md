@@ -60,8 +60,14 @@ node <Kimi-home>/plugins/managed/evolver-plugin/bin/command.mjs kimi evolver-dis
 
 The shared command catalog provides search, login, draft publication/discard and
 preferences too. Commands run directly in the terminal; chat command interception
-is not part of this host's v1 contract. Publishing a draft remains an explicit user
-operation. Kimi's provider account and Evolver's Proxy/Hub account are separate.
+is not part of this host's v1 contract. Publishing a returned draft remains an explicit
+user operation. A Proxy with its own trusted verifier can instead store the result
+under the shared background verification policy. Kimi's provider account and
+Evolver's Proxy/Hub account are separate.
+
+Verification keeps native task exit codes when available. Foreground Bash results
+without an exit code need a supported passing summary; silent output alone cannot
+verify a candidate. Pending background checks block distillation, including recovery.
 
 Private distillation profiles exclude user/project hooks, plugins, MCP servers and
 skills. The selected credential goes to the native process through its environment.

@@ -302,5 +302,6 @@ test('a failed check recalls for its output and hands the strategy to the model 
   assert.deepEqual(stuckRecall.body, {
     text: 'changed: maxRetriesPerRequest | AssertionError: expected 3 to equal null | files: redis.js',
     context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
+    signals: ['AssertionError', 'changed', 'maxretriesperrequest', 'expected', 'equal', 'null', 'files', 'redis.js'],
   });
 });

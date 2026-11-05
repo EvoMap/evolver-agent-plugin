@@ -50,12 +50,13 @@ function notesOf(records, tasks, turnId, cwd) {
       const matching = tasks.filter(task => expectedTask && task?.kind === 'process' && task.parentToolCallId === call.toolCallId && task.command === input.command && task.taskId === expectedTask);
       const task = matching.length === 1 ? matching[0] : null;
       if (task) {
-        const exit = ['completed', 'failed'].includes(task.status) && Number.isInteger(task.exitCode) ? task.status === 'failed' && task.exitCode === 0 ? 1 : task.exitCode : null;
-        return [{ kind: 'shell', command: input.command, exit, output: '', ...(exit === null && { running: true }), callId: call.toolCallId }];
+        const terminal = ['completed', 'failed'].includes(task.status);
+        const exit = terminal && Number.isInteger(task.exitCode) ? task.exitCode : null;
+        return [{ kind: 'shell', command: input.command, exit, output: '', ...(task.status === 'failed' && { failed: true }), ...(!terminal && { running: true }), callId: call.toolCallId }];
       }
       // Recognising a background wrapper can only downgrade evidence; its text can never prove success.
-      const pending = input.run_in_background === true || /^task_id:/m.test(text(result?.output));
-      return [{ kind: 'shell', command: input.command, exit: !pending && result ? result.isError === true ? 1 : 0 : null, output: result?.output ?? '', ...(pending && { running: true }), callId: call.toolCallId }];
+      const pending = !result || input.run_in_background === true || /^task_id:/m.test(text(result?.output));
+      return [{ kind: 'shell', command: input.command, exit: null, output: result?.output ?? '', ...(!pending && result?.isError === true && { failed: true }), ...(pending && { running: true }), callId: call.toolCallId }];
     }
     const file = pathOf(input, call.display?.cwd || cwd);
     return editTools.has(call.name) && file && result && result.isError !== true ? [{ kind: 'edit', paths: [file], callId: call.toolCallId }] : [];

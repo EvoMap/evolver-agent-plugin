@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { runBackgroundTasks } from '../../lib/app/background.js';
+import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
 import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
+import { IDLE_DISTILL_MS } from '../../lib/distill/candidate.js';
 import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 
@@ -30,7 +33,7 @@ test('a recalled strategy ends with the spec line, and its turn end reports it w
   assert.equal(ended.reports.length, 1);
   assert.equal(ended.reports[0].task_id, 'testagent:s1:1');
   assert.equal(ended.reports[0].outcome, 'success');
-  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
   assert.deepEqual(queued.map(({ report }) => report.task_id), ['testagent:s1:1']);
   assert.ok(scheduled.includes('drain'));
 });
@@ -68,6 +71,89 @@ test('a failed, interrupted, errored or unverified turn leaves no candidate', as
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
+test('a verified turn in a session left open is distilled with no further event: woken once it is quiet, again for a failed try\'s retry', async () => {
+  const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { throw new Error('model offline'); } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  const { at } = (await ports.candidates.read()).s1;
+  assert.deepEqual(wakeUps, [{ at: at + IDLE_DISTILL_MS, tasks: ['distill'] }]);
+  advance(at + IDLE_DISTILL_MS - ports.clock.now());
+  await runBackgroundTasks(ports, wakeUps[0].tasks);
+  const { retryAt, attempts } = (await ports.candidates.read()).s1;
+  assert.equal(attempts, 1);
+  assert.deepEqual(wakeUps.slice(1), [{ at: retryAt, tasks: ['distill'] }]);
+});
+
+for (const barrier of ['native finalization', 'pending check']) {
+  test(`${barrier} prevents idle wake-ups and background model calls`, async () => {
+    let completions = 0;
+    const { ports, wakeUps, scheduled, advance } = memoryPorts({ model: { complete: async () => { completions += 1; throw new Error('must not run'); } } });
+    ports.native = {};
+    await verifiedTurn(ports, 's1');
+    if (barrier === 'pending check') {
+      await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', running: true, callId: 'pending' } });
+      await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0 } });
+    }
+    await end(ports, 's1', { model: 'model-x', finalizationPending: barrier === 'native finalization' });
+    const candidate = (await ports.candidates.read()).s1;
+    assert.ok(candidate);
+    assert.deepEqual(wakeUps, []);
+
+    advance(IDLE_DISTILL_MS);
+    scheduled.length = 0;
+    await promptSubmitted(ports, { sessionId: 'other', prompt: 'explain the build', ...WAIT });
+    assert.equal(scheduled.includes('distill'), false);
+    await runBackgroundTasks(ports, ['distill']);
+    assert.equal(completions, 0);
+    assert.deepEqual(wakeUps, []);
+    assert.deepEqual((await ports.candidates.read()).s1, candidate);
+  });
+}
+
+test('a blocked route waits for another event without consuming attempts or scheduling timer retries', async () => {
+  let available = false;
+  let completions = 0;
+  const { ports, wakeUps, scheduled, advance } = memoryPorts({ model: { complete: async () => {
+    completions += 1;
+    if (!available) throw Object.assign(new Error('fixture route changed'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+    return { answer: JSON.stringify({ skip: 'routine edit' }) };
+  } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  assert.equal(wakeUps.length, 1);
+  advance(IDLE_DISTILL_MS);
+  await runBackgroundTasks(ports, ['distill']);
+  const blocked = (await ports.candidates.read()).s1;
+  assert.equal(blocked.attempts, 0);
+  assert.deepEqual(blocked.blocked, { reason: 'route_changed' });
+  assert.equal(completions, 1);
+  assert.equal(wakeUps.length, 1);
+
+  available = true;
+  scheduled.length = 0;
+  await promptSubmitted(ports, { sessionId: 'other', prompt: 'explain the build', ...WAIT });
+  assert.ok(scheduled.includes('distill'));
+  await runBackgroundTasks(ports, ['distill']);
+  assert.equal(completions, 2);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a candidate that comes due while another is distilled is woken for shortly after, not left to the next event', async () => {
+  let duringModel = () => {};
+  const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { duringModel(); throw new Error('model offline'); } } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  await verifiedTurn(ports, 's2');
+  await end(ports, 's2', { model: 'model-x' });
+  advance(IDLE_DISTILL_MS / 2);
+  duringModel = () => advance(IDLE_DISTILL_MS / 2);
+  await runBackgroundTasks(ports, ['distill']);
+  const pending = await ports.candidates.read();
+  assert.deepEqual([pending.s1.attempts, pending.s2.attempts], [1, 0]);
+  assert.deepEqual(wakeUps.at(-1), { at: ports.clock.now() + MIN_WAKE_DELAY_MS, tasks: ['distill'] });
+});
+
 test('a plugin command turn recalls nothing, keeps the last reuses for labelling and is no candidate', async () => {
   const { ports, queued } = memoryPorts();
   await verifiedTurn(ports, 's1');
@@ -92,12 +178,12 @@ test('a check still running at turn end stays unknown; a later note with its cal
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c1' } });
-  assert.deepEqual((await end(ports, 's1')).record.checks, [{ command: 'npm test', failed: null }]);
+  assert.deepEqual((await end(ports, 's1')).record.checks, [{ command: 'npm test', exit: null, failed: null }]);
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c2' } });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1, callId: 'c2' } });
   const { record } = await end(ports, 's1');
-  assert.deepEqual(record.checks, [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(record.checks, [{ command: 'npm test', exit: 1, failed: true }]);
   assert.deepEqual(record.commands, ['npm test']);
 });
 
@@ -113,14 +199,15 @@ test('a later pending check blocks an earlier pass, even when an older command f
   assert.equal(ended.reports[0].evidence.tier, 'none');
 });
 
-test('an agent-reported turn counts as exposure only', async () => {
-  const { ports } = memoryPorts();
-  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
-  const recordOf = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer: '' });
-  const [report] = (await end(ports, 's1', { recordOf, source: 'agent_reported' })).reports;
-  assert.equal(report.evidence.tier, 'none');
-  assert.equal(report.evidence.reported_by, 'agent');
-  assert.match(report.reason, /as the agent reported it\.$/);
+test('an agent-reported turn, under any source but the host\'s own, counts as exposure only', async () => {
+  for (const source of [AGENT_REPORTED, 'agent_reported']) {
+    const { ports } = memoryPorts();
+    await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+    const recordOf = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer: '' });
+    const [report] = (await end(ports, 's1', { recordOf, source })).reports;
+    assert.deepEqual([report.evidence.tier, report.evidence.reported_by, report.evidence.source], ['none', 'agent', 'reported'], source);
+    assert.match(report.reason, /as the agent reported it\.$/);
+  }
 });
 
 test('session end reports what is left as aborted, closes the candidate and keeps the turn counter for a resume', async () => {
@@ -190,6 +277,18 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
   ports.reports.enqueue = enqueue;
   const stored = await ports.sessions.read('s1');
   assert.equal(Object.values(stored.injected)[0].reportedAt, undefined);
+  assert.equal(sessionOfStored(stored).settling, null, 'the next prompt does not wait for an end that failed');
+});
+
+test('a turn whose work tree cannot be read is still the candidate, without its project', async () => {
+  for (const project of [{ snapshot: async () => { throw new Error('git failed'); } }, undefined]) {
+    const { ports } = memoryPorts();
+    ports.project = project;
+    await verifiedTurn(ports, 's1');
+    assert.equal((await end(ports, 's1')).isCandidate, true);
+    assert.equal((await ports.candidates.read()).s1.project, undefined);
+    assert.equal(sessionOfStored(await ports.sessions.read('s1')).settling, null);
+  }
 });
 
 test('the wait for a turn end still writing runs from when that turn began closing, after a settle wait', async () => {
@@ -248,7 +347,7 @@ test('a note that raced past the open-turn check is still kept out of the next t
   await ports.notes.append('s1', { kind: 'shell', command: 'npm test', exit: 1, turnId: 'g1' });
   await toolFinished(ports, { sessionId: 's1', turnId: 'g2', note: { kind: 'shell', command: 'npm run lint', exit: 0 } });
   const { record } = await end(ports, 's1', { turnId: 'g2' });
-  assert.deepEqual(record.checks, [{ command: 'npm run lint', failed: false }]);
+  assert.deepEqual(record.checks, [{ command: 'npm run lint', exit: 0, failed: false }]);
 });
 
 test('a session end naming a turn id the session never opened (an intercepted command) still ends it', async () => {
@@ -288,6 +387,17 @@ test('a late native completion cannot close a newer logical turn whose native id
   await end(ports, 's1', { turnId: '0', expectedTurn: first.turn, expectedPid: first.pid });
   assert.equal((await ports.sessions.read('s1')).open, true);
   assert.equal((await ports.sessions.read('s1')).turn, 2);
+});
+
+test('a turn judged again after its session ended starts the distillation its candidate is due for', async () => {
+  const { ports, scheduled } = memoryPorts({ model: {} });
+  const verified = () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: ['/proj/a.js'], edits: ['/proj/a.js'], answer: 'Fixed.' });
+  await promptSubmitted(ports, { sessionId: 'host', prompt: PROMPT, turnId: 't1', ...WAIT });
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  await sessionEnded(ports, { sessionId: 'host', projectDir: '/proj' });
+  scheduled.length = 0;
+  await end(ports, 'host', { turnId: 't1', recordOf: verified });
+  assert.deepEqual(scheduled, ['distill']);
 });
 
 test('a correction that slips in while a re-judge reads its record still drops the candidate', async () => {

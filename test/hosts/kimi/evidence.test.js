@@ -24,7 +24,7 @@ test('pre-edit paths require the bound main native turn and successful results a
 });
 
 test('a later uncompleted Bash check prevents a candidate even when an earlier check passed', () => {
-  const records = [meta, prompt, call('pass', 'Bash', { command: 'npm test' }), result('pass', { output: '', durationMs: 1 }), call('pending', 'Bash', { command: 'npm test' })];
+  const records = [meta, prompt, call('pass', 'Bash', { command: 'npm test' }), result('pass', { output: '# pass 1\n# fail 0', durationMs: 1 }), call('pending', 'Bash', { command: 'npm test' })];
   const record = decodeNativeFacts(records, [], {}, { turnId: '0' }).record;
   record.answer = 'Done.'; record.edits = ['file.js'];
   assert.deepEqual(record.checks.map(check => check.failed), [false, null]);
@@ -35,5 +35,5 @@ test('a background task record must match both the native call and its returned 
   const records = [meta, prompt, call('background', 'Bash', { command: 'npm test', run_in_background: true }), result('background', { output: 'task_id: expected-task\nstatus: running', durationMs: 1 })];
   const task = { taskId: 'different-task', kind: 'process', parentToolCallId: 'background', command: 'npm test', status: 'completed', exitCode: 0 };
   const record = decodeNativeFacts(records, [task], {}, { turnId: '0' }).record;
-  assert.deepEqual(record.checks, [{ command: 'npm test', failed: null }]);
+  assert.deepEqual(record.checks, [{ command: 'npm test', exit: null, failed: null }]);
 });

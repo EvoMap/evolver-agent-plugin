@@ -17,7 +17,7 @@ test('Kimi native turn zero and the active binding are distinct from a global de
   assert.equal(facts.terminal, null);
 });
 
-test('a matched native terminal settles a silent Bash check and only the final model text is its answer', () => {
+test('a matched native terminal cannot prove a silent Bash check passed and only the final model text is its answer', () => {
   const records = [meta, profile, prompt(0),
     { type: 'llm.request', agentId: 'main', modelAlias: 'custom/model-b', model: 'upstream-b', provider: 'openai', turnStep: '0.1' },
     event({ type: 'tool.call', uuid: 'call-uuid', turnId: '0', toolCallId: 'call-test', name: 'Bash', args: { command: 'npm test' } }),
@@ -28,7 +28,7 @@ test('a matched native terminal settles a silent Bash check and only the final m
     { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' },
   ];
   const facts = decodeNativeFacts(records, [], { hook_event_name: 'Stop' }, { turnId: '0' });
-  assert.deepEqual(facts.record.checks, [{ command: 'npm test', failed: false }]);
+  assert.deepEqual(facts.record.checks, [{ command: 'npm test', exit: null, failed: null }]);
   assert.equal(facts.record.answer, 'Fixed the retry; tests pass.');
   assert.deepEqual(facts.terminal, { turnId: '0', reason: 'completed', answer: 'Fixed the retry; tests pass.', modelHint: { alias: 'custom/model-b', effort: null, model: 'upstream-b', protocol: 'openai' } });
 });
@@ -41,8 +41,12 @@ test('a background Bash is settled by its task metadata, never by successful Tas
     event({ type: 'tool.result', parentUuid: 'output-uuid', toolCallId: 'output-call', result: { output: 'retrieval_status: success\nstatus: failed', durationMs: 1 } }),
   ];
   const task = { taskId: 'bash-task', kind: 'process', parentToolCallId: 'bg-call', command: 'npm test', status: 'failed', exitCode: 7 };
-  assert.deepEqual(decodeNativeFacts(records, [task], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', failed: true }]);
-  assert.deepEqual(decodeNativeFacts(records, [{ ...task, parentToolCallId: 'another-turn' }], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', failed: null }]);
+  assert.deepEqual(decodeNativeFacts(records, [task], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: 7, failed: true }]);
+  assert.deepEqual(decodeNativeFacts(records, [{ ...task, parentToolCallId: 'another-turn' }], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: null, failed: null }]);
+  for (const [status, exitCode, exit, failed] of [['failed', 0, 0, true], ['failed', undefined, null, true], ['completed', 0, 0, false], ['completed', undefined, null, null], ['running', 0, null, null]]) {
+    assert.deepEqual(decodeNativeFacts(records, [{ ...task, status, exitCode }], {}, { turnId: '0' }).record.checks,
+      [{ command: 'npm test', exit, failed }]);
+  }
 });
 
 test('late observer events cannot guess the latest of two identical prompts', () => {
@@ -69,9 +73,18 @@ test('fixed task discovery rejects paths and does not inspect arbitrary output p
 
 test('duplicate native events do not duplicate checks and mismatched results remain unknown', () => {
   const call = event({ type: 'tool.call', uuid: 'id', turnId: '0', toolCallId: 'test', name: 'Bash', args: { command: 'npm test' } });
-  const result = event({ type: 'tool.result', parentUuid: 'id', toolCallId: 'test', result: { output: '', durationMs: 1 } });
-  assert.deepEqual(decodeNativeFacts([meta, prompt(0), call, call, result, result], [], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', failed: false }]);
-  assert.deepEqual(decodeNativeFacts([meta, prompt(0), call, { ...result, event: { ...result.event, parentUuid: 'another-turn' } }], [], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', failed: null }]);
+  const result = event({ type: 'tool.result', parentUuid: 'id', toolCallId: 'test', result: { output: '# pass 1\n# fail 0', durationMs: 1 } });
+  assert.deepEqual(decodeNativeFacts([meta, prompt(0), call, call, result, result], [], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: null, failed: false }]);
+  assert.deepEqual(decodeNativeFacts([meta, prompt(0), call, { ...result, event: { ...result.event, parentUuid: 'another-turn' } }], [], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: null, failed: null }]);
+});
+
+test('foreground native errors and summaries retain verdicts without inventing process exit codes', () => {
+  const call = event({ type: 'tool.call', uuid: 'id', turnId: '0', toolCallId: 'test', name: 'Bash', args: { command: 'npm test' } });
+  for (const [output, isError, failed] of [['# pass 1\n# fail 0', false, false], ['', false, null], ['ordinary output', undefined, null], ['timed out', true, true]]) {
+    const result = event({ type: 'tool.result', parentUuid: 'id', toolCallId: 'test', result: { output, durationMs: 1, isError } });
+    assert.deepEqual(decodeNativeFacts([meta, prompt(0), call, result], [], {}, { turnId: '0' }).record.checks,
+      [{ command: 'npm test', exit: null, failed }]);
+  }
 });
 
 test('conflicting call identities and completed terminals containing an error cannot verify a turn', () => {

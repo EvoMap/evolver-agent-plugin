@@ -49,7 +49,7 @@ test('native driver captures the route and waits for both the terminal and an ea
     f.loop({ type: 'tool.call', uuid: 'lint-call', turnId: 0, toolCallId: 'lint', name: 'Bash', args: { command: 'npm run lint', run_in_background: true } }),
     f.loop({ type: 'tool.result', parentUuid: 'lint-call', toolCallId: 'lint', result: { output: 'task_id: lint-task\nstatus: running', durationMs: 2 } }),
     f.loop({ type: 'tool.call', uuid: 'check-call', turnId: 0, toolCallId: 'check', name: 'Bash', args: { command: 'npm test' } }),
-    f.loop({ type: 'tool.result', parentUuid: 'check-call', toolCallId: 'check', result: { output: '', durationMs: 2 } }),
+    f.loop({ type: 'tool.result', parentUuid: 'check-call', toolCallId: 'check', result: { output: '# pass 1\n# fail 0', durationMs: 2 } }),
     { type: 'llm.request', agentId: 'main', modelAlias: 'selected', thinkingEffort: 'off', model: 'upstream-model', provider: 'openai' },
     f.loop({ type: 'content.part', uuid: 'answer', turnId: 0, stepUuid: 'final', part: { type: 'text', text: 'Fixed retries.' } }),
     f.loop({ type: 'step.end', uuid: 'final', turnId: 0, finishReason: 'end_turn', providerFinishReason: 'completed' }),
@@ -70,7 +70,7 @@ test('native driver captures the route and waits for both the terminal and an ea
   assert.equal(f.sessions.get(f.id).native.pending, false);
   const candidate = (await f.ports.candidates.read())[f.id];
   assert.deepEqual(candidate.model, route);
-  assert.deepEqual(candidate.checks, [{ command: 'npm run lint', failed: false }, { command: 'npm test', failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm run lint', exit: 0, failed: false }, { command: 'npm test', exit: null, failed: false }]);
   assert.ok(f.retained[0].editedBefore.has(join(f.project, 'a.js')));
   assert.equal(f.queued.length, 1);
   assert.equal(f.queued[0].report.task_id.includes(f.env.KIMI_CODE_HOME), false, 'native profile paths stay out of Hub task identifiers');

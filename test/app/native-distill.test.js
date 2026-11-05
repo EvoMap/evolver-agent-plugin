@@ -49,7 +49,7 @@ test('verified candidate flows through real ACP transport and validation into a 
   assert.equal(posts.length, 1);
   assert.deepEqual(posts[0].body.strategy, GENE.strategy);
   assert.equal(posts[0].body.publish, false);
-  assert.equal(posts[0].body.persist, false);
+  assert.equal(posts[0].body.persist, true);
   assert.equal(JSON.stringify(posts).includes(KEY), false);
   assert.equal(JSON.stringify(posts).includes(made.snapshot.binding), false);
   const receipt = JSON.parse(readFileSync(made.receipt, 'utf8'));
