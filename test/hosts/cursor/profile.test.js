@@ -38,7 +38,7 @@ test('a Shell result is a check by its exit code and output; writes, deletes and
   assert.deepEqual(noteOf('postToolUse.shellPassed'), { kind: 'shell', command: 'npm test', exit: 0, output: 'ℹ tests 2\nℹ pass 2\nℹ fail 0\n' });
   assert.deepEqual(noteOf('postToolUse.shellFailed'), { kind: 'shell', command: 'npm test', exit: 1, output: 'done' });
   const unknown = cursor.evidence.toolNote({ ...payload('postToolUse.shellPassed'), tool_output: JSON.stringify({ output: 'done' }) });
-  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', failed: null }]);
+  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', exit: null, failed: null }]);
   assert.deepEqual(noteOf('postToolUse.write'), { kind: 'tool', paths: ['/work/app/lib/redis.js'] });
   assert.deepEqual(noteOf('postToolUse.delete'), { kind: 'edit', paths: ['/work/app/lib/old.js'] });
   assert.deepEqual(noteOf('afterFileEdit'), { kind: 'edit', paths: ['/work/app/lib/redis.js'] });
@@ -51,7 +51,7 @@ test('a failed Shell call fails its check on an exit or a timeout; an interrupt 
   assert.deepEqual(noteOf('postToolUseFailure.backgrounded'), { kind: 'tool', command: 'npm test', paths: [] });
   assert.equal(noteOf('postToolUseFailure.denied'), null);
   const record = turnRecordOf(['postToolUseFailure.exit', 'postToolUseFailure.interrupted', 'postToolUse.shellPassed'].map(noteOf));
-  assert.deepEqual(record.checks, [{ command: 'npm test', failed: true }, { command: 'npm test', failed: false }]);
+  assert.deepEqual(record.checks, [{ command: 'npm test', exit: 1, failed: true }, { command: 'npm test', exit: 0, failed: false }]);
 });
 
 test('the final answer of afterAgentResponse travels as a note of its own', () => {

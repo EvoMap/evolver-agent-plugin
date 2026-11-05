@@ -101,6 +101,13 @@ export function stateFile(proxy, name, empty = {}) {
   }
 }
 
+/** Ends the wait a failed distillation set before its next background try, as if the time had passed. */
+export function elapseRetryWaits(proxy) {
+  const file = join(proxy.stateDir, 'dsh-distill-pending.json');
+  const pending = stateFile(proxy, 'dsh-distill-pending.json');
+  writeFileSync(file, JSON.stringify(Object.fromEntries(Object.entries(pending).map(([id, candidate]) => [id, { ...candidate, retryAt: 0 }]))));
+}
+
 export function reportsQueued(proxy) {
   let queued = [];
   try {

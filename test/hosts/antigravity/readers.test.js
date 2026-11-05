@@ -32,9 +32,9 @@ test('a turn record pairs each call with its result in step order: commands, che
   const record = transcriptRecordOf(steps, latestTurnOf(steps).mark);
   assert.deepEqual(record.commands, ['node --test', 'npm run lint', 'node --test 2>&1 | tail -5', 'npm run build']);
   assert.deepEqual(record.checks, [
-    { command: 'node --test', failed: true },
-    { command: 'npm run lint', failed: false },
-    { command: 'node --test 2>&1 | tail -5', failed: false },
+    { command: 'node --test', exit: 1, failed: true },
+    { command: 'npm run lint', exit: 0, failed: false },
+    { command: 'node --test 2>&1 | tail -5', exit: 0, failed: false },
   ], 'the build moved to the background has no verdict');
   assert.deepEqual(record.paths, ['/workspace/project/src/index.js', '/workspace/project/src/lru.js', '/workspace/project/src/index.js']);
   assert.deepEqual(record.edits, ['/workspace/project/src/lru.js'], 'the failed replacement edited nothing');
@@ -45,10 +45,10 @@ test('an exit code decides a check; without one an ERROR step fails it and the o
   const turn = (...rows) => `${row({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', content: 'run it' })}\n${rows.join('\n')}\n`;
   const call = (index, command) => row({ step_index: index, source: 'MODEL', type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: command } }] });
   const checksOf = (text) => transcriptRecordOf(stepsOf(text), { stepIndex: 0, createdAt: null }).checks;
-  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', status: 'ERROR', error: 'exit status 2' }))), [{ command: 'npm test', failed: true }]);
-  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', status: 'ERROR' }))), [{ command: 'npm test', failed: true }]);
-  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', content: 'done' }))), [{ command: 'npm test', failed: null }]);
-  assert.deepEqual(checksOf(turn(call(1, 'npm test | tail -3'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', content: 'The command exited with code 0.\nOutput:\nAssertionError: expected 1 to equal 2' }))), [{ command: 'npm test | tail -3', failed: true }]);
+  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', status: 'ERROR', error: 'exit status 2' }))), [{ command: 'npm test', exit: 2, failed: true }]);
+  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', status: 'ERROR' }))), [{ command: 'npm test', exit: null, failed: true }]);
+  assert.deepEqual(checksOf(turn(call(1, 'npm test'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', content: 'done' }))), [{ command: 'npm test', exit: null, failed: null }]);
+  assert.deepEqual(checksOf(turn(call(1, 'npm test | tail -3'), row({ step_index: 2, source: 'MODEL', type: 'RUN_COMMAND', content: 'The command exited with code 0.\nOutput:\nAssertionError: expected 1 to equal 2' }))), [{ command: 'npm test | tail -3', exit: 0, failed: true }]);
   assert.deepEqual(checksOf(turn(call(1, 'npm test'))), [], 'a call no result answered was not run');
 });
 
