@@ -97,6 +97,24 @@ test('literal shell and package-manager wrappers recognise only the command they
   ]) assert.equal(isVerificationCommand(command), false, command);
 });
 
+test('a literal shell script runs in a chained or wrapped command position', () => {
+  for (const command of [
+    "cd app && /bin/bash -c 'npm test'",
+    'env CI=1 bash -c "npm test"',
+    "sudo -u root -- bash -c 'npm test'",
+    "cd app && env -i CI=1 sudo -n '/usr/bin/bash' -lc 'npm test'",
+  ]) assert.equal(isVerificationCommand(command), true, command);
+  for (const command of [
+    "cd app && echo bash -c 'npm test'",
+    "env CI=1 bash -c 'echo npm test'",
+    "sudo -u bash -c 'npm test'",
+    'sudo -n bash -c "$CHECK"',
+    'cd app && bash -c "$(echo npm test)"',
+    "cd app && bash -c 'npm test'$EXTRA",
+    "echo $(bash -c 'npm test')",
+  ]) assert.equal(isVerificationCommand(command), false, command);
+});
+
 test('literal quoted executables count only in command position', () => {
   for (const command of [
     '"./node_modules/.bin/jest"', "'./path with spaces/gradlew' build",
