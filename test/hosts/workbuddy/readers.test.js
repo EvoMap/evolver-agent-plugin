@@ -68,8 +68,8 @@ test('a WorkBuddy turn yields its commands, paths, edited files and checks from 
   appendFileSync(file, LRU_TURN);
   const turn = turnOf(file, mark);
   assert.deepEqual(turn.checks, [
-    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -12', failed: true },
-    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -9', failed: false },
+    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -12', exit: null, failed: true },
+    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -9', exit: null, failed: false },
   ]);
   assert.deepEqual(turn.edits, ['/tmp/lru-e2e/lru-cache.test.js', '/tmp/lru-e2e/lru-cache.js']);
   assert.ok(turn.paths.includes('/tmp/lru-e2e/lru-cache.js'));

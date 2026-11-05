@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
+import { CHECK_COMMAND_MAX_CHARS } from '../../lib/turn/record.js';
+import { isVerificationCommand, verificationExitOf, verificationFailureOf } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
 // JSON record per line, `function_call` / `function_call_result` pairs joined by `callId`, messages with a `role`.
@@ -9,7 +10,6 @@ import { isVerificationCommand, verificationFailureOf } from '../../lib/verifica
 export const EDIT_TOOLS = Object.freeze(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
-const CHECK_COMMAND_MAX_CHARS = 200;
 const EXIT_CODE = /^Exit Code: (-?\d+)/m;
 const TOOL_ERROR = /^\s*(?:Error\b|<tool_use_error>)/;
 const MARK_BYTES = 256;
@@ -83,10 +83,16 @@ const shellOutputOf = (text) => {
   return stdout === -1 ? text : text.slice(stdout);
 };
 
-function shellFailed(command, result) {
-  if (result.status !== 'completed') return true;
+const exitCodeOf = (result) => {
   const exit = EXIT_CODE.exec(result.text);
-  return verificationFailureOf({ command, exit: exit ? Number(exit[1]) : null, text: shellOutputOf(result.text) });
+  return exit ? Number(exit[1]) : null;
+};
+
+function checkOf(call) {
+  const command = call.args.command;
+  const exit = verificationExitOf(command, exitCodeOf(call.result));
+  const failed = call.result.status !== 'completed' || verificationFailureOf({ exit, text: shellOutputOf(call.result.text) });
+  return { command: command.slice(0, CHECK_COMMAND_MAX_CHARS), exit, failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
@@ -121,7 +127,7 @@ export function turnActivityOf(records) {
     edits: calls.filter((call) => EDIT_TOOLS.includes(call.name) && editSucceeded(call.result)).map((call) => editedPathOf(call.args)).filter(Boolean),
     checks: calls
       .filter((call) => isCheck(call) && call.result)
-      .map((call) => ({ command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), failed: shellFailed(call.args.command, call.result) })),
+      .map(checkOf),
     answer: answerOf(records),
   };
 }

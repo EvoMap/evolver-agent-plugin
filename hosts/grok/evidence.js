@@ -9,7 +9,6 @@ export const EDIT_TOOLS = Object.freeze(['search_replace', 'write', 'hashline_ed
 export const TASK_OUTPUT_TOOL = 'get_command_or_subagent_output';
 const PATH_KEYS = ['file_path', 'path', 'target_notebook'];
 const EXIT_LINE = /^exit: (-?\d+)\n?/;
-const FAILED_WITHOUT_CODE = 1;
 // A call still running at its `block_until_ms` (30 s by default) goes on in the background and is reported as started.
 const BACKGROUND_STARTED = 'BackgroundTaskStarted';
 const TASK_OUTPUT = 'TaskOutput';
@@ -25,7 +24,8 @@ const absoluteIn = (cwd, file) => {
 /** The file an edit tool names, absolute against the event's cwd, in either tool shape. */
 const editedFileIn = ({ toolInput: input, cwd }) => absoluteIn(cwd, PATH_KEYS.map((key) => text(input?.[key])).find(Boolean));
 
-const exitOf = (result) => (Number.isInteger(result?.exit_code) ? result.exit_code : (result?.timed_out ? FAILED_WITHOUT_CODE : null));
+// A run grok stopped at its time limit failed, though it has no exit code.
+const outcomeOf = (result) => (Number.isInteger(result?.exit_code) ? { exit: result.exit_code } : { exit: null, ...(result?.timed_out && { failed: true }) });
 
 /**
  * A shell call's result: grok's `{ type: "Bash", exit_code, output_for_prompt }`, or, past 128 KiB, the text the
@@ -41,7 +41,7 @@ function shellNoteOf({ toolInput: input, toolResult: result, toolUseId: callId, 
     const exit = EXIT_LINE.exec(result);
     return { kind: 'shell', command, exit: exit ? Number(exit[1]) : null, output: result.replace(EXIT_LINE, ''), ...ids };
   }
-  return { kind: 'shell', command, exit: exitOf(result), output: text(result?.output_for_prompt).replace(EXIT_LINE, ''), ...ids };
+  return { kind: 'shell', command, ...outcomeOf(result), output: text(result?.output_for_prompt).replace(EXIT_LINE, ''), ...ids };
 }
 
 /** A background task's output, as get_command_or_subagent_output returns it: the completion of the call that started it. */
@@ -50,10 +50,10 @@ function taskOutputNoteOf({ toolResult: result }) {
   const command = text(task?.command);
   if (!command || !text(task.task_id)) return null;
   if (task.status === STILL_RUNNING) return { kind: 'shell', command, running: true, callId: task.task_id };
-  const exit = exitOf(task);
-  const neverFinished = exit === null;
+  const outcome = outcomeOf(task);
+  const neverFinished = outcome.exit === null && !outcome.failed;
   if (neverFinished) return { kind: 'shell', command, running: true, callId: task.task_id };
-  return { kind: 'shell', command, exit, output: text(task.output), callId: task.task_id };
+  return { kind: 'shell', command, ...outcome, output: text(task.output), callId: task.task_id };
 }
 
 // grok reports an edit it could not make (`NoMatchesFound`) as a result like any other; another runtime's result has
