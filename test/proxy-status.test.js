@@ -8,6 +8,16 @@ test('a running Proxy is summarised by node, pending counts and last sync', () =
   assert.equal(text, 'Evolver Proxy running (public hub, node node_1).\nPending: 2 outbound, 0 inbound; last Hub sync 2026-10-22T03:00:00Z.');
 });
 
+test('the Proxy\'s background publishing is shown when it reports it: the verifier and why not, the counts, the last attempt', () => {
+  const curation = {
+    publish_verifier: 'unavailable', publish_verifier_reason: 'read_only_isolation_unavailable', awaiting_verification: 2, published: 5,
+    last_attempt: { gene_asset_id: 'sha256:g1', result: 'not_reproducible', at: '2026-11-03T08:00:00Z' },
+  };
+  const text = proxyStatusText({ running: true, background_curation: curation });
+  assert.match(text, /\nBackground publishing: verifier unavailable \(read_only_isolation_unavailable\); 2 awaiting verification, 5 published; last attempt not_reproducible for sha256:g1 at 2026-11-03T08:00:00Z\.$/);
+  assert.match(proxyStatusText({ running: true, background_curation: { publish_verifier: 'available', awaiting_verification: 0, published: 0 } }), /verifier available; 0 awaiting verification, 0 published; no attempt yet\.$/);
+});
+
 test('a sync error and auth status are surfaced; a non-running answer is said plainly', () => {
   assert.match(proxyStatusText({ running: true, last_sync_error: 'hub 503', hub_auth_status: 'ok' }), /node unclaimed[\s\S]*last Hub sync failed: hub 503\.\nHub auth: ok\./);
   assert.match(proxyStatusText({ authorized: true }), /does not report itself running/);

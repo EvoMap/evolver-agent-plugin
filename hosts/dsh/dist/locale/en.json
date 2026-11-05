@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "evolver-plugin",
-    "description": "Evolver by EvoMap: recalls a proven strategy behind each prompt, reports how it held up at the turn's end, and distills verified work after the session ends."
+    "description": "Evolver by EvoMap: recalls a proven strategy behind each prompt, reports how it held up at the turn's end, and distills verified work once the session goes quiet or ends."
   }
 }
