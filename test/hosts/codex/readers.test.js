@@ -5,7 +5,9 @@ import { test } from 'node:test';
 
 import { patchedPaths } from '../../../hosts/codex/evidence.js';
 import codex from '../../../hosts/codex/profile.js';
+import { createDriver } from '../../../lib/agent/driver.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
+import { PROMPT, memoryPorts } from '../../app/memory-ports.js';
 
 // Payloads Codex 0.164.0 sent to a plugin's hooks (paths renamed), and the tool responses of the standalone
 // plugin's tests, from Codex 0.144.
@@ -23,6 +25,23 @@ const SESSION = '01a17b33-1759-7171-b4c0-2618b2cbe40e';
 const TURN = '01a17b33-17ae-7f93-a0ea-d7608791f4bd';
 
 const ONE_SESSION = ['SessionStart.startup', 'UserPromptSubmit', 'PreToolUse.apply_patch', 'PostToolUse.apply_patch', 'PreToolUse.Bash', 'PostToolUse.Bash.passed', 'PostToolUse.Bash.exit3', 'Stop', 'SessionEnd'];
+
+test('an exit-less result with no passing evidence cannot verify a turn, including after an earlier pass', async () => {
+  for (const earlierPass of [false, true]) {
+    const { ports, queued } = memoryPorts();
+    const driver = createDriver({ profile: codex, ports, lifetime: 'ephemeral' });
+    await driver.handle('UserPromptSubmit', { ...payload('UserPromptSubmit'), prompt: PROMPT });
+    await driver.handle('PostToolUse', payload('PostToolUse.apply_patch'));
+    if (earlierPass) await driver.handle('PostToolUse', payload('PostToolUse.Bash.passed'));
+    await driver.handle('PostToolUse', {
+      ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: 'boom\n', tool_use_id: 'silent-exit',
+    });
+    await driver.handle('Stop', payload('Stop'));
+    assert.equal((await ports.candidates.read())[SESSION], undefined, `earlier pass: ${earlierPass}`);
+    assert.equal(queued[0].report.evidence.tier, 'none');
+    assert.equal(queued[0].report.evidence.check, undefined);
+  }
+});
 
 test('every event names its session; the prompt, its tool calls and the turn end name the turn', () => {
   for (const name of ONE_SESSION) assert.equal(codex.payload.sessionId(payload(name)), SESSION, name);
@@ -60,27 +79,27 @@ test('an apply_patch result edits the files its patch names once Codex says it a
 test('a Bash result carries no exit code, so a check is judged by its output', () => {
   const passed = noteOf('PostToolUse.Bash.passed');
   assert.deepEqual({ ...passed, output: undefined }, { kind: 'shell', command: 'node --test', exit: null, output: undefined, callId: 'call_4' });
-  assert.deepEqual(checksOf(passed), [{ command: 'node --test', failed: false }]);
+  assert.deepEqual(checksOf(passed), [{ command: 'node --test', exit: null, failed: false }]);
   assert.deepEqual(noteOf('PostToolUse.Bash.exit3'), { kind: 'shell', command: 'node -e "console.log(\'boom\'); process.exit(3)"', exit: null, output: 'boom\n', callId: 'call_6' });
-  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', failed: false }], 'a check that fails silently reads as passed');
-  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.patchAndFailingTests'])), [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(checksOf(bash('boom\n')), [{ command: 'npm test', exit: null, failed: null }], 'bare stdout carries neither an exit code nor positive passing evidence');
+  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.patchAndFailingTests'])), [{ command: 'npm test', exit: null, failed: true }]);
 });
 
 test('a command that ran past its wait limit reaches the hook once it ended, with its whole output', () => {
-  assert.deepEqual(checksOf(noteOf('PostToolUse.Bash.waited')), [{ command: 'sleep 2; node --test', failed: false }]);
+  assert.deepEqual(checksOf(noteOf('PostToolUse.Bash.waited')), [{ command: 'sleep 2; node --test', exit: null, failed: false }]);
 });
 
 test('an exit-code header decides, a timeout fails, and a run still going waits for its completion', () => {
   assert.deepEqual(bash(RESPONSES_0144['bash.exitHeaderFailed']), { kind: 'shell', command: 'npm test', exit: 1, output: 'Output:\nall good', callId: 'call_suite' });
-  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.exitHeaderPassed'])), [{ command: 'npm test', failed: false }]);
-  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.timedOut'])), [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.exitHeaderPassed'])), [{ command: 'npm test', exit: 0, failed: false }]);
+  assert.deepEqual(checksOf(bash(RESPONSES_0144['bash.timedOut'])), [{ command: 'npm test', exit: null, failed: true }]);
   const running = bash(RESPONSES_0144['bash.stillRunning']);
   assert.deepEqual(running, { kind: 'shell', command: 'npm test', running: true, callId: 'call_suite' });
   assert.deepEqual(turnRecordOf([running]).checks, [], 'a run with no verdict counts as not run');
   const completed = turnRecordOf([running, bash(RESPONSES_0144['bash.finishedFailing'])]);
-  assert.deepEqual(completed.checks, [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(completed.checks, [{ command: 'npm test', exit: null, failed: true }]);
   assert.deepEqual(completed.commands, ['npm test'], 'its completion is the same command');
-  assert.deepEqual(checksOf(running, bash(RESPONSES_0144['bash.finishedExited'])), [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(checksOf(running, bash(RESPONSES_0144['bash.finishedExited'])), [{ command: 'npm test', exit: 1, failed: true }]);
 });
 
 test('a patch a Bash command applies is an edit; beside a check in the same command, the check', () => {
@@ -90,7 +109,7 @@ test('a patch a Bash command applies is an edit; beside a check in the same comm
     kind: 'edit', command: applying, paths: ['src/lru.js', 'src/old.js', 'src/new.js', 'src/gone.js'],
   });
   const checked = turnRecordOf([bash(RESPONSES_0144['bash.patchAndFailingTests'], { command: `${applying}\nnode --test` })]);
-  assert.deepEqual(checked.checks, [{ command: `${applying}\nnode --test`.slice(0, 200), failed: true }]);
+  assert.deepEqual(checked.checks, [{ command: `${applying}\nnode --test`, exit: null, failed: true }]);
   assert.ok(checked.paths.includes('src/new.js'));
 });
 

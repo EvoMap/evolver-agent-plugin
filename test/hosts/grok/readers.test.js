@@ -39,6 +39,8 @@ test('the prompt and the project are read off the payload; a subagent\'s event i
 });
 
 test('a shell result carries its exit code; failure then pass reads as a fixed check', () => {
+  const unknown = grok.evidence.toolNote({ ...payload('PostToolUse.run_terminal_command.passed'), toolInput: { command: 'npm test' }, toolResult: { type: 'Bash', output_for_prompt: 'done' } });
+  assert.deepEqual(turnRecordOf([unknown]).checks, [{ command: 'npm test', exit: null, failed: null }]);
   const failed = noteOf('PostToolUse.run_terminal_command.failed');
   assert.deepEqual(failed, { kind: 'shell', command: 'sh check.sh', exit: 1, output: '1 failing: README not fixed\n', callId: 'call_3' });
   assert.deepEqual(noteOf('PostToolUse.run_terminal_command.exit3'), { kind: 'shell', command: 'sleep 1; exit 3', exit: 3, output: '', callId: 'call_18' });
@@ -54,7 +56,7 @@ test('a call grok moves to the background has no verdict until its task\'s outpu
   const output = noteOf('PostToolUse.get_command_or_subagent_output');
   assert.deepEqual(output, { kind: 'shell', command: 'sleep 2; npm test', exit: 1, output: '\n> test\n> sh check.sh\n\n1 failing\n', callId: 'call_3' });
   const record = turnRecordOf([noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput'), output]);
-  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', failed: true }]);
+  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', exit: 1, failed: true }]);
   assert.deepEqual(record.commands, ['sleep 2; npm test'], 'its output is the same command, not a second one');
   const stillRunning = { ...payload('PostToolUse.get_command_or_subagent_output') };
   stillRunning.toolResult = { ...stillRunning.toolResult, Result: { ...stillRunning.toolResult.Result, status: 'running', exit_code: null } };
@@ -102,7 +104,8 @@ test('a result past 128 KiB arrives as the model-facing text, whose exit line st
   const truncated = grok.evidence.toolNote({ ...base, toolResult: 'exit: 2\nlots of output', toolResultTruncated: true });
   assert.deepEqual(truncated, { kind: 'shell', command: 'sh check.sh', exit: 2, output: 'lots of output', callId: 'call_3' });
   assert.deepEqual(grok.evidence.toolNote({ ...base, isBackgrounded: true }), { kind: 'shell', command: 'sh check.sh', running: true, callId: 'call_3' });
-  assert.equal(grok.evidence.toolNote({ ...base, toolResult: { ...base.toolResult, exit_code: null, timed_out: true } }).exit, 1, 'a timeout failed');
+  const timedOut = grok.evidence.toolNote({ ...base, toolResult: { ...base.toolResult, exit_code: null, timed_out: true } });
+  assert.deepEqual([timedOut.exit, timedOut.failed], [null, true], 'a timeout failed, with no exit code made up');
 });
 
 test('an applied edit or write is an edit; an edit grok could not make is not, and other tools leave no note', () => {

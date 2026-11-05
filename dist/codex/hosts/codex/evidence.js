@@ -15,7 +15,6 @@ const OUTPUT_MARKER = /^Output:$/m;
 const EXIT_HEADER = /^(?:Exit code: |Process exited with code )(-?\d+)$/m;
 const STILL_RUNNING = /^Process running with session ID \d+$/m;
 const TIMED_OUT = /^command timed out after \d+ milliseconds\n/;
-const FAILED_WITHOUT_CODE = 1;
 
 const text = (value) => (typeof value === 'string' ? value : '');
 
@@ -46,8 +45,9 @@ function headerOf(output) {
 
 /**
  * A Bash result as PostToolUse hands it over. Codex gives the bare output, without the exit code the model sees, so
- * a check is judged by its output; an `Exit code:` or `Process exited with code` header, where one comes along,
- * decides, and a timed-out run failed. A run still going at its wait limit has no verdict until its completion.
+ * a check needs explicit passing or failing evidence in its output; ordinary stdout leaves it unknown. An
+ * `Exit code:` or `Process exited with code` header, where one comes along, decides, and a timed-out run failed.
+ * A run still going at its wait limit has no verdict until its completion.
  */
 function shellNoteOf(command, output, callId) {
   const ids = callId ? { callId } : {};
@@ -55,7 +55,7 @@ function shellNoteOf(command, output, callId) {
   if (STILL_RUNNING.test(header)) return { kind: 'shell', command, running: true, ...ids };
   const exit = EXIT_HEADER.exec(header);
   if (exit) return { kind: 'shell', command, exit: Number(exit[1]), output: output.slice(OUTPUT_MARKER.exec(output).index), ...ids };
-  return { kind: 'shell', command, exit: TIMED_OUT.test(output) ? FAILED_WITHOUT_CODE : null, output, ...ids };
+  return { kind: 'shell', command, exit: null, ...(TIMED_OUT.test(output) && { failed: true }), output, ...ids };
 }
 
 // A command that both applies a patch and runs a check is kept as the check: its verdict outweighs the edit.

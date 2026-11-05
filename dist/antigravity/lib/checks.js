@@ -18,13 +18,31 @@ export function checkIdentityOf(command) {
   return String(command).replace(OUTPUT_PIPE, '').replace(STREAM_REDIRECT, '').replace(/\s+/g, ' ').trim();
 }
 
+export function verdictOf(check) {
+  if (check?.failed === true) return 'failed';
+  if (check?.failed === false) return 'passed';
+  return 'unknown';
+}
+
+/**
+ * How a check ended, as a distill trace row says it: the host's own `exit` code, else `ok`, whether its output said it
+ * passed, which no exit code is made up for; null when neither is known.
+ */
+export function checkOutcomeOf(check) {
+  if (Number.isInteger(check?.exit)) return { exit: check.exit };
+  const verdict = verdictOf(check);
+  return verdict === 'unknown' ? null : { ok: verdict === 'passed' };
+}
+
 function failedEarlierThenPassed(checks, last) {
   const identity = checkIdentityOf(last.command);
-  return !last.failed && checks.slice(0, -1).some(({ command, failed }) => failed && checkIdentityOf(command) === identity);
+  return checks.slice(0, -1).some((check) => verdictOf(check) === 'failed' && checkIdentityOf(check.command) === identity);
 }
 
 export function checkEvidenceOf(checks) {
   const last = checks?.at(-1);
-  if (!last) return undefined;
-  return { kind: checkKindOf(last.command), passed: !last.failed, fail_then_pass: failedEarlierThenPassed(checks, last) };
+  const verdict = verdictOf(last);
+  if (verdict === 'unknown') return undefined;
+  const passed = verdict === 'passed';
+  return { kind: checkKindOf(last.command), passed, fail_then_pass: passed && failedEarlierThenPassed(checks, last) };
 }

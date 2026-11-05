@@ -1,7 +1,7 @@
 {
   "name": "evolver-plugin",
   "displayName": "Evolver — Self-Evolving Agent Memory",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Evolver for Claude Code, from a hooks module with no tools: recalls one EvoMap strategy per prompt, reports each reuse with the evidence the turn produced, and distills verified work into drafts you publish or discard. Nothing but the recalled steps enters the model's context.",
   "author": {
     "name": "EvoMap",
@@ -33,7 +33,7 @@
     "auto_distill": {
       "type": "boolean",
       "title": "Distill verified work",
-      "description": "Distill the session's last verified turn into a draft after the session ends, with one completion on your plan. /evolver-distill works either way.",
+      "description": "Distill the session's last verified turn into a draft once the session has been quiet for 30 minutes or ends, with one completion on your plan. /evolver-distill works either way.",
       "default": true
     },
     "node_path": {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { withoutDraft } from '../../distill.js';
 import { engineNoticeOf } from '../../engine/notice.js';
 import { SIGN_IN, signInOf } from '../../hub-login.js';
 import { MIN_EVOLVER_VERSION } from '../../engine/version.js';
@@ -38,7 +37,7 @@ export default {
   description: 'Evolver health: the Proxy, engine setup, Hub sign-in, distillation candidate and drafts.',
   async run({ identity, proxy, engine, candidates, drafts, signIn, clock }, { sessionId, anySession }) {
     const answered = await proxy.request('GET', '/proxy/status', undefined, { timeoutMs: 3_000 });
-    const waiting = withoutDraft(await drafts.read(), null, clock.now()).length;
+    const waiting = (await drafts.read()).length;
     return success([
       answered.ok ? proxyStatusText(answered.data) : answered.error,
       engineLine(await engine.outcome(), identity.label),

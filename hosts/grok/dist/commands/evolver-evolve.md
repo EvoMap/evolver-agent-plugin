@@ -14,8 +14,8 @@ Take a deliberate evolution step for the current task.
 2. **Reflect.** Given the current diff and task state, say in one or two lines: what worked, what didn't, and
    what the durable lesson is.
 
-Reuse of an injected strategy is reported at every turn end, and the session's verified work is distilled when
-the session ends; `/evolver-distill` distills it now. Keep this lightweight — it is an explicit checkpoint, not a
+Reuse of an injected strategy is reported at every turn end, and the session's verified work is distilled once
+the session goes quiet or ends; `/evolver-distill` distills it now. Keep this lightweight — it is an explicit checkpoint, not a
 ceremony on every turn.
 
 Focus, if one is given: $ARGUMENTS

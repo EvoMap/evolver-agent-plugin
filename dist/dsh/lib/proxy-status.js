@@ -19,11 +19,28 @@ export function registrationText(data) {
   return [...parts, ...(data?.last_sync_error ? [`last Hub sync failed: ${data.last_sync_error}`] : [])].join(', ');
 }
 
+function verifierText({ publish_verifier: verifier, publish_verifier_reason: reason }) {
+  return `verifier ${verifier ?? 'not reported'}${reason ? ` (${reason})` : ''}`;
+}
+
+function lastAttemptText(attempt) {
+  if (!attempt) return 'no attempt yet';
+  return `last attempt ${attempt.result} for ${attempt.gene_asset_id}${attempt.at ? ` at ${attempt.at}` : ''}`;
+}
+
+/** The Proxy's background verification and publishing of distilled Genes; null from a Proxy that does not report it. */
+function curationLineOf(curation) {
+  if (!curation || typeof curation !== 'object') return null;
+  const counts = `${Number(curation.awaiting_verification ?? 0)} awaiting verification, ${Number(curation.published ?? 0)} published`;
+  return `Background publishing: ${verifierText(curation)}; ${counts}; ${lastAttemptText(curation.last_attempt)}.`;
+}
+
 export function proxyStatusText(data) {
   if (!data || data.running !== true) return 'Evolver Proxy answered but does not report itself running.';
   return [
     `Evolver Proxy running (${data.hub_mode ?? 'public'} hub, node ${data.node_id ?? 'unclaimed'}).`,
     `Pending: ${Number(data.outbound_pending ?? 0)} outbound, ${Number(data.inbound_pending ?? 0)} inbound; ${lastSyncOf(data)}.`,
     ...(data.hub_auth_status ? [`Hub auth: ${data.hub_auth_status}.`] : []),
+    ...[curationLineOf(data.background_curation)].filter(Boolean),
   ].join('\n');
 }

@@ -3,7 +3,7 @@
 Evolver for DeepSeek Harness (dsh), powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): before each prompt it recalls one proven strategy, reports at the turn's end how the
 turn that used it went (with the checks it ran as evidence), and distills the session's verified work into a draft
-Gene after the session ends, through the session's own model.
+Gene once the session has been quiet for 30 minutes or ends, through the session's own model.
 
 The plugin runs inside dsh's process, on its plugin events. It registers **no tools and no skill**, so nothing of
 Evolver enters the model's context but the recalled steps, which end with `Apply them where they fit.` dsh shows it
