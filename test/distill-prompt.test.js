@@ -51,3 +51,31 @@ test('the Proxy body preserves a clean stored snapshot, including an empty diff'
     assert.deepEqual(body.project, project);
   }
 });
+
+for (const [name, content] of [
+  ['object', '{"token":{"value":"opaqueFixtureObject"}}'],
+  ['array', '{"refreshToken":["opaqueFixtureArray"]}'],
+  ['nested multiline value', JSON.stringify({ token: { values: [
+    { value: 'opaqueFixtureNested', closing: '} ]', quoted: 'escaped "quote" and { [' },
+    ['ordinary', { closing: '] }' }],
+  ] } }, null, 2)],
+]) {
+  test(`the Proxy body rechecks an old snapshot containing a credential ${name}`, () => {
+    const diff = 'diff --git a/settings.json b/settings.json\n' + content.split('\n').map(line => '+' + line).join('\n') + '\n';
+    const project = { root: '/project', head: 'abc123', diff };
+    const candidate = { checks: [], project };
+    const body = distillBody({ platform: 'codex', sessionId: 's1', candidate, args: {} });
+    assert.deepEqual(body.project, { diff_omitted: 'secret' });
+    assert.doesNotMatch(JSON.stringify(body), /opaqueFixture/);
+    assert.equal(candidate.project.diff, diff, 'checking an old snapshot preserves the saved input');
+  });
+}
+
+test('the Proxy body preserves business keys with scalar, object and array values in old snapshots', () => {
+  for (const primaryKey of ['orders.id', { columns: ['orders.id'], closing: '} ]' }, ['orders.id', { column: 'tenant.id' }]]) {
+    const diff = 'diff --git a/settings.json b/settings.json\n+' + JSON.stringify({ primaryKey }) + '\n';
+    const project = { root: '/project', head: 'abc123', diff };
+    const body = distillBody({ platform: 'codex', sessionId: 's1', candidate: { checks: [], project }, args: {} });
+    assert.deepEqual(body.project, project);
+  }
+});

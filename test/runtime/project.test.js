@@ -71,6 +71,39 @@ test('a work tree whose diff holds a secret, or touches a file keys are kept in,
   assert.match(diff, /\+\{"primaryKey":"orders.id","maxTokens":"4096","monkey":"example"\}/);
 });
 
+test('fresh snapshots omit credential objects and arrays, including multiline values with quoted braces', async (t) => {
+  const dir = repo(t);
+  for (const content of [
+    '{"token":{"value":"opaqueFixtureObject"}}',
+    '{"refreshToken":["opaqueFixtureArray"]}',
+    JSON.stringify({ token: { values: [
+      { value: 'opaqueFixtureNested', closing: '} ]', quoted: 'escaped "quote" and { [' },
+      ['ordinary', { closing: '] }' }],
+    ] } }, null, 2),
+  ]) {
+    const text = content + '\n';
+    writeFileSync(join(dir, 'settings.json'), text);
+    const statusBefore = git(dir, 'status', '--porcelain');
+    const snapshot = await projectSnapshotOf().snapshot(dir);
+    assert.deepEqual(snapshot, { diff_omitted: 'secret' });
+    assert.doesNotMatch(JSON.stringify(snapshot), /opaqueFixture/);
+    assert.equal(git(dir, 'status', '--porcelain'), statusBefore, 'omitting the snapshot leaves the index unchanged');
+    assert.equal(readFileSync(join(dir, 'settings.json'), 'utf8'), text, 'the work tree keeps its original contents');
+  }
+});
+
+test('fresh snapshots preserve primaryKey scalar, object and array values', async (t) => {
+  const dir = repo(t);
+  for (const primaryKey of ['orders.id', { columns: ['orders.id'], closing: '} ]' }, ['orders.id', { column: 'tenant.id' }]]) {
+    const content = JSON.stringify({ primaryKey });
+    writeFileSync(join(dir, 'settings.json'), content + '\n');
+    const snapshot = await projectSnapshotOf().snapshot(dir);
+    assert.equal(snapshot.root, git(dir, 'rev-parse', '--show-toplevel').trim());
+    assert.equal(snapshot.head, git(dir, 'rev-parse', 'HEAD').trim());
+    assert.ok(snapshot.diff.includes('+' + content), 'business values remain in the replayable diff');
+  }
+});
+
 test('a diff a replay cannot rebuild is left out: text that is not UTF-8, or a change inside a submodule', async (t) => {
   const replacement = repo(t);
   writeFileSync(join(replacement, 'a.js'), 'export const mark = "\uFFFD";\n');
