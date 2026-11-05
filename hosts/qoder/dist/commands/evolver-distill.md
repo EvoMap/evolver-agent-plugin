@@ -1,5 +1,5 @@
 ---
-description: "Distill this session's latest verified turn into a draft Gene now, instead of at session end."
+description: "Distill this session's latest verified turn into a draft Gene now, instead of once the session goes quiet or ends."
 argument-hint: "[focus]"
 ---
 

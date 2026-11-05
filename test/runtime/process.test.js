@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { profileNamed } from '../../lib/agent/registry.js';
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
+import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
-import { ownerProbeOf } from '../../lib/runtime/process/owner.js';
+import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
+import { readState, writeState } from '../../lib/runtime/store/file-lock.js';
+import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
 const node = process.execPath;
 
@@ -26,6 +33,44 @@ test('a cancelled run is ended and reported cancelled', async () => {
   setTimeout(() => controller.abort(), 100);
   const result = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { signal: controller.signal });
   assert.equal(result.error.code, 'ABORT_ERR');
+});
+
+test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
+  const profile = await profileNamed('codex');
+  const { scheduler } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: async () => true }).ports;
+  const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
+  await stores.candidates.update(() => ({ leftover: { closed: true, at: 1 } }));
+  const waiter = () => readState(stores.distillWaiter, null);
+  const started = [];
+  t.after(() => {
+    for (const pid of [...started, waiter()?.pid]) if (pid && !ownerIsGone(pid)) process.kill(pid);
+    rmSync(home, { recursive: true, force: true });
+  });
+  const until = async (check, what) => {
+    for (const deadline = Date.now() + 10_000; !check(); await new Promise((resolve) => setTimeout(resolve, 20))) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    }
+  };
+  const inAnHour = Date.now() + 60 * 60_000;
+  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { stdio: 'ignore' });
+  started.push(stranger.pid);
+  writeState(stores.distillWaiter, { pid: stranger.pid, startedAt: Date.now() - 10 * 60_000, at: inAnHour });
+  scheduler.wakeAt(inAnHour, ['distill']);
+  const sleeping = waiter();
+  started.push(sleeping.pid);
+  assert.notEqual(sleeping.pid, stranger.pid, 'a dead waiter whose pid another process took arms nothing');
+  assert.equal(sleeping.at, inAnHour);
+  scheduler.wakeAt(inAnHour + 1, ['distill']);
+  assert.deepEqual(waiter(), sleeping, 'a later wake-up is already armed');
+  scheduler.wakeAt(Date.now(), ['distill']);
+  const waking = waiter();
+  started.push(waking.pid);
+  assert.notEqual(waking.pid, sleeping.pid, 'an earlier wake-up starts its own waiter');
+  await until(() => ownerIsGone(waking.pid), 'the woken waiter to run and exit');
+  assert.deepEqual([waiter(), await stores.candidates.read()], [null, {}], 'its record is gone, and its distill task dropped the expired leftover');
+  assert.equal(ownerIsGone(sleeping.pid), false, 'the later waiter sleeps on');
 });
 
 test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
