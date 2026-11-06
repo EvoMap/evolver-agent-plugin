@@ -25,7 +25,12 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   const candidate = (await stores.candidates.read()).ses_d;
 
   await deleted(oc, 'ses_d');
-  await until(() => distills(proxy).length === 1, 'the distillation');
+  try { await until(() => distills(proxy).length === 1, 'the distillation'); }
+  catch (error) {
+    const pending = (await stores.candidates.read()).ses_d;
+    t.diagnostic(JSON.stringify({ calls: client.calls.map(call => call.name), requests: proxy.requests.map(request => request.path), closed: pending?.closed, attempts: pending?.attempts, claimed: Boolean(pending?.claimedBy) }));
+    throw error;
+  }
   await until(async () => (await stores.candidates.read()).ses_d === undefined, 'the candidate to settle');
 
   const [create] = callsNamed(client, 'create');
