@@ -2,7 +2,7 @@
 // Copyright (c) 2026 EvoMap
 
 import { CHECK_COMMAND_MAX_CHARS } from '../../lib/turn/record.js';
-import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
+import { isVerificationCommand, verificationExitOf, verificationFailureOf } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
 // JSON record per line, `function_call` / `function_call_result` pairs joined by `callId`, messages with a `role`.
@@ -88,14 +88,11 @@ const exitCodeOf = (result) => {
   return exit ? Number(exit[1]) : null;
 };
 
-function shellFailed(result) {
-  if (result.status !== 'completed') return true;
-  return verificationFailureOf({ exit: exitCodeOf(result), text: shellOutputOf(result.text) });
-}
-
 function checkOf(call) {
-  const failed = shellFailed(call.result);
-  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: exitCodeOf(call.result), failed };
+  const command = call.args.command;
+  const exit = verificationExitOf(command, exitCodeOf(call.result));
+  const failed = call.result.status !== 'completed' || verificationFailureOf({ exit, text: shellOutputOf(call.result.text) });
+  return { command: command.slice(0, CHECK_COMMAND_MAX_CHARS), exit, failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
