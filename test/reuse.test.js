@@ -139,7 +139,7 @@ test('a Proxy that answers without recording does not count as delivered', async
 test('evidence-bearing reports are recorded locally once; tier none and a trial control never are, and a control goes to its own route', async () => {
   const sinks = ledgers({ hub: new Error('down') });
   const verified = immediate({ checks: [{ command: 'npm test', failed: true }] });
-  const control = { report: { asset_id: 'sha256:a', task_id: 'claude-code:s1:3', passed: true, platform: 'claude-code' }, sessionId: 'claude-code:s1', path: '/asset/trial-control' };
+  const control = { report: { asset_id: 'sha256:a', withheld_id: 'wh-1', task_id: 'claude-code:s1:3', passed: true, platform: 'claude-code' }, sessionId: 'claude-code:s1', path: '/asset/trial-control' };
   const outbox = withQueued({}, [{ report: verified, sessionId: 'claude-code:s1' }, { report: immediate({ turn: 5 }), sessionId: 'claude-code:s1' }, control], NOW);
   await deliverPending(sinks, await deliverPending(sinks, outbox, NOW), NOW);
   assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1' }]);
@@ -274,10 +274,12 @@ test('exhausting local attempts does not stop Hub delivery retries', async () =>
   assert.equal(Object.values(sent)[0].sentAt, NOW + 4);
 });
 
-test('a report the Hub already holds counts as delivered and is not retried', async () => {
-  const sinks = ledgers({ hub: { ok: true, data: { recorded: false, reason: 'duplicate_report' } } });
-  const outbox = await deliverPending(sinks, withQueued({}, [{ report: immediate(), sessionId: 'claude-code:s1' }], NOW), NOW);
-  assert.equal(Object.values(outbox)[0].sentAt, NOW);
+test('a report the Hub already holds, or a trial control the Proxy already took, counts as delivered and is not retried', async () => {
+  for (const reason of ['duplicate_report', 'duplicate']) {
+    const sinks = ledgers({ hub: { ok: true, data: { recorded: false, reason } } });
+    const outbox = await deliverPending(sinks, withQueued({}, [{ report: immediate(), sessionId: 'claude-code:s1' }], NOW), NOW);
+    assert.equal(Object.values(outbox)[0].sentAt, NOW, reason);
+  }
 });
 
 for (const reason of ['daily_cap', 'same_owner', 'no_delivery_proof']) {
@@ -297,6 +299,7 @@ for (const data of [
   { recorded: false, terminal: true, reason: 'evidence.tier: Invalid input', status: 400 },
   { recorded: false, reason: 'hub 400' },
   { recorded: false, reason: 'hub 422: unprocessable' },
+  { recorded: false, reason: 'not_withheld' },
 ]) {
   test(`a report the Hub refuses (${data.reason}) is settled, logged and never written locally`, async () => {
     const sinks = ledgers({ hub: { ok: true, data } });

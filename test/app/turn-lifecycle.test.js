@@ -129,17 +129,20 @@ test('a range that comes due while another is distilled is woken for shortly aft
   assert.deepEqual(wakeUps.at(-1), { at: ports.clock.now() + MIN_WAKE_DELAY_MS, tasks: ['distill'] });
 });
 
-test('a trial Gene the Proxy withheld from a turn is reported as its control at the turn\'s end, once the turn ran a check', async () => {
+test('a trial Gene the Proxy withheld from a turn is reported as its control under the withholding\'s id, once the turn ran a check', async () => {
   const { ports, queued } = memoryPorts({ assets: [] });
   const answered = ports.proxy.request;
-  const withholding = { ok: true, data: { assets: [], trial_withheld: { asset_id: 'sha256:trial' } } };
-  ports.proxy.request = async (method, path, body) => (path === '/asset/fetch' && !body?.asset_ids ? withholding : answered(method, path, body));
+  let withheld = { asset_id: 'sha256:trial', withheld_id: 'wh-1' };
+  ports.proxy.request = async (method, path, body) => (path === '/asset/fetch' && !body?.asset_ids ? { ok: true, data: { assets: [], trial_withheld: withheld } } : answered(method, path, body));
   await verifiedTurn(ports, 's1');
   await end(ports, 's1');
   await promptSubmitted(ports, { sessionId: 's1', prompt: 'and explain why the retries were flaky', ...WAIT });
   await end(ports, 's1');
+  withheld = { asset_id: 'sha256:trial' };
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1');
   assert.deepEqual(queued.filter(({ path }) => path), [
-    { report: { asset_id: 'sha256:trial', task_id: 'testagent:s1:1', passed: true, platform: 'testagent' }, sessionId: 's1', path: '/asset/trial-control' },
+    { report: { asset_id: 'sha256:trial', withheld_id: 'wh-1', task_id: 'testagent:s1:1', passed: true, platform: 'testagent' }, sessionId: 's1', path: '/asset/trial-control' },
   ]);
 });
 
