@@ -171,6 +171,18 @@ test('a passing summary with cancelled tests does not verify a completed run', (
   }
 });
 
+test('redirect operands are data, while the executable can follow a redirect', () => {
+  for (const command of ['echo >&npm test', 'echo >|npm test', 'echo &>npm test', 'echo > npm test',
+    'echo >& npm test', 'npm2>test.log test', 'npm 2&>test.log test', "bash -c 'echo >&npm test'"]) {
+    assert.equal(isVerificationCommand(command), false, command);
+  }
+  for (const command of ['>test.log npm test', '2>&1 npm test', '> "check output.log" npm test',
+    'npm test 2>&1', 'npm >test.log test', 'cd app&&>test.log npm test', 'echo >&npm test | npm run lint',
+    "env CI=1 bash -c '2>&1 npm test'"]) {
+    assert.equal(isVerificationCommand(command), true, command);
+  }
+});
+
 test('a heredoc body that names a check is data, not a check; the command lines still count', () => {
   const editsReadme = "python3 - <<'EOF'\ntext = 'run npm test, then make'\nprint(text)\nEOF";
   assert.equal(isVerificationCommand(editsReadme), false);
