@@ -68,7 +68,7 @@ function underInstallLock(plugins, work) {
   return result;
 }
 
-// Before activation, both packages are still in staging. After activation, "package" has been moved away.
+// A rollback can remove the new target before restoring the backup, leaving only "previous" in staging.
 function recoverPackage(root, target) {
   let interrupted;
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -76,9 +76,9 @@ function recoverPackage(root, target) {
     const stage = join(root, entry.name);
     ordinaryDirectory(stage);
     const backup = join(stage, 'previous'), prepared = join(stage, 'package');
-    if (!fs.existsSync(backup) || !fs.existsSync(prepared)) continue;
     const previous = packageOf(backup);
-    if (!previous || !packageOf(prepared)) continue;
+    if (!previous) continue;
+    packageOf(prepared);
     if (interrupted) throw new Error('Multiple interrupted Kimi updates found. Restore the intended backup before retrying.');
     interrupted = { stage, backup, prepared, previous };
   }

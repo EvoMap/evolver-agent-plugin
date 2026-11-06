@@ -169,6 +169,27 @@ test('a failed rollback retains the old package for explicit recovery', t => {
   assert.equal(JSON.parse(readFileSync(join(home, 'plugins', 'installed.json'), 'utf8')).plugins[0].root, installed.path);
 });
 
+test('the next installer run restores a backup left by a failed rollback', t => {
+  const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
+  const registry = join(home, 'plugins', 'installed.json'), before = readFileSync(registry, 'utf8');
+  writeFileSync(join(installed.path, 'keep-on-failure'), 'previous package');
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === registry || (String(from).endsWith(`${sep}previous`) && to === installed.path)) throw new Error('fixture registry or rollback failure');
+    return rename(from, to);
+  });
+  assert.throws(() => installKimi({ home, operation: 'update', version: '2.0.0' }), /previous package is retained at/);
+  t.mock.restoreAll();
+  assert.equal(existsSync(installed.path), false);
+  const stage = readdirSync(home).find(name => name.startsWith('.evolver-install-'));
+  assert.deepEqual(readdirSync(join(home, stage)), ['previous']);
+
+  assert.equal(installKimi({ home, operation: 'status' }).version, '1.2.3');
+  assert.equal(readFileSync(join(installed.path, 'keep-on-failure'), 'utf8'), 'previous package');
+  assert.equal(readFileSync(registry, 'utf8'), before);
+  assert.equal(existsSync(join(home, stage)), false);
+});
+
 test('a later installer run recovers an update interrupted after the backup rename', t => {
   const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
   const registry = join(home, 'plugins', 'installed.json');
