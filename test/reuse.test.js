@@ -163,6 +163,20 @@ test('a sent report retries a pre-write local failure without posting to the Hub
   assert.equal(up.posts.length, 0);
 });
 
+test('a new report reaches the Hub before an earlier report retries its local record', async () => {
+  const checks = [{ command: 'npm test', failed: false }];
+  const earlier = await deliverPending(ledgers({ local: false }), withQueued({}, [{ report: immediate({ checks }), sessionId: 'claude-code:s1' }], NOW), NOW);
+  const queued = withQueued(earlier, [{ report: immediate({ checks, sessionId: 'claude-code:s2' }), sessionId: 'claude-code:s2' }], NOW + 1);
+  const order = [];
+  const sinks = ledgers();
+  await deliverPending({
+    ...sinks,
+    proxyFetch: (...request) => { order.push('hub'); return sinks.proxyFetch(...request); },
+    recordLocally: (request) => { order.push(request.sessionId); return sinks.recordLocally(request); },
+  }, queued, NOW + 1);
+  assert.deepEqual(order, ['hub', 'claude-code:s2', 'claude-code:s1']);
+});
+
 function useTemporaryLedger(t) {
   const home = mkdtempSync(join(tmpdir(), 'evolver-ledger-retry-'));
   const previous = process.env.EVOLVER_HOME;
