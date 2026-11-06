@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { distillText } from '../../lib/app/commands/distill.js';
 import { runCommand } from '../../lib/app/commands/index.js';
-import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers, postAgentGene } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers, postAgentGene, scheduleDueDistillation } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
@@ -67,6 +67,55 @@ test('an unavailable captured route releases the claim and preserves the candida
   available = true;
   assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
   assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a blocked route stays parked when another session wakes the distillation worker', async () => {
+  let available = false;
+  let calls = 0;
+  const { ports, requests, scheduled } = await withCandidate({ model: {
+    capture: () => 'model-x',
+    async complete() {
+      calls++;
+      if (!available) throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+      return { answer: JSON.stringify(GENE) };
+    },
+  } });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
+
+  scheduled.length = 0;
+  await scheduleDueDistillation(ports);
+  const scheduledWhileBlocked = [...scheduled];
+  available = true;
+  await verifiedTurn(ports, 's2');
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  await distillDue(ports);
+
+  assert.equal(calls, 2, 'the worker should only run the newly due session');
+  assert.deepEqual(scheduledWhileBlocked, []);
+  assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.session_id), ['testagent:s2']);
+  assert.deepEqual((await ports.candidates.read()).s1.blocked, { reason: 'route_changed' });
+});
+
+test('a candidate without a captured route requires a new verified turn and never uses current credentials', async () => {
+  const { ports, requests } = await withCandidate({ model: {
+    capture: () => assert.fail('the current route cannot stand in for the original route'),
+    complete: () => assert.fail('a turn without a captured route cannot call a model'),
+  } });
+  await ports.candidates.update(pending => ({ ...pending, s1: { ...pending.s1, model: null } }));
+
+  const outcome = await distillSession(ports, { sessionId: 's1' });
+
+  assert.deepEqual(outcome, { status: 'route_not_captured' });
+  assert.match(distillText(outcome).text, /finish a new verified turn/i);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+
+  await verifiedTurn(ports, 's2');
+  await ports.candidates.update(pending => ({ ...pending, s2: { ...pending.s2, model: null, blocked: { reason: 'route_unresolved' } } }));
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'route_not_captured' }], 'a previously blocked unbound candidate can settle');
+  assert.equal((await ports.candidates.read()).s2, undefined);
+  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
 });
 
 test('a session-end distillation the Proxy answers as a draft is kept as a draft and settles the candidate', async () => {
