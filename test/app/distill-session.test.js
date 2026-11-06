@@ -256,16 +256,17 @@ test('a correction of a turn being distilled discards the answer, and the range 
   }
 });
 
-test('a Gene the Proxy stored stands when a correction lands while it answers, and the corrected turn waits for the next distillation', async () => {
+test('a Gene the Proxy stored stands when a correction lands while it answers, no later IR is sent, and the corrected turn waits for the next distillation', async () => {
   const stored = { status: 'stored', gene: DRAFTED.gene };
-  const { ports, requests } = await fixedSession({ model: modelAnswering(IR), distillAnswer: stored });
+  const { ports, requests } = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A second method' }]), distillAnswer: stored });
   const paused = pausedAtProxy(ports);
   const running = runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
   await paused.started;
   await correct(ports);
   paused.finish();
   const answer = await running;
-  assert.deepEqual([answer.ok, answer.text], [true, `Stored "${IR.title}".`]);
+  assert.deepEqual([answer.ok, answer.text],
+    [true, `Stored "${IR.title}".\n"A second method" was discarded: the session's work changed while it was distilled.`]);
   assert.equal(distills(requests).length, 1);
   assert.deepEqual(await ports.drafts.read(), []);
   assert.deepEqual(await correctionsOf(ports), ['still failing']);
