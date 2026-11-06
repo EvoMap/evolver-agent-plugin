@@ -94,3 +94,34 @@ test('the saved candidate, model prompt and Proxy body exclude JSON credentials'
     }
   }
 });
+
+test('redaction stays linear on long adversarial input', () => {
+  const size = 64 * 1024;
+  const fill = (head, unit) => head + unit.repeat(Math.ceil(size / unit.length));
+  for (const text of [
+    fill('', 'a-'),
+    fill('_', '1-'),
+    fill('.', 'a.'),
+    fill('=', '-eyJ'),
+    fill('', ' \n'),
+    fill('api_key', ' '),
+    fill('A_KEY', ' '),
+    fill(' -u', ' '),
+    fill(' --password', ' '),
+  ]) {
+    const started = performance.now();
+    withoutSecrets(text);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 100, `${JSON.stringify(text.slice(0, 12))}… took ${elapsed.toFixed(0)} ms`);
+  }
+});
+
+test('a credential inside a long run is redacted from where the run begins', () => {
+  assert.equal(withoutSecrets('--api_key=fixtureSecret123'), '--[redacted]');
+  assert.equal(withoutSecrets('__a-api_key=fixtureSecret123'), '__a-[redacted]');
+  assert.equal(withoutSecrets('x-y.z-https://user:fixturePass@host'), '[redacted]host');
+  assert.equal(withoutSecrets('1.https://user:fixturePass@host'), '1.[redacted]host');
+  assert.equal(withoutSecrets('a-eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl'), 'a-[redacted]');
+  assert.equal(withoutSecrets('curl -u   user:fixturePass'), 'curl -u   [redacted]');
+  assert.equal(withoutSecrets('cli --password   fixturePass'), 'cli --password   [redacted]');
+});
