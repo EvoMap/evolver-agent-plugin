@@ -23,13 +23,20 @@ them is in `hosts/README.md`):
 
 ## Configuration
 
-Every host honours these environment variables:
+Hosts whose native environment preserves them honour these environment variables. MiniMax strips inherited
+Evolver flags from hooks; its persistent preferences are described below.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOME` / `USERPROFILE` | (unset) | User directory for Proxy settings and plugin state. A non-empty `HOME` wins. |
 | `EVOMAP_PROXY_PORT` | `19820` | Fallback Proxy port when `~/.evolver/settings.json` names no URL. |
 | `EVOLVER_RECALL` | (on) | `off` turns recall off. |
+| `EVOLVER_AUTO_DISTILL` | (on) | `off` leaves distillation to an explicit command. |
+
+MiniMax stores boolean `recall` and `autoDistill` preferences in `<PLUGIN_DATA>/minimax-settings.json`.
+`evolver-config recall off` and `evolver-config auto-distill off` update them without opening a model turn.
+Status reports the effective values and any invalid preferences; invalid/unreadable files pause both automatic
+activities instead of silently enabling them. Explicit environment values win where the host preserves them.
 
 Claude Code's options, editable from the `/config` menu, set the same things for its relay process:
 
@@ -42,7 +49,7 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 
 ## Troubleshooting
 
-State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
+State lives in `~/.evolver/state/` (WorkBuddy and MiniMax: their plugin data folders), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
 
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
   Proxy relays as HTTP 400. The Hub judges each recalled asset's fit to the session's task and returns only those
@@ -130,7 +137,11 @@ The plugin never configures the verifier or manufactures receipts; the Proxy val
 A correction while the model answers stops the post; a failed candidate is tried
 again in the background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and one no model here can take waits a day for an
 agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
-inside it. An agent with no model outside the conversation writes the Gene itself when asked.
+inside it. MiniMax strips that variable, so a private marker in the runtime's empty scratch folder suppresses
+re-entry too. Its candidate captures provider/model/variant from a read-only projection of native v2 session
+metadata and checks the hook's model name; an unknown schema or mismatch never selects another provider.
+The prepared CLI configuration is private to the run and removed after completion, error or cancellation.
+An agent with no model outside the conversation writes the Gene itself when asked.
 
 **MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <host>`, an stdio server with seven
 tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
@@ -288,7 +299,7 @@ layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked,
 records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
 using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer
 hint. A detached native monitor catches terminal writes after the last hook; recovery reads those records before
-orphan abort reporting. Turn number and owner guards prevent a late observer from closing a newer pending turn.
+orphan abort reporting. Turn number, session epoch and owner guards keep a late observer with its original turn.
 Background checks remain unknown until matching native task metadata settles them. Other hosts retain their
 existing transcript/tool-result adapters; Kimi subagents and concurrent prompts are outside this v1 contract.
 
@@ -303,16 +314,20 @@ only its stdio handles inherited. The helper terminates remaining job members an
 after native exit or stop. It reports proof separately from native output. Scratch with no proof is kept;
 the job does not contain processes created by an external broker outside the descendant tree.
 
-An unavailable/changed route is a typed preflight block, preserving the candidate without spending a model
-attempt or expiring it as an abandoned draft. Ordinary model/protocol failures keep the existing retry policy.
+When a captured route is unavailable or has changed, preflight preserves the candidate for seven days from the
+first block. The person can retry after restoring the original binding. A repeat block keeps the original
+deadline. A verified turn with a missing or unmatched binding is cleared on the first distill without
+calling the model or Proxy. A new verified turn can capture its own binding. Ordinary model and protocol failures
+keep the existing retry policy.
 The `kimi.com` managed route reads the current access token and device identity from the exact native profile.
 It binds both to the snapshot, preserves the native provider family separately from its transport, and passes
 only the access token in the private child's environment. It does not manage login or refresh.
 Draft publication still uses the shared explicit command and Proxy contract. Other regions, clients and native
 acceptance on each target OS are separate gates, not inferred from fixture tests.
 
-Packing vendors only the pinned `smol-toml` ESM closure and its BSD license, rewriting that runtime import to a
-relative path. Installed bundles need no npm install for TOML; source packing and release CI run `npm ci` first.
+The Kimi pack manifest opts in to the pinned `smol-toml` ESM closure and its BSD license. The packer rewrites
+Kimi's parser import to a relative path, so installed Kimi bundles load without npm. Source and release packing
+install the pinned dependency first.
 
 ## Claude Code engine behaviour found while testing
 
@@ -338,6 +353,7 @@ relative path. Installed bundles need no npm install for TOML; source packing an
 npm ci
 npm test
 npm run test:kimi
+npm run test:minimax
 npx -p typescript tsc -p .
 npm run validate
 ```
@@ -348,10 +364,12 @@ update. `npm run validate` packs `dist/claude-code` and runs `claude plugin vali
 version: bump `version` in a host's manifest with every change meant to reach its users, or the host reports the old
 version as the latest.
 
-Release CI runs the full suite on Linux and separate Kimi packed-hook and shared runtime tests on Windows,
-each on Node 22 and 26. All three jobs must pass before publication. Host tests use disposable profiles and local
-service fixtures; they require no developer account, Hub token or globally installed native CLI. Windows suites
-run up to four test files at once; their multi-process contention tests retain their own parallel workers.
+PR CI runs the Kimi packed-hook and shared runtime tests on Windows with Node 22 and 26. The suite uses disposable
+profiles and local service fixtures. It requires no developer account, Hub token or globally installed Kimi CLI.
+Release CI runs the full suite on Linux and the MiniMax/packed-hook/shared-runtime suite on Windows, each
+on Node 22 and 26. Both jobs must pass before publication. MiniMax tests use disposable native profiles and
+local service fixtures; they do not require a developer's MiniMax account, Hub token or globally installed CLI.
+The MiniMax suite runs up to four test files at once; its multi-process contention tests retain their own parallel workers.
 
 ## Open questions
 

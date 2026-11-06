@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { after, before, test } from 'node:test';
 
@@ -19,12 +22,12 @@ let proxy;
 before(async () => { proxy = await fakeProxy(); });
 after(() => proxy.close());
 
-function invoke(hostEvent, payload, { env = proxy.env, raw } = {}) {
+function invoke(hostEvent, payload, { env = proxy.env, raw, stderr } = {}) {
   return new Promise((resolve) => {
     let written = '';
     const stdout = { write: (text, done) => { written += text; done(); } };
     const stdin = Readable.from([raw ?? JSON.stringify(payload)]);
-    runHookProcess('testhook', hostEvent, { stdin, stdout, env, exit: () => resolve(JSON.parse(written)), profileOf: async () => profile });
+    runHookProcess('testhook', hostEvent, { stdin, stdout, stderr, env, exit: () => resolve(JSON.parse(written)), profileOf: async () => profile });
   });
 }
 
@@ -43,4 +46,19 @@ test('inside the plugin\'s own headless run, a hook answers the empty reply and 
 
 test('a payload that is not JSON still gets an answer', async () => {
   assert.deepEqual(await invoke('UserPromptSubmit', null, { raw: '{not json' }), { empty: 'UserPromptSubmit' });
+});
+
+test('corrupt hook state stays intact and emits a diagnostic alongside the neutral reply', async () => {
+  const dir = profile.stateDir(proxy.env);
+  const key = createHash('sha256').update('s-corrupt').digest('hex').slice(0, 16);
+  const file = join(dir, `testhook-session-${key}.json`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file, '{"private text":');
+  let diagnostic = '';
+  const stderr = { write: (text, done) => { diagnostic += text; done(); } };
+
+  assert.deepEqual(await invoke('UserPromptSubmit', { session_id: 's-corrupt', cwd: '/proj', prompt: PROMPT }, { stderr }), { empty: 'UserPromptSubmit' });
+  assert.match(diagnostic, /EINVALIDSTATE/);
+  assert.doesNotMatch(diagnostic, /private text/);
+  assert.equal(readFileSync(file, 'utf8'), '{"private text":');
 });

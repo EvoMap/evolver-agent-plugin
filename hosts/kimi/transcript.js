@@ -4,6 +4,7 @@
 import { resolve, isAbsolute } from 'node:path';
 
 import { turnRecordOf } from '../../lib/turn/record.js';
+import { isVerificationCommand } from '../../lib/verification.js';
 
 const text = value => typeof value === 'string' ? value : '';
 export const nativeTurnIdOf = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : typeof value === 'string' && /^(?:0|[1-9]\d*)$/.test(value) ? value : null;
@@ -110,7 +111,9 @@ export function decodeNativeFacts(records = [], tasks = [], payload = {}, contex
   const ended = turn.filter(main).findLast(item => item.type === 'turn.ended' && nativeTurnIdOf(item.turnId) === turnId);
   if (conflictingIdentity(turn) || (ended?.reason === 'completed' && ended.error)) return { ...empty, status: 'partial' };
   const notes = notesOf(turn, tasks, turnId, payload.cwd ?? context.projectDir);
-  const record = turnRecordOf(notes);
+  const pendingVerification = notes.some(note => note.running && isVerificationCommand(note.command));
+  // The indexed wire gives one note per call, so it can retain the order of unfinished checks locally.
+  const record = turnRecordOf(notes.map(note => note.running ? { ...note, running: false, exit: null, output: '', failed: null } : note));
   record.answer = answerOf(turn, turnId);
   const requests = turn.filter(main).filter(item => item.type === 'llm.request');
   const request = requests.at(-1);
@@ -120,5 +123,5 @@ export function decodeNativeFacts(records = [], tasks = [], payload = {}, contex
   const hookCalls = records.filter(main).filter(item => item.type === 'context.append_loop_event' && item.event?.type === 'tool.call' && item.event.toolCallId === payload.tool_call_id);
   const hookTurns = [...new Set(hookCalls.map(item => nativeTurnIdOf(item.event.turnId)).filter(id => id !== null))];
   const toolTurnId = hookTurns.length === 1 ? hookTurns[0] : payload.hook_event_name === 'PreToolUse' && nativeTurnIdOf(context.turnId) !== null ? turnId : null;
-  return { ...empty, modelHint: boundModelHint, bind: { turnId, promptId: prompt.promptId, origin: 'user', mark: prompt.$offset ?? null }, terminal, record, notes, toolTurnId };
+  return { ...empty, modelHint: boundModelHint, bind: { turnId, promptId: prompt.promptId, origin: 'user', mark: prompt.$offset ?? null }, terminal, record, notes, pendingVerification, toolTurnId };
 }

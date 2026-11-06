@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { reconcileNativeTurn, recoverNativeTurns } from '../../lib/app/native-turn.js';
+import { runBackgroundTasks } from '../../lib/app/background.js';
 import { promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
@@ -62,9 +63,42 @@ test('read errors, partial wire and a native prompt before the pending mark cann
   assert.equal(made.sessions.get('session').open, true);
 });
 
+test('recovery settles a healthy native session even when the state scan reports a corrupt sibling', async () => {
+  const made = await pending();
+  const updateEach = made.ports.sessions.updateEach;
+  const error = new Error('invalid session state');
+  made.ports.sessions.updateEach = async mutate => {
+    await updateEach(mutate);
+    throw error;
+  };
+  await assert.rejects(recoverNativeTurns(made.ports), error);
+  assert.equal((await made.ports.candidates.read()).session.turn, 1);
+  assert.equal(made.sessions.get('session').open, false);
+});
+
+test('a background distill command asks for a new verified turn when the captured route cannot be verified', async () => {
+  const made = await pending();
+  const observed = facts();
+  observed.terminal.modelHint.model = 'unmatched-native-model';
+  made.ports.model.complete = () => assert.fail('an unresolved account must not request a model');
+  await reconcileNativeTurn(made.ports, at, observed);
+  made.ports.commandJobs = {
+    async run(id, run) {
+      assert.equal(id, 'distill-job');
+      const result = await run({ sessionId: 'session', name: 'evolver-distill' }, new AbortController().signal);
+      assert.equal(result.ok, false);
+      assert.equal(result.text, 'The verified turn has no captured model route. Finish a new verified turn so Evolver can capture its model route.');
+      return true;
+    },
+  };
+  assert.equal(await runBackgroundTasks(made.ports, ['command:distill-job']), true);
+  assert.deepEqual(await made.ports.candidates.read(), {});
+  assert.equal(made.requests.some(request => request.path === '/conversation/distill'), false);
+});
+
 test('late background verification only rejudges its original still-last turn', async () => {
   const made = await pending();
-  const running = facts(); running.record.checks[0].failed = null;
+  const running = facts(); running.record.checks[0].failed = null; running.pendingVerification = true;
   assert.equal((await reconcileNativeTurn(made.ports, at, running)).waiting, true);
   assert.deepEqual(await made.ports.candidates.read(), {});
   await reconcileNativeTurn(made.ports, at, facts());
@@ -88,7 +122,7 @@ test('temporary account drift preserves the captured binding for retry while an 
   assert.equal((await wrong.ports.candidates.read()).session.model, null);
 });
 
-test('an unresolved native model binding remains blocked without consuming attempts or expiring the verified candidate', async () => {
+test('a missing or unmatched native model binding settles on the first distill without using a model', async () => {
   for (const missingCapture of [true, false]) {
     const made = await pending({ gone: new Set([4242]) });
     const observed = facts();
@@ -96,16 +130,11 @@ test('an unresolved native model binding remains blocked without consuming attem
     else observed.terminal.modelHint.model = 'unmatched-native-model';
     made.ports.model.complete = () => assert.fail('an unresolved account must not request a model');
     await reconcileNativeTurn(made.ports, at, observed);
-    for (let count = 0; count < 3; count++) {
-      assert.deepEqual(await distillDue(made.ports), [{ status: 'blocked', reason: 'route_unresolved' }]);
-    }
-    const candidate = (await made.ports.candidates.read()).session;
-    assert.equal(candidate.attempts, 0);
-    assert.equal(candidate.claimedBy, null);
-    assert.deepEqual(candidate.blocked, { reason: 'route_unresolved' });
-    made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
-    await dropExpiredLeftovers(made.ports);
-    assert.ok((await made.ports.candidates.read()).session);
+    assert.deepEqual(await distillDue(made.ports), [{ status: 'route_not_captured' }]);
+    assert.deepEqual(await made.ports.candidates.read(), {});
+    await reconcileNativeTurn(made.ports, at, observed);
+    assert.deepEqual(await distillDue(made.ports), []);
+    assert.deepEqual(await made.ports.candidates.read(), {});
     assert.equal(made.requests.some(request => request.path === '/conversation/distill'), false);
   }
 });
@@ -120,10 +149,11 @@ test('a known dead owner is reconciled from terminal wire before orphan abort re
   assert.equal((await made.ports.candidates.read()).session.pid, 4242);
 });
 
-test('a prompt or owner change during a native read cannot close a newer unbound turn', async () => {
+test('a prompt, owner or epoch change during a native read cannot close a newer unbound turn', async () => {
   for (const change of [
     made => promptSubmitted(made.ports, { sessionId: 'session', prompt: 'New task.', waitMs: 500 }),
     made => made.ports.sessions.update('session', stored => ({ ...stored, pid: 9999 })),
+    made => made.ports.sessions.update('session', stored => ({ ...stored, sessionEpoch: stored.sessionEpoch + 1 })),
   ]) {
     const made = await pending();
     made.ports.native.read = async () => { await change(made); return facts(); };
@@ -134,6 +164,16 @@ test('a prompt or owner change during a native read cannot close a newer unbound
   }
 });
 
+test('a queued reconciliation from an older epoch stops before reading the new wire', async () => {
+  const made = await pending();
+  made.ports.native.read = () => assert.fail('the recreated session is outside this job');
+  const result = await reconcileNativeTurn(made.ports, { ...at, sessionEpoch: made.sessions.get('session').sessionEpoch - 1 });
+  assert.equal(result.facts, null);
+  assert.equal(result.waiting, false);
+  assert.equal(made.sessions.get('session').open, true);
+  assert.deepEqual(await made.ports.candidates.read(), {});
+});
+
 test('a duplicate terminal cannot recreate an explicitly discarded candidate', async () => {
   const made = await pending();
   await reconcileNativeTurn(made.ports, at, facts());
@@ -142,9 +182,33 @@ test('a duplicate terminal cannot recreate an explicitly discarded candidate', a
   assert.deepEqual(await made.ports.candidates.read(), {});
 });
 
+test('a correction arriving during native candidate persistence cannot leave the older candidate behind', async () => {
+  const made = await pending();
+  const writing = Promise.withResolvers(), resume = Promise.withResolvers();
+  const update = made.ports.candidates.update;
+  let held = false;
+  made.ports.candidates.update = async mutate => {
+    if (!held) {
+      held = true;
+      writing.resolve();
+      await resume.promise;
+    }
+    return update(mutate);
+  };
+  const finishing = reconcileNativeTurn(made.ports, at, facts());
+  await writing.promise;
+  try {
+    await promptSubmitted(made.ports, { sessionId: 'session', prompt: 'That is wrong. Revert the change.', waitMs: 500 });
+    assert.equal(made.sessions.get('session').correctedTurn, 1);
+  } finally { resume.resolve(); }
+  assert.equal((await finishing).ended.isCandidate, false);
+  assert.deepEqual(await made.ports.candidates.read(), {});
+  assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'nothing');
+});
+
 test('session end preserves a pending native turn and its original prompt for late task completion', async () => {
   const made = await pending();
-  const running = facts(); running.record.checks[0].failed = null;
+  const running = facts(); running.record.checks[0].failed = null; running.pendingVerification = true;
   await reconcileNativeTurn(made.ports, at, running);
   await sessionEnded(made.ports, at);
   assert.equal(made.sessions.get('session').native.pending, true);
@@ -302,7 +366,7 @@ test('a completed foreground check with an unknown verdict stops polling without
   const made = await pending();
   const observed = facts();
   observed.record.checks[0] = { command: 'npm test', exit: null, failed: null };
-  observed.notes = [{ kind: 'shell', command: 'npm test', exit: null, output: 'done', callId: 'completed-check' }];
+  observed.pendingVerification = false;
 
   const result = await reconcileNativeTurn(made.ports, at, observed);
   assert.equal(result.waiting, false, 'a completed tool result cannot gain evidence by polling again');
@@ -320,6 +384,7 @@ test('a pending background check blocks native distillation until dead-owner rec
   made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
   const observed = facts();
   observed.record.checks.unshift({ command: 'npm run lint', failed: null });
+  observed.pendingVerification = true;
   made.ports.native.read = async () => observed;
   const first = await reconcileNativeTurn(made.ports, at, observed);
   assert.equal(first.waiting, true);
@@ -332,6 +397,7 @@ test('a pending background check blocks native distillation until dead-owner rec
   assert.deepEqual(await made.ports.candidates.read(), {});
 
   observed.record.checks[0].failed = false;
+  observed.pendingVerification = false;
   assert.equal((await recoverNativeTurns(made.ports))[0].waiting, false);
   assert.deepEqual((await distillDue(made.ports)).map(({ status }) => status), ['stored']);
   await recoverNativeTurns(made.ports);
@@ -346,7 +412,9 @@ for (const [stage, turn] of [['provisional', 1], ['provisional', 2], ['activated
     const made = await pending({ gone: new Set([4242]) });
     const observed = facts();
     observed.record.checks.unshift({ command: 'npm run lint', failed: null });
+    observed.pendingVerification = true;
     const candidate = candidateOf({ prompt: PROMPT, record: observed.record, model: route, turn: 1, pid: 4242,
+      sessionEpoch: made.sessions.get('session').sessionEpoch,
       now: made.ports.clock.now(), finalizationPending: stage === 'provisional' });
     await made.ports.candidates.update(() => ({ session: candidate }));
     await made.ports.sessions.update('session', stored => ({ ...stored, turn, open: false,

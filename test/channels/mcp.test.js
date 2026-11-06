@@ -46,11 +46,21 @@ test('a recalled turn is reported under its turn_id, agent-reported, and its Gen
   assert.match(recalled, /Apply them where they fit\./);
   const turnId = turnIdOf(recalled);
   const reported = textOf(await call(client, 'evolver_report', { turn_id: turnId, outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] }));
-  const writtenFor = Number(/written_for (\d+)/.exec(reported)?.[1]);
-  assert.ok(writtenFor > 0);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor + 1, gene: GENE })), /newer turn replaced/);
+  const writtenFor = /written_for "(v1-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
+  assert.ok(writtenFor);
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: GENE })), /newer turn replaced/);
+  const legacy = await call(client, 'evolver_distill', { written_for: 123, gene: GENE });
+  assert.equal(legacy.isError, true);
+  assert.match(textOf(legacy), /written_for/);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: GENE })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
+  for (const args of ['publish 1', 'discard 1']) {
+    const refused = await call(client, 'evolver_drafts', { args });
+    assert.equal(refused.isError, true);
+    assert.match(textOf(refused), /Draft changes require a direct command/);
+  }
+  assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
+  assert.ok(!proxy.requests.some(({ path }) => ['/asset/reverify', '/asset/submit'].includes(path)));
   const delivered = () => proxy.requests.find((request) => request.path === '/asset/reuse-result')?.body;
   for (let tries = 0; tries < 50 && !delivered(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual([delivered().evidence.tier, delivered().evidence.reported_by], ['none', 'agent']);

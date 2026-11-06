@@ -29,7 +29,25 @@ jobs:
       - run: npm test
       - run: npm run pack
 
+  windows-minimax:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:minimax
+      - run: npm run pack
+
   windows-kimi:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 20
     strategy:
@@ -51,7 +69,7 @@ jobs:
   # Grok and Qoder through their marketplaces, Codex at --ref, Antigravity, OpenCode and DeepSeek Harness from a
   # clone), moves one commit on, with the tag re-pointed there. A push made with this workflow's token starts no run.
   publish:
-    needs: [test, windows-kimi]
+    needs: [test, windows-minimax]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10

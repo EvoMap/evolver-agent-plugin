@@ -38,6 +38,44 @@ test('a recalled strategy ends with the spec line, and its turn end reports it w
   assert.ok(scheduled.includes('drain'));
 });
 
+test('printing a check command does not verify a turn or raise its reuse evidence', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: {
+    kind: 'shell', command: 'echo "npm test"', exit: 0, output: 'npm test', label: 'Run tests',
+  } });
+  const { record, reports } = await end(ports, 's1');
+  assert.deepEqual(record.checks, []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(reports[0].evidence.tier, 'none');
+  assert.equal(reports[0].evidence.check, undefined);
+});
+
+test('a successful shell wrapper does not verify a turn when its check may have been skipped', async () => {
+  const { ports } = memoryPorts();
+  const command = 'true || npm test';
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command, exit: 0 } });
+  const { record, reports } = await end(ports, 's1');
+  assert.deepEqual(record.checks, [{ command, exit: null, failed: null }]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(reports[0].evidence.tier, 'none');
+  assert.equal(reports[0].evidence.check, undefined);
+});
+
+test('a redirect target named like a check does not verify a turn', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'echo >&npm test', exit: 0 } });
+  const { record, reports } = await end(ports, 's1');
+  assert.deepEqual(record.checks, []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(reports[0].evidence.tier, 'none');
+});
+
 test('a verified turn becomes the candidate; a correction drops it before revising the reports', async () => {
   const { ports, queued } = memoryPorts();
   await verifiedTurn(ports, 's1');
@@ -84,60 +122,6 @@ test('a verified turn in a session left open is distilled with no further event:
   assert.deepEqual(wakeUps.slice(1), [{ at: retryAt, tasks: ['distill'] }]);
 });
 
-for (const barrier of ['native finalization', 'pending check']) {
-  test(`${barrier} prevents idle wake-ups and background model calls`, async () => {
-    let completions = 0;
-    const { ports, wakeUps, scheduled, advance } = memoryPorts({ model: { complete: async () => { completions += 1; throw new Error('must not run'); } } });
-    ports.native = {};
-    await verifiedTurn(ports, 's1');
-    if (barrier === 'pending check') {
-      await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', running: true, callId: 'pending' } });
-      await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0 } });
-    }
-    await end(ports, 's1', { model: 'model-x', finalizationPending: barrier === 'native finalization' });
-    const candidate = (await ports.candidates.read()).s1;
-    assert.ok(candidate);
-    assert.deepEqual(wakeUps, []);
-
-    advance(IDLE_DISTILL_MS);
-    scheduled.length = 0;
-    await promptSubmitted(ports, { sessionId: 'other', prompt: 'explain the build', ...WAIT });
-    assert.equal(scheduled.includes('distill'), false);
-    await runBackgroundTasks(ports, ['distill']);
-    assert.equal(completions, 0);
-    assert.deepEqual(wakeUps, []);
-    assert.deepEqual((await ports.candidates.read()).s1, candidate);
-  });
-}
-
-test('a blocked route waits for another event without consuming attempts or scheduling timer retries', async () => {
-  let available = false;
-  let completions = 0;
-  const { ports, wakeUps, scheduled, advance } = memoryPorts({ model: { complete: async () => {
-    completions += 1;
-    if (!available) throw Object.assign(new Error('fixture route changed'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
-    return { answer: JSON.stringify({ skip: 'routine edit' }) };
-  } } });
-  await verifiedTurn(ports, 's1');
-  await end(ports, 's1', { model: 'model-x' });
-  assert.equal(wakeUps.length, 1);
-  advance(IDLE_DISTILL_MS);
-  await runBackgroundTasks(ports, ['distill']);
-  const blocked = (await ports.candidates.read()).s1;
-  assert.equal(blocked.attempts, 0);
-  assert.deepEqual(blocked.blocked, { reason: 'route_changed' });
-  assert.equal(completions, 1);
-  assert.equal(wakeUps.length, 1);
-
-  available = true;
-  scheduled.length = 0;
-  await promptSubmitted(ports, { sessionId: 'other', prompt: 'explain the build', ...WAIT });
-  assert.ok(scheduled.includes('distill'));
-  await runBackgroundTasks(ports, ['distill']);
-  assert.equal(completions, 2);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
 test('a candidate that comes due while another is distilled is woken for shortly after, not left to the next event', async () => {
   let duringModel = () => {};
   const { ports, wakeUps, advance } = memoryPorts({ model: { complete: async () => { duringModel(); throw new Error('model offline'); } } });
@@ -174,29 +158,17 @@ test('an aborted turn reports its injection as failed, with no check', async () 
   assert.equal(report.evidence.aborted, true);
 });
 
-test('a check still running at turn end stays unknown; a later note with its call id settles it', async () => {
+test('a check still running at turn end counts as not run; a later note with its call id settles it', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c1' } });
-  assert.deepEqual((await end(ports, 's1')).record.checks, [{ command: 'npm test', exit: null, failed: null }]);
+  assert.deepEqual((await end(ports, 's1')).record.checks, []);
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'c2' } });
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1, callId: 'c2' } });
   const { record } = await end(ports, 's1');
   assert.deepEqual(record.checks, [{ command: 'npm test', exit: 1, failed: true }]);
   assert.deepEqual(record.commands, ['npm test']);
-});
-
-test('a later pending check blocks an earlier pass, even when an older command finishes late', async () => {
-  const { ports } = memoryPorts();
-  await verifiedTurn(ports, 's1');
-  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', running: true, callId: 'old' } });
-  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', running: true, callId: 'new' } });
-  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm run lint', exit: 0, callId: 'old' } });
-  const ended = await end(ports, 's1');
-  assert.deepEqual(ended.record.checks.map(check => check.failed), [false, false, null]);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-  assert.equal(ended.reports[0].evidence.tier, 'none');
 });
 
 test('an agent-reported turn, under any source but the host\'s own, counts as exposure only', async () => {
@@ -376,17 +348,6 @@ test('a turn judged again keeps its candidate\'s stamp and claim; an agent\'s re
   const first = (await ports.candidates.read()).agent;
   assert.equal(await end(ports, 'agent', { turnId: 'r1', recordOf: record(true), source: AGENT_REPORTED }), null);
   assert.deepEqual((await ports.candidates.read()).agent, first);
-});
-
-test('a late native completion cannot close a newer logical turn whose native identity is not bound yet', async () => {
-  const { ports } = memoryPorts();
-  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, turnId: '0', ...WAIT });
-  const first = await ports.sessions.read('s1');
-  await end(ports, 's1', { turnId: '0' });
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'now the next task', ...WAIT });
-  await end(ports, 's1', { turnId: '0', expectedTurn: first.turn, expectedPid: first.pid });
-  assert.equal((await ports.sessions.read('s1')).open, true);
-  assert.equal((await ports.sessions.read('s1')).turn, 2);
 });
 
 test('a turn judged again after its session ended starts the distillation its candidate is due for', async () => {

@@ -76,6 +76,59 @@ test('a settled state write stays successful and its stranded token can be recla
   assert.equal(existsSync(lock), false);
 });
 
+for (const stage of ['mutator', 'read', 'replacement']) {
+  test(`an original ${stage} failure survives a release denial and its stranded state token is reclaimed on retry`, t => {
+    const { dir, target, lock } = scratch(t);
+    const original = readFileSync(target, 'utf8');
+    const failure = Object.assign(new Error(`fixture ${stage} failure`), { code: stage === 'read' ? 'EACCES' : 'EIO' });
+    const read = fs.readFileSync, rename = fs.renameSync, unlink = fs.unlinkSync;
+    if (stage === 'read') t.mock.method(fs, 'readFileSync', (file, ...args) => {
+      if (file === target) throw failure;
+      return read(file, ...args);
+    });
+    if (stage === 'replacement') t.mock.method(fs, 'renameSync', (from, to) => {
+      if (to === target) throw failure;
+      return rename(from, to);
+    });
+    let releaseDenials = 0;
+    t.mock.method(fs, 'unlinkSync', (file, ...args) => {
+      if (file === lock) {
+        releaseDenials += 1;
+        throw Object.assign(new Error('fixture state token release denial'), { code: 'EPERM' });
+      }
+      return unlink(file, ...args);
+    });
+    let mutations = 0;
+    try {
+      assert.throws(() => updateState(target, {}, state => {
+        mutations += 1;
+        assert.deepEqual(state, { count: 0 });
+        if (stage === 'mutator') throw failure;
+        return { count: state.count + 1 };
+      }), error => {
+        if (stage === 'read') {
+          assert.equal(error.code, 'ESTATEIO');
+          assert.equal(error.cause, failure);
+        } else assert.equal(error, failure);
+        return true;
+      });
+    } finally {
+      t.mock.restoreAll();
+    }
+    assert.equal(mutations, stage === 'read' ? 0 : 1);
+    assert.ok(releaseDenials > 0, 'the state token release was actually refused');
+    assert.equal(readFileSync(target, 'utf8'), original);
+    assert.equal(existsSync(lock), true);
+    assert.match(readFileSync(lock, 'utf8'), new RegExp(`^${process.pid}:`));
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['state.json', 'state.json.lock']);
+    let retries = 0;
+    assert.deepEqual(updateState(target, {}, state => { retries += 1; return { count: state.count + 1 }; }), { count: 1 });
+    assert.equal(retries, 1);
+    assert.deepEqual(JSON.parse(readFileSync(target, 'utf8')), { count: 1 });
+    assert.deepEqual(fs.readdirSync(dir), ['state.json']);
+  });
+}
+
 test('a held state lock never runs an unguarded mutator after its wait expires', (t) => {
   const { target, lock } = scratch(t);
   const held = `${process.pid}:alive`;
@@ -87,6 +140,21 @@ test('a held state lock never runs an unguarded mutator after its wait expires',
   assert.equal(called, false);
   assert.equal(readFileSync(target, 'utf8'), '{"count":0}');
   assert.equal(readFileSync(lock, 'utf8'), held);
+});
+
+test('a long-held state lock is recovered only once its live PID proves to be a newer process', (t) => {
+  const { target, lock } = scratch(t);
+  const ownStart = Math.round(Date.now() - process.uptime() * 1000);
+  const longAgo = new Date(Date.now() - 60_000);
+  const sameProcess = `${process.pid}:a11ce:${ownStart}`;
+  writeFileSync(lock, sameProcess);
+  fs.utimesSync(lock, longAgo, longAgo);
+  assert.throws(() => updateState(target, {}, () => assert.fail('mutator must not run')), BUSY);
+  assert.equal(readFileSync(lock, 'utf8'), sameProcess);
+  writeFileSync(lock, `${process.pid}:5e1ec7:${ownStart - 60_000}`);
+  fs.utimesSync(lock, longAgo, longAgo);
+  assert.deepEqual(updateState(target, {}, (stored) => ({ count: stored.count + 1 })), { count: 1 });
+  assert.equal(existsSync(lock), false);
 });
 
 test('a legacy dead state owner is recovered, and file permission errors stop before mutation', (t) => {

@@ -4,8 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
-import { pack } from '../scripts/pack.mjs';
+import { pack, packedHosts } from '../scripts/pack.mjs';
 
 function filesOf(root, dir = root) {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -14,7 +15,7 @@ function filesOf(root, dir = root) {
   }).sort();
 }
 
-test('packing deterministically vendors only the pinned TOML ESM closure and its license', t => {
+test('only Kimi packs the pinned TOML ESM closure and its license', async t => {
   const root = mkdtempSync(join(tmpdir(), 'evolver-pack-vendor-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const left = join(root, 'left'), right = join(root, 'right');
@@ -30,9 +31,15 @@ test('packing deterministically vendors only the pinned TOML ESM closure and its
   assert.equal(existsSync(join(left, 'node_modules')), false);
   assert.equal(existsSync(join(vendor, 'dist', 'index.cjs')), false);
   assert.equal(existsSync(join(vendor, 'README.md')), false);
-  const config = readFileSync(join(left, 'lib', 'runtime', 'native-config.js'), 'utf8');
-  assert.match(config, /from ["']\.\.\/vendor\/smol-toml\/dist\/index\.js["']/);
+  const model = join(left, 'hosts', 'kimi', 'model.js');
+  const config = readFileSync(model, 'utf8');
+  assert.match(config, /from ["']\.\.\/\.\.\/lib\/vendor\/smol-toml\/dist\/index\.js["']/);
   assert.doesNotMatch(config, /from ["']smol-toml["']/);
+  const { headlessKimi } = await import(pathToFileURL(model));
+  const sample = { default_model: 'fixture' };
+  assert.equal(headlessKimi.config.parseConfig(headlessKimi.config.serializeConfig(sample)).default_model, 'fixture');
+  const other = packedHosts().includes('minimax') ? 'minimax' : 'codex';
+  assert.ok(pack(other, join(root, other)).every(file => !file.startsWith('lib/vendor/')));
   const snapshot = dir => filesOf(dir).map(file => [file, createHash('sha256').update(readFileSync(join(dir, file))).digest('hex')]);
   assert.deepEqual(snapshot(left), snapshot(right));
 });

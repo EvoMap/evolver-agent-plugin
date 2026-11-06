@@ -6,7 +6,6 @@ import { test } from 'node:test';
 import { promptCommandOf } from '../../../hosts/grok/commands.js';
 import grok from '../../../hosts/grok/profile.js';
 import { turnRecordOf } from '../../../lib/turn/record.js';
-import { skipReason } from '../../../lib/distill/candidate.js';
 
 // Payloads grok 1.0.70 sent to a plugin's hooks on a fake model (paths renamed): one verified turn, a run of other
 // tools, a turn cut at --max-turns, a turn whose API call failed, and a typed command.
@@ -50,15 +49,26 @@ test('a shell result carries its exit code; failure then pass reads as a fixed c
   assert.deepEqual(record.paths, ['/Users/you/project/README.md']);
 });
 
-test('a call grok moves to the background has no verdict until its task\'s output settles it under the same call id', () => {
+test('Grok joins background task output by call id and requires check evidence for a compound command', () => {
   const started = noteOf('PostToolUse.run_terminal_command.background');
   assert.deepEqual(started, { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
-  assert.deepEqual(turnRecordOf([started]).checks, [{ command: 'sleep 2; npm test', exit: null, failed: null }], 'a check still running keeps its place with no verdict');
+  assert.deepEqual(turnRecordOf([started]).checks, [], 'a check still running is no pass');
   const output = noteOf('PostToolUse.get_command_or_subagent_output');
   assert.deepEqual(output, { kind: 'shell', command: 'sleep 2; npm test', exit: 1, output: '\n> test\n> sh check.sh\n\n1 failing\n', callId: 'call_3' });
-  const record = turnRecordOf([noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput'), output]);
-  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', exit: 1, failed: true }]);
+  const pending = noteOf('PostToolUse.run_terminal_command.backgroundForTaskOutput');
+  const record = turnRecordOf([pending, output]);
+  assert.deepEqual(record.checks, [{ command: 'sleep 2; npm test', exit: null, failed: null }]);
   assert.deepEqual(record.commands, ['sleep 2; npm test'], 'its output is the same command, not a second one');
+  for (const [stdout, failed] of [
+    ['done', null],
+    ['TAP version 13\n# pass 1\n# fail 0\n', false],
+    ['TAP version 13\n# pass 0\n# fail 1\n', true],
+  ]) {
+    const completed = payload('PostToolUse.get_command_or_subagent_output');
+    Object.assign(completed.toolResult.Result, { status: 'completed', exit_code: 0, output: stdout });
+    const note = grok.evidence.toolNote(completed);
+    assert.deepEqual(turnRecordOf([pending, note]).checks, [{ command: 'sleep 2; npm test', exit: null, failed }]);
+  }
   const stillRunning = { ...payload('PostToolUse.get_command_or_subagent_output') };
   stillRunning.toolResult = { ...stillRunning.toolResult, Result: { ...stillRunning.toolResult.Result, status: 'running', exit_code: null } };
   assert.deepEqual(grok.evidence.toolNote(stillRunning), { kind: 'shell', command: 'sleep 2; npm test', running: true, callId: 'call_3' });
@@ -68,17 +78,7 @@ test('a background task killed before it finished reports no exit code and settl
   const cancelled = noteOf('PostToolUse.get_command_or_subagent_output.cancelled');
   assert.deepEqual(cancelled, { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' });
   const started = { kind: 'shell', command: 'sleep 30; npm test', running: true, callId: 'call_4' };
-  assert.deepEqual(turnRecordOf([started, cancelled]).checks, [{ command: 'sleep 30; npm test', exit: null, failed: null }], 'a run that never finished stays unknown');
-});
-
-test('a later background check blocks an earlier pass until its own native task result settles it', () => {
-  const passed = { ...noteOf('PostToolUse.run_terminal_command.passed'), command: 'npm test', callId: 'earlier-check' };
-  const running = noteOf('PostToolUse.run_terminal_command.background');
-  const record = turnRecordOf([{ kind: 'edit', paths: ['README.md'] }, passed, running, { kind: 'answer', text: 'Done.' }]);
-  assert.deepEqual(record.checks.map(check => check.failed), [false, null]);
-  assert.equal(skipReason('answer', record), 'unverified');
-  const failed = turnRecordOf([{ kind: 'edit', paths: ['README.md'] }, passed, running, noteOf('PostToolUse.get_command_or_subagent_output'), { kind: 'answer', text: 'Done.' }]);
-  assert.equal(skipReason('answer', failed), 'failed_check');
+  assert.deepEqual(turnRecordOf([started, cancelled]).checks, [], 'a run that never finished is no pass');
 });
 
 test('a prompt of many reminders followed by the person\'s text is read in linear time and stays the person\'s', () => {

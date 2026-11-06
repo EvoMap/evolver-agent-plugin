@@ -25,7 +25,7 @@ async function fixture(t) {
   const prepare = declaration.prepare;
   declaration.prepare = (selected, context) => {
     const prepared = prepare(selected, context), entry = prepared.files['fixture.json'];
-    entry.value = JSON.stringify({ ...JSON.parse(entry.value), answer: JSON.stringify(GENE) });
+    entry.value = { ...entry.value, answer: JSON.stringify(GENE) };
     return prepared;
   };
   const env = { ...process.env, FIXTURE_ACCOUNT_KEY: KEY };
@@ -41,9 +41,11 @@ async function fixture(t) {
 
 test('verified candidate flows through real ACP transport and validation into a private Proxy draft', async t => {
   const made = await fixture(t);
+  const { at, turn, sessionEpoch } = (await made.ports.candidates.read()).session;
   const result = await distillSession(made.ports, { sessionId: 'session' });
   assert.equal(result.status, 'drafted', () => JSON.stringify(result));
   assert.equal((await made.ports.drafts.read())[0].title, GENE.title);
+  assert.deepEqual((await made.ports.drafts.read())[0].sourceCandidate, { at, turn, sessionEpoch });
   assert.deepEqual(await made.ports.candidates.read(), {});
   const posts = made.requests.filter(request => request.path === '/conversation/distill');
   assert.equal(posts.length, 1);

@@ -3,6 +3,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parse, stringify } from 'smol-toml';
 
 import { kimiHomeOf } from './paths.js';
 
@@ -85,7 +86,7 @@ export function prepareRoute(selected, { home, credentialEnv }) {
   };
   return {
     files: {
-      'kimi-home/config.toml': { format: 'toml', value: config },
+      'kimi-home/config.toml': { format: 'config', value: config },
       'kimi-home/agents/agent.md': { format: 'text', value: '---\nname: agent\ndescription: Isolated Evolver distiller\noverride: true\ntools: []\nsubagents: []\n---\nYou are a text-only distiller. Return only the requested structured response.\n' },
       ...(selected.deviceId && { 'kimi-home/device_id': { format: 'text', value: selected.deviceId } }),
     },
@@ -127,7 +128,7 @@ export const headlessKimi = Object.freeze({
   kind: 'acp',
   command: { names: ['kimi', 'kimi.exe'], dirs: env => [join(kimiHomeOf(env), 'bin'), join(env.HOME || env.USERPROFILE || homedir(), '.local', 'bin')] },
   args: () => ['acp'],
-  config: { source: env => join(kimiHomeOf(env), 'config.toml'), select: selectRoute },
+  config: { source: env => join(kimiHomeOf(env), 'config.toml'), parseConfig: parse, serializeConfig: stringify, select: selectRoute },
   prepare: prepareRoute,
   sessionConfig: (snapshot, selected) => supportsThinking(selected.model) ? [{ id: 'thinking', value: snapshot.effort }] : [],
   facts: { root: home => join(home, 'kimi-home'), decode: completionFacts },

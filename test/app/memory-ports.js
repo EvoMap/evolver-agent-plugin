@@ -1,5 +1,6 @@
 // In-memory ports: the use cases run against these without a filesystem, a process or a network.
 
+import { candidateReferenceOf } from '../../lib/runtime/store/file-stores.js';
 import { recipeSearchAnswer } from '../helpers/recipe-search.js';
 
 export const ASSET = {
@@ -66,6 +67,7 @@ const lines = () => {
 
 export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null } = {}) {
   const sessions = new Map();
+  const draftCorrections = new Set();
   const notes = lines();
   const edits = lines();
   const requests = [];
@@ -107,8 +109,13 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
         return { before: new Map(taken.filter(ofTurn).map(({ file, before }) => [file, before])), commit };
       },
     },
-    candidates: table({}),
+    candidates: { ...table({}), referenceOf: candidateReferenceOf },
     drafts: table([]),
+    draftCorrections: {
+      withSession: async (_id, work) => work(),
+      mark: async (id, turn, epoch) => { draftCorrections.add(JSON.stringify([id, turn, epoch])); },
+      has: async (id, turn, epoch) => draftCorrections.has(JSON.stringify([id, turn, epoch])),
+    },
     reports: { enqueue: async (entries) => queued.push(...entries) },
     outbox: { drain: async () => true },
     retention: {

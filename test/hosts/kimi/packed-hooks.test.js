@@ -96,7 +96,7 @@ test('packed Desktop prompt hooks return Kimi message context, ignore unsupporte
   await f.hook('TurnStarted', { turn_id: 0, prompt_id: 'first-prompt' });
   f.append({ type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'cancelled' });
   await f.hook('Notification');
-  const off = await f.command('evolver-status', 'recall', 'off');
+  const off = await f.command('evolver-config', 'recall', 'off');
   assert.equal(off.code, 0, off.stderr); assert.match(off.stdout, /off/);
   assert.equal(f.read('kimi-settings.json').recall, false);
   const recalls = f.proxy.requests.filter(item => item.path === '/asset/fetch').length;

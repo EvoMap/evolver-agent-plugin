@@ -9,8 +9,8 @@ import { monitorNativeTurn } from '../../lib/runtime/native-monitor.js';
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-native-monitor-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const at = { sessionId: 's', turn: 1, projectDir: dir };
-  const session = { open: true, turn: 1, native: { turn: 1 }, pid: 123 };
+  const at = { sessionId: 's', turn: 1, sessionEpoch: 500, projectDir: dir };
+  const session = { open: true, turn: 1, sessionEpoch: 500, native: { turn: 1 }, pid: 123 };
   const ports = { native: {}, sessions: { read: async () => session }, owner: { isGone: () => false } };
   return { at, session, ports, dir };
 }
@@ -25,6 +25,12 @@ test('a native monitor waits for terminal and pending check records, then exits 
   await monitorNativeTurn(f.ports, f.at, () => assert.fail('stale'), () => assert.fail('stale'), { dir: f.dir });
 });
 
+test('an old worker cannot observe a recreated session with the same turn number', async t => {
+  const f = fixture(t);
+  await monitorNativeTurn(f.ports, { ...f.at, sessionEpoch: 400, projectDir: join(f.dir, 'old-project') },
+    () => assert.fail('an old worker must not reconcile a newer epoch'), () => assert.fail('an old worker must not close a newer epoch'), { dir: f.dir });
+});
+
 test('owner death checks terminal first and only aborts the matching logical turn; missing identity has a bounded watch', async t => {
   const f = fixture(t);
   f.ports.owner.isGone = () => true;
@@ -33,7 +39,7 @@ test('owner death checks terminal first and only aborts the matching logical tur
     () => assert.fail('completed is not aborted'), { dir: f.dir });
   await monitorNativeTurn(f.ports, f.at, async () => { events.push('missing'); return { ended: false }; },
     async closed => { events.push(closed); }, { dir: f.dir });
-  assert.deepEqual(events, ['terminal', 'missing', { ...f.at, expectedTurn: 1, expectedPid: 123, reason: 'aborted' }]);
+  assert.deepEqual(events, ['terminal', 'missing', { ...f.at, expected: { turn: 1, pid: 123, sessionEpoch: 500 }, reason: 'aborted' }]);
   f.ports.owner.isGone = () => false;
   let now = 0;
   await monitorNativeTurn(f.ports, f.at, async () => ({ waiting: true }), () => assert.fail('no verdict'),

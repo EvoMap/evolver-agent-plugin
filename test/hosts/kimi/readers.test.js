@@ -29,6 +29,7 @@ test('a matched native terminal cannot prove a silent Bash check passed and only
   ];
   const facts = decodeNativeFacts(records, [], { hook_event_name: 'Stop' }, { turnId: '0' });
   assert.deepEqual(facts.record.checks, [{ command: 'npm test', exit: null, failed: null }]);
+  assert.equal(facts.pendingVerification, false);
   assert.equal(facts.record.answer, 'Fixed the retry; tests pass.');
   assert.deepEqual(facts.terminal, { turnId: '0', reason: 'completed', answer: 'Fixed the retry; tests pass.', modelHint: { alias: 'custom/model-b', effort: null, model: 'upstream-b', protocol: 'openai' } });
 });
@@ -44,8 +45,9 @@ test('a background Bash is settled by its task metadata, never by successful Tas
   assert.deepEqual(decodeNativeFacts(records, [task], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: 7, failed: true }]);
   assert.deepEqual(decodeNativeFacts(records, [{ ...task, parentToolCallId: 'another-turn' }], {}, { turnId: '0' }).record.checks, [{ command: 'npm test', exit: null, failed: null }]);
   for (const [status, exitCode, exit, failed] of [['failed', 0, 0, true], ['failed', undefined, null, true], ['completed', 0, 0, false], ['completed', undefined, null, null], ['running', 0, null, null]]) {
-    assert.deepEqual(decodeNativeFacts(records, [{ ...task, status, exitCode }], {}, { turnId: '0' }).record.checks,
-      [{ command: 'npm test', exit, failed }]);
+    const facts = decodeNativeFacts(records, [{ ...task, status, exitCode }], {}, { turnId: '0' });
+    assert.deepEqual(facts.record.checks, [{ command: 'npm test', exit, failed }]);
+    assert.equal(facts.pendingVerification, status === 'running');
   }
 });
 

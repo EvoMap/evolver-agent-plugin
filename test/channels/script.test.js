@@ -5,6 +5,7 @@ import { after, before, test } from 'node:test';
 
 import { defineProfile } from '../../lib/agent/profile.js';
 import { runCommandScript } from '../../lib/channels/script/runner.js';
+import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { fakeProxy } from '../helpers/fake-proxy.js';
 
 // A host whose own readers know nothing of a script: the channel must not need them.
@@ -56,6 +57,19 @@ test('a search from a terminal books its strategy on no session, so the same sea
 
 test('a Gene posted for no candidate says there is nothing to distill', async () => {
   assert.match(await run('evolver-distill', { input: '{"summary":"s"}', argv: ['--post', '123'] }), /^Nothing to distill yet/);
+});
+
+test('the terminal sends a Gene reference unchanged to the candidate it names', async () => {
+  const candidate = { at: 1_000, turn: 1, attempts: 0, prompt: 'Repair retries', answer: 'Done', paths: [], commands: [], checks: [] };
+  const { candidates } = fileStoresOf({ dir: profile.stateDir(proxy.env), agent: profile.name });
+  await candidates.update(() => ({ s1: candidate }));
+  const input = '{"summary":"Retry safely","strategy":["Retry once"]}';
+  const posted = () => proxy.requests.filter(({ path }) => path === '/conversation/distill');
+
+  assert.match(await run('evolver-distill', { input, argv: ['--post', String(candidate.at)], env: { TEST_SESSION_ID: 's1' } }), /^A newer turn replaced/);
+  assert.equal(posted().length, 0);
+  assert.match(await run('evolver-distill', { input, argv: ['--post', candidates.referenceOf('s1', candidate)] }), /not_in_this_test/);
+  assert.deepEqual(posted().map(({ body }) => body.session_id), ['testscript:s1']);
 });
 
 test('a host whose commands run only from a terminal never waits on a stdin held open', async () => {

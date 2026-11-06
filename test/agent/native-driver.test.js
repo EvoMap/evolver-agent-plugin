@@ -38,7 +38,8 @@ test('native driver captures the route and waits for both the terminal and an ea
   assert.match(reply.message, /Evolution Memory/);
   assert.deepEqual(f.captured[0], { alias: 'selected', effort: 'off' });
   assert.deepEqual(f.sessions.get(f.id).native.model, route);
-  assert.ok(f.scheduled.some(task => task.startsWith('native:')));
+  const job = f.scheduled.find(task => task.startsWith('native:'));
+  assert.equal(JSON.parse(job.slice('native:'.length)).sessionEpoch, f.sessions.get(f.id).sessionEpoch);
   f.add({ type: 'turn.prompt', agentId: 'main', turnId: 0, promptId: 'prompt-a', origin: { kind: 'user' } });
   await f.call('TurnStarted', { turn_id: 0, origin_kind: 'user' });
   assert.equal(f.sessions.get(f.id).turnId, '0');
@@ -80,4 +81,38 @@ test('native driver captures the route and waits for both the terminal and an ea
   await f.call('Stop', { turn_id: 0 });
   assert.equal(f.sessions.get(f.id).open, true);
   assert.equal(f.sessions.get(f.id).turn, 2);
+});
+
+test('recall that outlives its session does not attach an old model binding to a recreated turn', async t => {
+  const f = fixture(t);
+  const requested = Promise.withResolvers(), resume = Promise.withResolvers();
+  const request = f.ports.proxy.request;
+  f.ports.proxy.request = async (...args) => {
+    if (args[1] === '/recipe/search') {
+      requested.resolve();
+      await resume.promise;
+    }
+    return request(...args);
+  };
+  const prompt = f.call('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] });
+  await requested.promise;
+  try {
+    await f.ports.sessions.update(f.id, stored => ({ ...stored, sessionEpoch: stored.sessionEpoch + 1 }));
+  } finally { resume.resolve(); }
+  await prompt;
+  assert.equal(f.sessions.get(f.id).native, undefined);
+  assert.equal(f.scheduled.some(task => task.startsWith('native:')), false);
+});
+
+test('an explicit native session start leaves owner discovery to the first prompt', async t => {
+  const f = fixture(t);
+  const current = f.ports.owner.current;
+  let probes = 0;
+  f.ports.owner.current = () => { probes++; return current(); };
+  assert.deepEqual(await f.call('SessionStart'), {});
+  assert.equal(probes, 0);
+  assert.ok(f.scheduled.includes('drain'));
+  await f.call('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] });
+  assert.ok(probes > 0);
+  assert.equal(f.sessions.get(f.id).pid, current());
 });

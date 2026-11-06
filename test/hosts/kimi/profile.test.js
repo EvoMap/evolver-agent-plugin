@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import kimi from '../../../hosts/kimi/profile.js';
-import { EVENTS } from '../../../lib/agent/events.js';
 import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 
 const payload = { session_id: 'session-fixture', cwd: join('D:', 'fixture'), client_type: 'kimi_code_cli', hook_event_name: 'UserPromptSubmit', prompt: [{ type: 'text', text: '  Fix retry. ' }, { type: 'image', image_url: 'untrusted' }, { type: 'text', text: 'Run tests.' }], is_steer: false };
@@ -14,6 +13,7 @@ test('Windows Desktop hooks use the Kimi session contract and require a Kimi anc
   assert.equal(kimi.payload.isIgnored({ ...desktop, is_steer: true }), true);
   assert.equal(kimi.payload.isIgnored({ ...desktop, client_type: 'kimi_code_vscode' }), true);
   const owner = (name) => ownerProbeOf(kimi.owner, {
+    platform: 'win32', windowsAncestry: kimi.windowsAncestry,
     probe: (pid) => pid === process.ppid ? { name: 'cmd.exe', ppid: 4242 }
       : pid === 4242 ? { name, ppid: 1 } : null,
   }).current();
@@ -29,7 +29,8 @@ test('Kimi uses its native prompt message contract and observer events cannot in
   assert.deepEqual(kimi.reply.notice('Later notice', 'SessionStart'), {});
   assert.equal(kimi.reply.toolResultContext, false);
   assert.equal(kimi.commands.entry, 'cli-only');
-  for (const event of ['TurnStarted', 'Stop', 'StopFailure', 'Interrupt', 'TaskStarted', 'Notification']) assert.equal(kimi.events[event], EVENTS.OBSERVE);
+  assert.deepEqual(kimi.native.events, ['TurnStarted', 'Stop', 'StopFailure', 'Interrupt', 'TaskStarted', 'Notification']);
+  for (const event of kimi.native.events) assert.equal(kimi.events[event], undefined);
 });
 
 test('native profile scope and turn zero survive identity normalization; steer and foreign agents are ignored', () => {

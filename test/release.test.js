@@ -32,12 +32,17 @@ test('packing with a version stamps it into every manifest a packed host reads',
 
 test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, publish, then the GitHub Release', () => {
   assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /needs: \[test, windows-kimi\]\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(workflow, /needs: \[test, windows-minimax\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   const kimi = workflow.slice(workflow.indexOf('  windows-kimi:'), workflow.indexOf('  publish:'));
+  assert.match(kimi, /if: github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'/);
   assert.match(kimi, /runs-on: windows-latest/);
   assert.match(kimi, /node: \[22, 26\]/);
   assert.match(kimi, /run: npm run test:kimi/);
   assert.match(kimi, /run: npm run pack/);
+  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  windows-kimi:'));
+  assert.match(windows, /runs-on: windows-latest/);
+  assert.match(windows, /node: \[22, 26\]/);
+  assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
   const steps = ['run: npm ci', '--version=$GITHUB_REF_NAME', 'publish-tag.sh "$GITHUB_REF_NAME" release', 'gh release create'].map((step) => publish.indexOf(step));
   assert.ok(steps.every((at, index) => at > 0 && (index === 0 || at > steps[index - 1])), steps.join(','));

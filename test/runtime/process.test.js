@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { profileNamed } from '../../lib/agent/registry.js';
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
 import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
+import { waitForWakeUp } from '../../lib/runtime/lifetime/ephemeral.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
@@ -84,8 +85,8 @@ test('a cancelled run is ended and reported cancelled', async () => {
 
 test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
-  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
-  const profile = await profileNamed('codex');
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off', MINIMAX_DATA_DIR: home, PLUGIN_DATA: '' };
+  const profile = await profileNamed(process.platform === 'win32' ? 'minimax' : 'codex');
   const { scheduler } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: async () => true }).ports;
   const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
   await stores.candidates.update(() => ({ leftover: { closed: true, at: 1 } }));
@@ -120,6 +121,15 @@ test('a hook process arms one sleeping waiter, another only for an earlier time 
   assert.equal(ownerIsGone(sleeping.pid), false, 'the later waiter sleeps on');
 });
 
+test('an unreadable waiter record neither stops a woken waiter nor is removed by it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-waiter-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const waiterFile = join(dir, 'waiter.json');
+  writeFileSync(waiterFile, '{unfinished');
+  await waitForWakeUp(0, { waiterFile, clock: { now: () => 1, sleep: async () => {} } });
+  assert.equal(readFileSync(waiterFile, 'utf8'), '{unfinished');
+});
+
 test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
   const { elapsedMsOf } = await import('../../lib/runtime/process/identity.js');
   const ps = (stdout) => ({ probe: () => ({ stdout }), platform: 'darwin' });
@@ -127,7 +137,7 @@ test("a process's age is read from every form ps prints it in, and is unknown wh
   assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
   assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
   assert.equal(elapsedMsOf(1, ps('')), null);
-  assert.equal(elapsedMsOf(-1, { platform: 'win32' }), null);
+  assert.equal(elapsedMsOf(process.pid, { platform: 'win32' }), null, 'Windows hosts must opt in to start-time probes');
 });
 
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {
@@ -140,7 +150,8 @@ test('the owner is this process, the parent past a shell, or the nearest named a
   assert.equal(ownerProbeOf('self').current(), process.pid);
   assert.equal(ownerProbeOf('parent', { probe, platform: 'darwin' }).current(), 50);
   assert.equal(ownerProbeOf({ ancestor: /^codex/ }, { probe, platform: 'darwin' }).current(), 40);
-  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), 50);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), null);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32', windowsAncestry: true }).current(), 50);
 });
 
 test('a hook waits what is left of its budget, never less than a floor', () => {

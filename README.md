@@ -52,6 +52,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
 | Kimi Code CLI 2.4.1 and Desktop 1.2.1 | Direct install; Windows native checked | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
+| MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -146,6 +147,17 @@ injections, undelivered reports), so nothing is lost on the way over.
   Other OAuth regions, web/VS Code, subagents and parallel prompts have separate acceptance gates. This local installer
   does not establish support in the external Evolver CLI installer or a Marketplace.
   [The Kimi adapter guide](hosts/kimi/dist/README.md) explains evidence, route identity and isolation.
+- **MiniMax Code:** run `node scripts/install-minimax.mjs install` from a checkout,
+  then run `mcode plugin enable evolver-plugin@local --json` and start a
+  new task. The data root defaults to `~/.minimax`; keep the same `MINIMAX_DATA_DIR` for a separate profile.
+  A release checkout installs its versioned `dist/minimax` bundle; `--version X.Y.Z` builds the current sources explicitly.
+  The checkout's manifest is `.minimax-plugin/plugin.json`; source stays in `hosts/minimax/`.
+  This is a local installation: MiniMax's current public Marketplace submission format excludes hooks.
+  Use `evolver-status`, `evolver-drafts` and `evolver-evolve` in chat; `evolver-config recall off` and
+  `evolver-config auto-distill off` save preferences. Longer commands run as background jobs; use
+  `evolver-jobs`, `evolver-jobs job <id>` or `evolver-jobs cancel <id>` to inspect or cancel them.
+  [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
+  configuration copies and recovery when a host exits without `SessionEnd`.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
@@ -214,10 +226,9 @@ npm run pack
 claude --plugin-dir dist/claude-code
 ```
 
-Packing follows each entry's module imports. The shared TOML reader vendors only the pinned
-`smol-toml@1.9.1` ESM closure and its BSD-3-Clause license under `lib/vendor/`, rewriting its static import to a
-relative file. Packed hosts load without an npm install; optional MCP SDK and engine packages are not copied into
-those bundles. `npm ci` is required before packing source so the pinned dependency is available.
+Packing follows each entry's module imports. The Kimi pack manifest opts in to the pinned `smol-toml@1.9.1`
+ESM closure and its BSD-3-Clause license. Its static import points to a relative file in the installed bundle.
+Run `npm ci` before packing Kimi from source.
 
 ## License
 

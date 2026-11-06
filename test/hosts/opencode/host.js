@@ -32,7 +32,8 @@ export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer, 
     request.on('end', () => {
       const parsed = body ? JSON.parse(body) : undefined;
       requests.push({ path: request.url, body: parsed });
-      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer(request.url, parsed, assets)));
+      // Keep a cold Core import from racing the fixture's idle socket expiry on Node 22.
+      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }).end(JSON.stringify(answer(request.url, parsed, assets)));
       if (request.url === '/asset/fetch' && recallDelayMs) setTimeout(reply, recallDelayMs);
       else reply();
     });

@@ -16,6 +16,7 @@ const CONTRACT = {
   grok: { manifest: '.grok-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   qoder: { manifest: '.qoder-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   kimi: { manifest: 'kimi.plugin.json', name: 'evolver-plugin', entries: ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs'] },
+  minimax: { manifest: '.minimax-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   antigravity: { manifest: 'plugin.json', name: 'evolver-plugin', entries: ['hooks.json', 'bin/hook.mjs'] },
   opencode: { manifest: 'package.json', name: '@evomap/evolver-opencode', entries: ['server.mjs', 'tui.mjs'], npm: true },
   dsh: { manifest: 'package.json', name: '@evomap/dsh-evolver', entries: ['plugin.mjs'], npm: true },

@@ -25,7 +25,12 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   const candidate = (await stores.candidates.read()).ses_d;
 
   await deleted(oc, 'ses_d');
-  await until(() => distills(proxy).length === 1, 'the distillation');
+  try { await until(() => distills(proxy).length === 1, 'the distillation'); }
+  catch (error) {
+    const pending = (await stores.candidates.read()).ses_d;
+    t.diagnostic(JSON.stringify({ calls: client.calls.map(call => call.name), requests: proxy.requests.map(request => request.path), closed: pending?.closed, attempts: pending?.attempts, claimed: Boolean(pending?.claimedBy) }));
+    throw error;
+  }
   await until(async () => (await stores.candidates.read()).ses_d === undefined, 'the candidate to settle');
 
   const [create] = callsNamed(client, 'create');
@@ -42,7 +47,7 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   assert.equal(body.trigger, 'session_end');
   assert.equal(body.session_id, 'opencode:ses_d');
   assert.equal(body.user_prompt, PROMPT);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', exit: 0, source: 'observed' }] });
+  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', ok: true, source: 'observed' }] });
   assert.deepEqual(body.distill_usage, { input: 900, output: 120 });
   assert.equal((await stores.drafts.read()).length, 1);
 });

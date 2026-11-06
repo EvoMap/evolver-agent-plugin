@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -13,7 +13,7 @@ const SOURCE = /\.m?js$/;
 function filesUnder(dir) {
   if (!existsSync(join(root, dir))) return [];
   return readdirSync(join(root, dir)).flatMap((name) => {
-    const path = join(dir, name);
+    const path = `${dir}/${name}`;
     const stat = lstatSync(join(root, path));
     if (stat.isDirectory()) return filesUnder(path);
     return stat.isFile() && SOURCE.test(path) ? [path] : [];
@@ -23,7 +23,7 @@ function filesUnder(dir) {
 const sourceOf = (file) => readFileSync(join(root, file), 'utf8');
 const importsOf = (file) => importsIn(sourceOf(file)).map(({ specifier }) => specifier);
 const hostOf = (path) => /^hosts\/([^/]+)\//.exec(path)?.[1] ?? null;
-const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)) : specifier);
+const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)).split(sep).join('/') : specifier);
 
 // A host's `dist/` and `bin/` are entries: the glue a host loads, which reaches the plugin only through a channel.
 const ENTRY = /^(?:bin\/|hosts\/[^/]+\/dist\/)/;
@@ -55,8 +55,15 @@ const MAY_IMPORT = {
 const PURE_NODE = new Set(['node:path', 'node:url', 'node:os']);
 
 const NODE_FREE = new Set(['domain', 'app']);
-// Packages are IO: only the runtime (evolver-core) and the channels (the MCP SDK) take them.
+// Runtime and channels can import IO packages. The pure TOML codec needs a host's explicit pack opt-in.
 const MAY_IMPORT_PACKAGES = new Set(['runtime', 'channels']);
+function importsDeclaredPureParser(file, specifier) {
+  if (specifier !== 'smol-toml' || layerOf(file) !== 'hosts') return false;
+  const spec = join(root, 'hosts', hostOf(file), 'dist', 'pack.json');
+  if (!existsSync(spec)) return false;
+  const { vendors } = JSON.parse(readFileSync(spec, 'utf8'));
+  return Array.isArray(vendors) && vendors.includes(specifier);
+}
 // An import whose target only the running code knows escapes this check: the runtime's optional packages, and the
 // registry, which finds a host's profile by its folder name.
 const MAY_COMPUTE_IMPORTS = new Set(['runtime', 'channels']);
@@ -76,7 +83,7 @@ test('each layer imports only the layers below it, and domain and app never touc
       }
       const target = layerOf(targetOf(file, specifier));
       if (target === 'external') {
-        if (!MAY_IMPORT_PACKAGES.has(layer)) problems.push(`${file} (${layer}) imports package ${specifier}`);
+        if (!MAY_IMPORT_PACKAGES.has(layer) && !importsDeclaredPureParser(file, specifier)) problems.push(`${file} (${layer}) imports package ${specifier}`);
         continue;
       }
       if (!MAY_IMPORT[layer].includes(target)) problems.push(`${file} (${layer}) imports ${specifier} (${target})`);
