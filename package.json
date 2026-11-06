@@ -16,7 +16,8 @@
     "pack": "node scripts/pack.mjs all dist"
   },
   "devDependencies": {
-    "@evomap/evolver-core": "2.0.38"
+    "@evomap/evolver-core": "2.0.38",
+    "smol-toml": "1.9.1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
