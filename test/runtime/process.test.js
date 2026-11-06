@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { profileNamed } from '../../lib/agent/registry.js';
@@ -23,28 +24,43 @@ test('a run gets its input on stdin and the headless marker only when asked', as
   assert.equal((await runProcess(node, echo, { input: 'hi', headless: true })).stdout, 'hi|1');
 });
 
+test('a binary run preserves stdout bytes that cannot be decoded as UTF-8', async () => {
+  const bytes = [0xff, 0, 0xc3, 0xa9];
+  const result = await runProcess(node, ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`], { encoding: 'buffer' });
+  assert.equal(result.code, 0);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.stdout, Buffer.from(bytes));
+});
+
 test('a run past its timeout is killed and says so; a missing command reads as ENOENT', async () => {
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
   assert.equal((await runProcess('evolver-no-such-command-xyz', [])).error.code, 'ENOENT');
 });
 
-test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async () => {
+test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async (t) => {
   const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
-  const child = `
-    const { spawn } = require('node:child_process');
-    const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore', windowsHide: true });
-    console.log(JSON.stringify([process.pid, descendant.pid]));
-    setTimeout(() => {}, 5000);
-  `;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-stripped-process-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const child = join(dir, 'child.exe');
+  // A fresh Node 22 child can fail its native RNG bootstrap before any JavaScript runs without SystemRoot.
+  const compiler = join(process.env.SystemRoot || process.env.WINDIR, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  await promisify(execFile)(compiler, ['/nologo', '/target:exe', '/out:' + child, fileURLToPath(new URL('../fixtures/process/windows-child.cs', import.meta.url))], { timeout: 12000, windowsHide: true });
   const fixture = `
+    import assert from 'node:assert/strict';
     import { setTimeout as delay } from 'node:timers/promises';
-    const env = { ...process.env };
-    for (const key of Object.keys(process.env)) {
-      if (/^(systemroot|windir|comspec)$/i.test(key)) delete process.env[key];
+    // Seed every key so stripping is exercised even when the host already omitted it.
+    const env = { ...process.env, SystemRoot: 'fixture-root', WINDIR: 'fixture-root', COMSPEC: 'fixture-shell' };
+    for (const key of Object.keys(env)) {
+      if (/^(systemroot|windir|comspec)$/i.test(key)) {
+        delete env[key];
+        delete process.env[key];
+      }
     }
+    assert.deepEqual(Object.keys(env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'child env still contains a system directory variable');
+    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'runtime imported with a system directory variable');
     const { runProcess } = await import(${JSON.stringify(runtime)});
-    const result = await runProcess(process.execPath, ['--input-type=commonjs', '-e', ${JSON.stringify(child)}], { env, timeoutMs: 1500 });
+    const result = await runProcess(${JSON.stringify(child)}, [], { env, timeoutMs: 1500 });
     if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
     const pids = JSON.parse(result.stdout);
     const alive = pid => {
@@ -111,7 +127,7 @@ test("a process's age is read from every form ps prints it in, and is unknown wh
   assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
   assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
   assert.equal(elapsedMsOf(1, ps('')), null);
-  assert.equal(elapsedMsOf(1, { platform: 'win32' }), null);
+  assert.equal(elapsedMsOf(-1, { platform: 'win32' }), null);
 });
 
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {
