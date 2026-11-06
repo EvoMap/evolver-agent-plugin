@@ -7,8 +7,8 @@ import { promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { TASKS } from '../../lib/app/ports.js';
-import { distillDue, distillSession, dropExpiredLeftovers } from '../../lib/app/distill-session.js';
-import { candidateOf, IDLE_DISTILL_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers } from '../../lib/app/distill-session.js';
+import { BLOCKED_ROUTE_TTL_MS, candidateOf, IDLE_DISTILL_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
 import { memoryPorts, PROMPT } from './memory-ports.js';
 
 const route = { alias: 'route-b', providerId: 'account-b', model: 'upstream-b', protocol: 'openai', endpoint: 'https://api.example/v1', effort: 'off', binding: 'captured-account', configRevision: 'same-config' };
@@ -376,6 +376,24 @@ test('a completed foreground check with an unknown verdict stops polling without
   assert.deepEqual(await made.ports.candidates.read(), {});
   assert.deepEqual(await distillDue(made.ports), []);
   assert.equal(made.requests.some(({ path }) => path === '/conversation/distill'), false);
+});
+
+test('a legacy route-blocked native candidate with an unknown check still schedules expiry', async () => {
+  const made = await pending();
+  const { ports } = made;
+  const at = ports.clock.now();
+  const verified = record();
+  verified.checks.push({ command: 'npm run lint', failed: null });
+  const candidate = candidateOf({ prompt: PROMPT, record: verified, model: route, turn: 1, now: at });
+  await ports.candidates.update(() => ({ session: { ...candidate, blocked: { reason: 'route_changed', at } } }));
+  ports.model.complete = () => assert.fail('expiry must not request a model');
+
+  assert.equal((await distillSession(ports, { sessionId: 'session' })).status, 'busy');
+  await armDistillWakeUp(ports);
+  assert.deepEqual(made.wakeUps, [{ at: at + BLOCKED_ROUTE_TTL_MS, tasks: [TASKS.DISTILL] }]);
+  made.advance(BLOCKED_ROUTE_TTL_MS);
+  assert.deepEqual(await distillDue(ports), []);
+  assert.deepEqual(await ports.candidates.read(), {});
 });
 
 test('a pending background check blocks native distillation until dead-owner recovery sees its result', async () => {
