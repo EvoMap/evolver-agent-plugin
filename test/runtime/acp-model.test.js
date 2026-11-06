@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -300,7 +301,7 @@ async function assertUnprovenFixtureJobStopped({ home, pids }) {
   }));
   assert.equal(existsSync(home), true, 'scratch stays when no live job-empty proof was delivered');
   assert.equal(JSON.parse(readFileSync(join(home, CHILD_FILE), 'utf8')).jobEmpty, false);
-  rmSync(home, { recursive: true, maxRetries: 5, retryDelay: 20 }); // Only this fixture's now-dead, nonce-owned tree.
+  await rm(home, { recursive: true, maxRetries: 5, retryDelay: 100 }); // Windows can release directory handles after the PIDs disappear.
 }
 
 test('an abrupt Windows guardian death kills the whole job but retains scratch without a job-empty proof', { skip: process.platform !== 'win32' }, async t => {
