@@ -33,6 +33,17 @@ test('every file carries the agent name, so two agents in one directory never me
   assert.deepEqual(seen, [['s1', 5]]);
 });
 
+test('one corrupt session file is preserved and reported without stopping the update of the others', async () => {
+  const { dir, stores: cursor } = stores();
+  await cursor.sessions.update('good', () => ({ turn: 1 }));
+  await cursor.sessions.update('bad', () => ({ turn: 1 }));
+  const corrupt = readdirSync(dir).map((name) => join(dir, name)).find((file) => fs.readFileSync(file, 'utf8').includes('"bad"'));
+  writeFileSync(corrupt, '{unfinished');
+  await assert.rejects(cursor.sessions.updateEach((stored) => ({ ...stored, turn: 2 })), { code: 'EINVALIDSTATE' });
+  assert.equal((await cursor.sessions.read('good')).turn, 2);
+  assert.equal(fs.readFileSync(corrupt, 'utf8'), '{unfinished');
+});
+
 test('the outbox takes queued reports and keeps what each delivery attempt settled', async () => {
   const { stores: cursor } = stores();
   await cursor.reports.enqueue([{ report: { task_id: 't1', asset_id: 'a' }, sessionId: 's1' }]);
