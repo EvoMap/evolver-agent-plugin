@@ -8,6 +8,9 @@ const COMPUTED_IMPORT = /\bimport\(\s*(?!(['"`])[^'"`$]+\1\s*\))/;
 
 /** The modules `source` imports, as `{ specifier, isDynamic }`. */
 export const importsOf = (source) => [...source.matchAll(IMPORT)]
-  .map((match) => ({ specifier: match[1] ?? match[2] ?? match[4], isDynamic: match[4] !== undefined }));
+  .map((match) => {
+    const specifier = match[1] ?? match[2] ?? match[4];
+    return { specifier, isDynamic: match[4] !== undefined, offset: match.index + match[0].lastIndexOf(specifier) };
+  });
 
 export const hasComputedImport = (source) => COMPUTED_IMPORT.test(source);
