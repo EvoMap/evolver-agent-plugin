@@ -72,7 +72,7 @@ test('Stop reports the strategy as used with the transcript\'s evidence, and the
   const [{ report }] = s.queued;
   assert.equal(report.task_id, 'antigravity:s1:1');
   assert.equal(report.outcome, 'success');
-  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' });
   const candidate = (await s.ports.candidates.read()).s1;
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { model: 'gemini-test' });

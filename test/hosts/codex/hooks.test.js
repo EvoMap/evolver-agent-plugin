@@ -139,7 +139,7 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
     outcome: 'success',
     task_id: 'codex:s-turn:1',
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed after failing earlier.',
-    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, aborted: false, stage: 'immediate' },
+    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' },
   });
   const candidate = pending()['s-turn'];
   assert.deepEqual(candidate.model, { model: 'gpt-5.5' });
@@ -217,9 +217,12 @@ test('the session end distills its candidate through codex exec, headless, on th
   await waitFor(() => !pending()['s-done']);
 });
 
-test('inside the headless run every hook answers {} and writes nothing', posix, async () => {
+test('inside the headless run every hook answers {} and writes nothing', posix, async (t) => {
+  // Earlier hooks may still be delivering reports; this Proxy sees only the headless hooks under test.
+  const proxy = await fakeProxy();
+  t.after(() => closeWhenSettled(proxy));
   const before = proxy.requests.length;
-  const headless = { ...env, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
+  const headless = { ...env, ...proxy.env, PATH: env.PATH, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
   const payload = { ...PAYLOADS.UserPromptSubmit, session_id: 's-headless', cwd: project, prompt: PROMPT };
   assert.deepEqual(await runHook('UserPromptSubmit', payload, headless), {});
   assert.deepEqual(await runHook('Stop', { ...PAYLOADS.Stop, session_id: 's-headless' }, headless), {});

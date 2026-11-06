@@ -47,6 +47,19 @@ test('the task context leaves for the Proxy whole when it fits 4096 bytes', asyn
   assert.equal(searches[0].context.task, task);
 });
 
+test('quoted JSON credentials are redacted from the recall query and task context', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const prompt = 'Retry the uploader with this config: {"token":"fixtureCredential123456","accessToken":"fixtureAccess123456","mode":"retry"}';
+  await recallStrategy(proxyFetch, promptTextOf(prompt), { context: { task: taskTextOf(prompt), trigger: 'turn_start' } });
+  assert.equal(calls.length, 1);
+  assert.equal(searches.length, 1);
+  for (const body of [calls[0].body, searches[0]]) {
+    const sent = JSON.stringify(body);
+    assert.doesNotMatch(sent, /fixture(?:Credential|Access)123456/);
+    assert.match(sent, /retry/i);
+  }
+});
+
 test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const task = taskTextOf('上传失败后重试'.repeat(600));
@@ -66,7 +79,7 @@ test('one call recalls by text and injects that asset\'s strategy alone', async 
   const { ids, text } = await recallStrategy(proxyFetch, 'add a retry to the uploader');
 
   assert.deepEqual(calls.map((call) => call.path), ['/asset/fetch']);
-  assert.deepEqual(calls[0].body, { text: 'add a retry to the uploader' }, 'no limit: the Hub default applies');
+  assert.deepEqual(calls[0].body, { text: 'add a retry to the uploader', signals: ['retry', 'uploader'] }, 'no limit: the Hub default applies');
   assert.ok(!('asset_ids' in calls[0].body), 'ids would turn the recall back into a lookup');
   assert.deepEqual(ids, ['sha256:abc']);
   assert.match(text, /\[Evolution Memory\] Retry the upload with backoff\. \(EvoMap network\)/);

@@ -173,7 +173,7 @@ test('a whole turn through the installed hooks: the strategy before each call, a
     outcome: 'success',
     task_id: 'antigravity:s-e2e:1',
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed.',
-    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' },
+    evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' },
   });
   assert.equal(proxy.requests.filter((request) => request.path === '/asset/fetch').length, 1);
   const candidate = JSON.parse(readFileSync(stateFile(proxy.env.HOME, 'antigravity-distill-pending.json'), 'utf8'))['s-e2e'];
@@ -202,7 +202,7 @@ test('a killed session\'s open strategy is reported aborted at the first model c
   assert.deepEqual(await s.invoke(), {});
   const [report] = await waitFor(() => reuseReports(proxy));
   assert.equal(report.task_id, 'antigravity:s-killed:4');
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', aborted: true, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', source: 'observed', aborted: true, stage: 'immediate' });
 });
 
 test('the candidate of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', async (t) => {
