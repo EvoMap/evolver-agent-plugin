@@ -173,6 +173,18 @@ test('a passing summary with cancelled tests does not verify a completed run', (
   }
 });
 
+test('redirect operands are data, while the executable can follow a redirect', () => {
+  for (const command of ['echo >&npm test', 'echo >|npm test', 'echo &>npm test', 'echo > npm test',
+    'echo >& npm test', 'npm2>test.log test', 'npm 2&>test.log test', "bash -c 'echo >&npm test'"]) {
+    assert.equal(isVerificationCommand(command), false, command);
+  }
+  for (const command of ['>test.log npm test', '2>&1 npm test', '> "check output.log" npm test',
+    'npm test 2>&1', 'npm >test.log test', 'cd app&&>test.log npm test', 'echo >&npm test | npm run lint',
+    "env CI=1 bash -c '2>&1 npm test'"]) {
+    assert.equal(isVerificationCommand(command), true, command);
+  }
+});
+
 test('a heredoc body that names a check is data, not a check; the command lines still count', () => {
   const editsReadme = "python3 - <<'EOF'\ntext = 'run npm test, then make'\nprint(text)\nEOF";
   assert.equal(isVerificationCommand(editsReadme), false);
@@ -217,13 +229,13 @@ test('a wrapped shell script does not give its compound exit to the check inside
 });
 
 test('literal shell text and descriptor redirects preserve a direct check exit', () => {
-  for (const command of ['cd app && npm test', "cd app && /bin/bash -c 'npm test'"]) {
+  for (const command of ['cd app && npm test', 'cd app&&>test.log npm test', "cd app && /bin/bash -c 'npm test'"]) {
     const directoryCheck = { kind: 'shell', command };
     assert.deepEqual(turnRecordOf([{ ...directoryCheck, exit: 0 }]).checks[0], { command, exit: 0, failed: false });
     assert.deepEqual(turnRecordOf([{ ...directoryCheck, exit: 1 }]).checks[0], { command, exit: null, failed: null });
   }
   for (const command of ['npm test -- --grep "a|b; c && d"', 'npm test 2>&1',
-    'npm test &> report.log', 'npm test >| report.log', 'npm test # after; ignore',
+    'npm test &> report.log', 'npm test >| report.log', '>test.log npm test', '2>&1 npm test', 'npm test # after; ignore',
     "sh -c 'npm test'", 'npm test\n', 'npm test <<EOF\n&& ignore\nEOF',
     "/bin/bash -c 'npm test'", 'bash -lc "npm test"', "env CI=1 bash -c 'npm test'", "sudo -n bash -c 'npm test'",
     'corepack pnpm test', 'command npm test', 'npm exec -- vitest run']) {
