@@ -149,6 +149,19 @@ test('a trial Gene the Proxy withheld from a turn is reported as its control und
   ]);
 });
 
+test('a turn end clears only the pending controls it queued, never one another end left meanwhile', async () => {
+  const { ports } = memoryPorts({ assets: [] });
+  const other = { report: { asset_id: 'sha256:other', withheld_id: 'wh-other', task_id: 'testagent:s1:9', passed: false, platform: 'testagent' }, sessionId: 's1', path: '/asset/trial-control' };
+  await verifiedTurn(ports, 's1');
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async (entries) => {
+    await ports.sessions.update('s1', (stored) => ({ ...stored, pendingControls: [...(stored.pendingControls ?? []), other] }));
+    return enqueue(entries);
+  };
+  await end(ports, 's1');
+  assert.deepEqual((await ports.sessions.read('s1')).pendingControls, [other]);
+});
+
 test('a plugin command turn recalls nothing, keeps the last reuses for labelling and is no work turn', async () => {
   const { ports, queued } = memoryPorts();
   await verifiedTurn(ports, 's1');
