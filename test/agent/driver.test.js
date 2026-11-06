@@ -91,7 +91,7 @@ test('a host that keeps a transcript hands the turn record over from it', async 
   const { driver, ports } = driverOf(profile, memoryPorts(), transcripts);
   await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT, transcript_path: '/t.jsonl' });
   await driver.handle('Stop', { ...base, transcript_path: '/t.jsonl', last_assistant_message: 'Fixed.' });
-  assert.deepEqual((await ports.candidates.read()).s1.checks, [{ command: 'npm test', failed: false }]);
+  assert.deepEqual((await ports.candidates.read()).s1.checks, [{ command: 'npm test', exit: null, failed: false }]);
 });
 
 test('the MCP profile turns tool calls into a turn whose report is agent-reported and asks for a Gene', async () => {
@@ -105,6 +105,15 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });
   assert.match(status.content[0].text, /verified turn waiting to be distilled/);
+});
+
+test('a successful compound command reported through MCP does not open a distillation candidate', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(mcpGeneric, made);
+  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
+  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'true || npm test', exit: 0 }], files: ['lib/redis.js'] });
+  assert.equal(reported.content[0].text, 'Reported.');
+  assert.equal((await made.ports.candidates.read()).m1, undefined);
 });
 
 test('a session start answers the engine notice once, and a session end schedules distillation', async () => {

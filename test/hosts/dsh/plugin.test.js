@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  ASSET, DSH, PROMPT, bash, fakeLlm, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
+  ASSET, DSH, PROMPT, bash, elapseRetryWaits, fakeLlm, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
 } from './host.js';
 
 const fetches = (proxy) => requestsTo(proxy, '/asset/fetch');
@@ -40,7 +40,7 @@ test('the recalled strategy joins the step that carries the prompt, behind it, a
   assert.ok(Object.isFrozen(strategy));
   assert.match(strategy.content[0].text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(strategy.content[0].text.endsWith('Apply them where they fit.'));
-  assert.deepEqual(fetches(proxy)[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' } });
+  assert.deepEqual(fetches(proxy)[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' }, signals: ['flaky', 'redis', 'connection', 'retries', 'tests'] });
   const later = await dsh.preStep(agent, { turn: 1, step: 2, messages: [] });
   assert.deepEqual(later.messages, [], 'a later step of the turn adds nothing');
 });
@@ -55,12 +55,12 @@ test('a verified turn is reported with its last check and becomes the session\'s
   assert.equal(report.task_id, `dsh:${DSH.agentCreated.startup.sessionId}:1`);
   assert.equal(report.asset_id, ASSET.asset_id);
   assert.equal(report.outcome, 'success');
-  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
   await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the candidate');
   const candidate = stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id];
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { provider: 'deepseek-official', model: 'deepseek-flash' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: null, failed: false }]);
   assert.equal(candidate.answer, 'Set maxRetriesPerRequest to null; the suite passes.');
   assert.equal(candidate.pid, process.pid);
 });
@@ -123,6 +123,8 @@ test('the plugin\'s unload ends the open sessions; the next dsh process distills
   assert.equal(aborted.evidence.aborted, true);
   assert.equal(aborted.outcome, 'failed');
 
+  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[done.session.id]?.attempts === 1, 'the try without a model service to count');
+  elapseRetryWaits(proxy);
   const llm = fakeLlm();
   const next = await startDsh({ llm });
   await next.createAgent();

@@ -50,7 +50,7 @@ test('a turn that ran no check still reports its injection, as tier none', () =>
     outcome: 'success',
     task_id: 'claude-code:s1:4',
     reason: 'Injected by Evolver into turn 4; applied: used; no check ran.',
-    evidence: { tier: 'none', applied: 'used', aborted: false, stage: 'immediate' },
+    evidence: { tier: 'none', applied: 'used', source: 'observed', aborted: false, stage: 'immediate' },
   });
   assert.equal(immediate({ turnReason: 'error' }).outcome, 'failed');
 });
@@ -82,7 +82,7 @@ test('an interrupted turn says so', () => {
 });
 
 test('a report reveals no command, prompt or code', () => {
-  const report = immediate({ checks: [{ command: 'API_KEY=hunter22 npm test -- secret/path.js', failed: false }] });
+  const report = immediate({ checks: [{ command: 'API_KEY=hunter22 npm test -- secret/path.js', exit: 0, failed: false }] });
   assert.doesNotMatch(JSON.stringify(report), /hunter22|secret\/path|npm test/);
 });
 
@@ -329,7 +329,7 @@ test('the status a newer Proxy passes through is kept with the rejection', () =>
 
 test('a reuse that cannot be judged is exposure only, without the unused penalty', () => {
   const report = immediate({ applied: 'unknown' });
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'partial', aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'partial', source: 'observed', aborted: false, stage: 'immediate' });
   assert.match(report.reason, /applied: unknown/);
   assert.equal(immediate({ applied: 'unknown', checks: [{ command: 'npm test', failed: false }] }).evidence.tier, 'none');
 });
