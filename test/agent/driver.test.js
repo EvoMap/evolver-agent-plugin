@@ -57,6 +57,24 @@ test('an unknown end reason leaves the turn open; a subagent, an unmapped event 
   assert.deepEqual(await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }), {});
 });
 
+test('a correction whose draft lock stays held still opens its turn and recalls, and reports the lock', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(hookProfile(), made);
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  await driver.handle('Stop', { ...base, last_assistant_message: 'Done.' });
+  const held = Object.assign(new Error('Timed out waiting for the draft correction lock. Please retry.'), { code: 'ELOCKED' });
+  made.ports.draftCorrections.withSession = async () => { throw held; };
+  const errors = [];
+  const recalls = made.requests.length;
+
+  await driver.handle('UserPromptSubmit', { ...base, prompt: `still failing: ${PROMPT}` }, { onError: (error) => errors.push(error) });
+  assert.deepEqual(errors, [held]);
+  assert.ok(made.requests.length > recalls);
+  const session = made.sessions.get('s1');
+  assert.deepEqual([session.turn, session.open, session.correctedTurn], [2, true, 1]);
+  assert.equal(await made.ports.draftCorrections.has('s1', 1, session.sessionEpoch), true);
+});
+
 test('a host whose injection lasts one call gets the open turn\'s strategy again, without a second recall', async () => {
   const made = memoryPorts();
   const { driver, requests } = driverOf(hookProfile({ reply: { lifetime: 'call' }, payload: { turnId: (payload) => payload.turn } }), made);
