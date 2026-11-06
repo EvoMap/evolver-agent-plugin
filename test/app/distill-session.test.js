@@ -369,6 +369,31 @@ test('a correction removes the saved draft even after its candidate has settled'
   assert.deepEqual(await ports.drafts.read(), []);
 });
 
+test('a correction after an older plugin version dropped the session epoch still removes and blocks that turn\'s draft', async () => {
+  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+  const [draft] = await ports.drafts.read();
+  assert.ok(draft.sourceCandidate.sessionEpoch !== undefined);
+  await ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older);
+
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal(await ports.draftCorrections.has('s1', draft.sourceCandidate.turn, draft.sourceCandidate.sessionEpoch), true);
+});
+
+test('a session written before epochs existed corrects its drafts under no epoch', async () => {
+  const { ports } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(GENE) });
+  await ports.sessions.update('s1', () => ({ turn: 4 }));
+  await verifiedTurn(ports, 's1');
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+  const [draft] = await ports.drafts.read();
+  assert.deepEqual([draft.sourceCandidate.turn, draft.sourceCandidate.sessionEpoch], [5, undefined]);
+
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal(await ports.draftCorrections.has('s1', 5, undefined), true);
+});
+
 test('background distillation checks an idle draft again before returning the batch', async () => {
   const { ports, advance, requests } = await withCandidate();
   advance(1);
