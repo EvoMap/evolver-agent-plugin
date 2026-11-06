@@ -20,9 +20,19 @@ Everything runs from the host's hooks or plugin API:
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
   and roughly how many tokens the reused strategy saved.
-- **Distill.** After the session ends, its last turn that edited files and ended on a
+- **Distill.** Once the session has been quiet for 30 minutes, or ends, its last turn that edited files and ended on a
   passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
   the network until you publish the draft.
+
+Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
+When you publish a draft marked `publishable: false`, or a legacy draft without a receipt, the plugin first asks `POST /asset/reverify`
+to run trusted verification. If the verifier is unavailable or rejects the draft, it stays local
+with the reason shown. HTTP execution traces alone cannot authorize publication. A successful
+reverification saves the new bundle and receipt before submission, so a failed submission can
+be retried. The Proxy validates the exact receipt and Gene/Capsule/Event bundle when you publish.
+This plugin does not configure or enable a trusted verifier; the Proxy's platform and isolation
+requirements and validation-command policy still apply. Automatic distillation never calls
+reverification or publication.
 
 ## Hosts
 
