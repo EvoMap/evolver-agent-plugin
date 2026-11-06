@@ -46,11 +46,11 @@ test('a command script prints the answer\'s text; a hook with nothing to say ans
 
 test('a Gene the headless model could not write is handed to the agent with a command whose heredoc ends on the nonce', () => {
   const payload = { session_id: "s'1", script: '/plugin/bin/command.mjs', nonce: '0123456789abcdef', state_dir: '/data/evolver' };
-  const result = { ok: false, text: 'Distillation model_failed: spawn codebuddy ENOENT.', agentGene: { writtenFor: 1700, prompt: 'Below is the record…' } };
+  const result = { ok: false, text: 'Distillation model_failed: spawn codebuddy ENOENT.', agentGene: { writtenFor: 'v2-fixture', prompt: 'Below is the record…' } };
   const lines = profile.commands.scriptAnswer(result, payload).split('\n');
   assert.equal(lines[0], 'EVOLVER: WRITE THE GENE YOURSELF');
   assert.match(lines[1], /\(Distillation model_failed: spawn codebuddy ENOENT\)\.$/);
-  assert.equal(lines[5], "CODEBUDDY_SESSION_ID='s'\\''1' CODEBUDDY_PLUGIN_DATA='/data/evolver' node '/plugin/bin/command.mjs' workbuddy evolver-distill --post 1700 <<'EVOLVER_GENE_0123456789abcdef'");
+  assert.equal(lines[5], "CODEBUDDY_SESSION_ID='s'\\''1' CODEBUDDY_PLUGIN_DATA='/data/evolver' node '/plugin/bin/command.mjs' workbuddy evolver-distill --post 'v2-fixture' <<'EVOLVER_GENE_0123456789abcdef'");
   assert.deepEqual(lines.slice(6, 8), ['<the JSON answer>', 'EVOLVER_GENE_0123456789abcdef']);
   assert.equal(lines.at(-1), 'Below is the record…');
 });

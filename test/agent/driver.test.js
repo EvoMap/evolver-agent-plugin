@@ -57,6 +57,26 @@ test('an unknown end reason leaves the turn open; a subagent, an unmapped event 
   assert.deepEqual(await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }), {});
 });
 
+test('a correction whose draft lock stays held still opens its turn and recalls, and reports the lock', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(hookProfile(), made);
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  await driver.handle('PostToolUse', { ...base, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { exit_code: 0 } });
+  await driver.handle('Stop', { ...base, last_assistant_message: 'Done.' });
+  const held = Object.assign(new Error('Timed out waiting for the draft correction lock. Please retry.'), { code: 'ELOCKED' });
+  made.ports.draftCorrections.withSession = async () => { throw held; };
+  const errors = [];
+  const recalls = made.requests.length;
+
+  await driver.handle('UserPromptSubmit', { ...base, prompt: `still failing: ${PROMPT}` }, { onError: (error) => errors.push(error) });
+  assert.deepEqual(errors, [held]);
+  assert.ok(made.requests.length > recalls);
+  const session = made.sessions.get('s1');
+  assert.deepEqual([session.turn, session.open], [2, true]);
+  assert.match((await made.ports.candidates.read()).s1.turns[0].correction, /^still failing/);
+  assert.equal(await made.ports.draftCorrections.has('s1', 1, session.sessionEpoch), true);
+});
+
 test('a host whose injection lasts one call gets the open turn\'s strategy again, without a second recall', async () => {
   const made = memoryPorts();
   const { driver, requests } = driverOf(hookProfile({ reply: { lifetime: 'call' }, payload: { turnId: (payload) => payload.turn } }), made);
@@ -101,7 +121,7 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   assert.match(recalled.content[0].text, /Apply them where they fit\.\n\nturn_id: t1 /);
   const checks = [{ command: 'npm test', exit: 1 }, { command: 'npm test', exit: 0 }];
   const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks, files: ['lib/redis.js'] });
-  assert.match(reported.content[0].text, /call evolver_distill with written_for \d+[\s\S]*prompt session-gene-ir-v1/);
+  assert.match(reported.content[0].text, /call evolver_distill with written_for "v2-[A-Za-z0-9_-]{43}"[\s\S]*prompt session-gene-ir-v1/);
   assert.equal(queued[0].report.evidence.reported_by, 'agent');
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });

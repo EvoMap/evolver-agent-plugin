@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "name": "evolver-plugin",
+  "displayName": "Evolver",
+  "version": "1.0.0",
+  "description": "Recall reusable strategies, report verified results, and distill completed work into local drafts.",
+  "author": "EvoMap",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "icon": "assets/logo.png",
+  "category": "Code",
+  "exampleQueries": [],
+  "apps": [],
+  "mcpServers": [],
+  "skills": [],
+  "hooks": ["hosts/minimax/dist/hooks/hooks.json"]
+}

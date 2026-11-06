@@ -24,7 +24,12 @@ test('a fixed error is distilled once its session is deleted, in a tool-less hel
   assert.deepEqual(callsNamed(client, 'prompt'), [], 'nothing runs at turn end');
 
   await deleted(oc, 'ses_d');
-  await until(() => distills(proxy).length === 1, 'the distillation');
+  try { await until(() => distills(proxy).length === 1, 'the distillation'); }
+  catch (error) {
+    const pending = (await stores.candidates.read()).ses_d;
+    t.diagnostic(JSON.stringify({ calls: client.calls.map(call => call.name), requests: proxy.requests.map(request => request.path), closed: pending?.closed, attempts: pending?.attempts, claimed: Boolean(pending?.claimedBy) }));
+    throw error;
+  }
   await until(async () => (await stores.candidates.read()).ses_d === undefined, 'the candidate to settle');
 
   const [create] = callsNamed(client, 'create');

@@ -2,6 +2,21 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
+import { isCurrentRange, settledRange } from '../lib/distill/range.js';
+
+test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
+  const read = { at: 1_000, sessionEpoch: 1, turns: [turn(1)] };
+  const rows = [
+    ['after its turns were distilled', { ...read, turns: [turn(2)] }],
+    ['after the session started over', { ...read, sessionEpoch: 2 }],
+  ];
+  for (const [name, current] of rows) {
+    assert.equal(isCurrentRange({ s: current }, 's', read), false, name);
+    assert.equal(settledRange({ s: current }, 's', read, { consume: true, now: 2_000 }), undefined, name);
+    assert.equal(isCurrentRange({ s: current }, 's', current), true, name);
+  }
+});
 
 const RESULT = {
   ok: true,

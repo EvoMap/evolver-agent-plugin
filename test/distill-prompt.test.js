@@ -48,3 +48,32 @@ test('the kind a session defaults to is decided from its record alone', () => {
   ];
   for (const [name, steps, kind] of rows) assert.equal(defaultKindOf([{ turn: 1, steps }]), kind, name);
 });
+
+const settingsDiffOf = (content) => `diff --git a/settings.json b/settings.json\n${content.split('\n').map((line) => `+${line}`).join('\n')}\n`;
+const withSnapshot = (diff) => ({ ...rangeOf([{ checks: [] }]), project: { root: '/project', head: 'abc123', diff } });
+
+test('the Proxy body rechecks a saved snapshot with the current secret filter and leaves out one holding a credential, without changing what was saved', () => {
+  for (const [name, content] of [
+    ['a quoted JSON credential', '{"accessToken":"opaque-example-123456789"}'],
+    ['a credential object', '{"token":{"value":"opaqueFixtureObject"}}'],
+    ['a credential array', '{"refreshToken":["opaqueFixtureArray"]}'],
+    ['a credential nested multiline value', JSON.stringify({ token: { values: [
+      { value: 'opaqueFixtureNested', closing: '} ]', quoted: 'escaped "quote" and { [' },
+      ['ordinary', { closing: '] }' }],
+    ] } }, null, 2)],
+  ]) {
+    const range = withSnapshot(settingsDiffOf(content));
+    const saved = range.project.diff;
+    const body = bodyOf(range);
+    assert.deepEqual(body.project, { diff_omitted: 'secret' }, name);
+    assert.doesNotMatch(JSON.stringify(body), /opaque-example|opaqueFixture/, name);
+    assert.equal(range.project.diff, saved, name);
+  }
+});
+
+test('the Proxy body keeps a clean saved snapshot as it was saved: an empty diff, and business keys with scalar, object and array values', () => {
+  for (const diff of ['', ...['orders.id', { columns: ['orders.id'], closing: '} ]' }, ['orders.id', { column: 'tenant.id' }]].map((primaryKey) => settingsDiffOf(JSON.stringify({ primaryKey })))]) {
+    const range = withSnapshot(diff);
+    assert.deepEqual(bodyOf(range).project, range.project, diff);
+  }
+});

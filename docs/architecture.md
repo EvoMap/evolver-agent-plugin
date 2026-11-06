@@ -23,13 +23,20 @@ them is in `hosts/README.md`):
 
 ## Configuration
 
-Every host honours these environment variables:
+Hosts whose native environment preserves them honour these environment variables. MiniMax strips inherited
+Evolver flags from hooks; its persistent preferences are described below.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOME` / `USERPROFILE` | (unset) | User directory for Proxy settings and plugin state. A non-empty `HOME` wins. |
 | `EVOMAP_PROXY_PORT` | `19820` | Fallback Proxy port when `~/.evolver/settings.json` names no URL. |
 | `EVOLVER_RECALL` | (on) | `off` turns recall off. |
+| `EVOLVER_AUTO_DISTILL` | (on) | `off` leaves distillation to an explicit command. |
+
+MiniMax stores boolean `recall` and `autoDistill` preferences in `<PLUGIN_DATA>/minimax-settings.json`.
+`evolver-config recall off` and `evolver-config auto-distill off` update them without opening a model turn.
+Status reports the effective values and any invalid preferences; invalid/unreadable files pause both automatic
+activities instead of silently enabling them. Explicit environment values win where the host preserves them.
 
 Claude Code's options, editable from the `/config` menu, set the same things for its relay process:
 
@@ -42,7 +49,7 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 
 ## Troubleshooting
 
-State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
+State lives in `~/.evolver/state/` (WorkBuddy and MiniMax: their plugin data folders), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
 
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
   Proxy relays as HTTP 400. The Hub judges each recalled asset's fit to the session's task and returns only those
@@ -157,10 +164,18 @@ must authorize it; missing verification keeps the draft local. A successful resp
 replace the local draft before `POST /asset/submit`, preserving them for retry. The plugin never configures the
 verifier or manufactures receipts; the Proxy validates the authorization. A failed distillation is tried again in the
 background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and a range
-no model here can take waits a day for an agent's IRs before it is dropped. IRs an agent wrote for a range that
-changed since (another turn, a correction) are not sent. A headless run carries `EVOLVER_HEADLESS=1`, which turns
-this plugin's hooks off inside it. An agent with no model outside the conversation writes the IRs itself when asked,
-once its session's work passes the gate.
+no model here can take waits a day for an agent's IRs before it is dropped. A model runner that captures the session's
+route and reports it unavailable (`MODEL_UNAVAILABLE`) parks the range without costing a try, out of background
+retries, until the route works again or seven days after it was first found blocked. IRs an agent wrote for a range
+that changed since (another turn, a correction) are not sent. A correction of a turn a distillation is reading
+discards its answer (a Gene the Proxy stored stands) and leaves the range, with the correction, for the next one; a
+draft distilled from that turn before the correction is removed, and, marked in `<host>-distill-corrections/`, can
+never be published. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off inside it.
+MiniMax strips that variable, so a private marker in the runtime's empty scratch folder suppresses re-entry too. Its
+work turns capture provider/model/variant from a read-only projection of native v2 session metadata and check the
+hook's model name; an unknown schema or mismatch never selects another provider. The prepared CLI configuration is
+private to the run and removed after completion, error or cancellation. An agent with no model outside the
+conversation writes the IRs itself when asked, once its session's work passes the gate.
 
 **MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <host>`, an stdio server with seven
 tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
@@ -354,6 +369,7 @@ scripts/               pack.mjs, publish-tag.sh
 ```bash
 npm ci
 npm test
+npm run test:minimax
 npx -p typescript tsc -p .
 npm run validate
 ```
@@ -363,6 +379,11 @@ update. `npm run validate` packs `dist/claude-code` and runs `claude plugin vali
 2.1.286 or newer; an older `claude` on `PATH` validates the plugin as having no hooks. Installed copies update by
 version: bump `version` in a host's manifest with every change meant to reach its users, or the host reports the old
 version as the latest.
+
+Release CI runs the full suite on Linux and the MiniMax/packed-hook/shared-runtime suite on Windows, each
+on Node 22 and 26. Both jobs must pass before publication. MiniMax tests use disposable native profiles and
+local service fixtures; they do not require a developer's MiniMax account, Hub token or globally installed CLI.
+The MiniMax suite runs up to four test files at once; its multi-process contention tests retain their own parallel workers.
 
 ## Open questions
 

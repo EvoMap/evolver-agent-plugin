@@ -39,6 +39,6 @@ test('a rejected report is settled with its reason and never marked sent', () =>
 test('the local record is noted once it is written', () => {
   const queued = withQueued({}, [{ report: report('t:1'), sessionId: 's' }], 0);
   const key = Object.keys(queued)[0];
-  assert.equal(withAttempt(queued, key, { verdict: 'retry', isLocal: true }, 3)[key].localAt, 3);
-  assert.equal('localAt' in withAttempt(queued, key, { verdict: 'retry', isLocal: false }, 3)[key], false);
+  assert.equal(withAttempt(queued, key, { verdict: 'retry', local: 'recorded' }, 3)[key].localAt, 3);
+  assert.equal('localAt' in withAttempt(queued, key, { verdict: 'retry', local: 'not_recorded' }, 3)[key], false);
 });

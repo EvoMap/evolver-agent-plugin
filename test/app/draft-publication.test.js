@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { hub } from '@evomap/evolver-core';
 
 import { runCommand } from '../../lib/app/commands/index.js';
+import { promptSubmitted } from '../../lib/app/prompt.js';
+import { sessionEnded } from '../../lib/app/session-end.js';
 import { draftOf } from '../../lib/distill.js';
+import { proxyFetchOf } from '../../lib/runtime/proxy.js';
+import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
+import { fakeProxy } from '../helpers/fake-proxy.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { type: 'Gene', asset_id: 'sha256:gene' };
@@ -22,6 +32,210 @@ async function withDraft(result) {
   await made.ports.drafts.update(() => [draft]);
   return { ...made, draft };
 }
+
+for (const publishable of [false, true]) {
+  test(`a correction blocks a lingering ${publishable ? 'verified' : 'local-only'} draft after cleanup fails`, async () => {
+    const { ports, requests, draft } = await withDraft({ ...RESULT, publishable, ...(publishable && { publish_receipt: RECEIPT }) });
+    const corrected = { ...draft, sourceCandidate: { turn: 2, at: 20 } };
+    const earlier = { ...draft, id: 'earlier', publishable: true, publish_receipt: RECEIPT, sourceCandidate: { turn: 1, at: 10 } };
+    await ports.sessions.update('s1', () => ({ turn: 2 }));
+    await ports.drafts.update(() => [corrected, earlier]);
+    const updateDrafts = ports.drafts.update;
+    ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+    await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+    ports.drafts.update = updateDrafts;
+    await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+
+    const publish = (args) => runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args });
+    const result = await publish('publish 1');
+    assert.equal(result.ok, false);
+    assert.match(result.text, /invalidated by a correction/i);
+    assert.deepEqual(requests, []);
+    assert.deepEqual(await ports.drafts.read(), [corrected, earlier]);
+    assert.equal((await publish('publish 2')).ok, true);
+    assert.deepEqual(requests.map(({ path }) => path), ['/asset/submit']);
+    assert.equal((await publish('discard 1')).ok, true);
+    assert.deepEqual(await ports.drafts.read(), []);
+  });
+}
+
+test('a correction during reverification blocks submit even if it cannot remove the draft', async () => {
+  const { ports, requests, draft } = await withDraft({ ...RESULT, publishable: false });
+  const source = { ...draft, sourceCandidate: { turn: 1, at: 10 } };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [source]);
+  const updateDrafts = ports.drafts.update;
+  ports.proxy.request = async (method, path, body) => {
+    requests.push({ method, path, body });
+    if (path !== '/asset/reverify') return { ok: true };
+    ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+    try {
+      await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+    } finally {
+      ports.drafts.update = updateDrafts;
+    }
+    return { ok: true, data: { ok: true, publishable: true, assets: [GENE, CAPSULE], publish_receipt: RECEIPT } };
+  };
+
+  const result = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reverify']);
+  assert.deepEqual(await ports.drafts.read(), [source]);
+});
+
+test('a correction after the publication check cannot slip into submit dispatch', async (t) => {
+  const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
+  const proxy = await fakeProxy();
+  t.after(proxy.close);
+  ports.proxy.request = proxyFetchOf(proxy.env);
+  ports.draftCorrections = fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections;
+  const correctionPorts = { ...ports, draftCorrections: fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections };
+  const source = { ...draft, sourceCandidate: { turn: 1, at: 10 } };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [source]);
+  const hasCorrection = ports.draftCorrections.has;
+  const updateDrafts = ports.drafts.update;
+  let checked = false;
+  ports.draftCorrections.has = async (...args) => {
+    const observed = await hasCorrection(...args);
+    if (!checked) {
+      checked = true;
+      ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+      try {
+        await assert.rejects(promptSubmitted(correctionPorts, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+      } finally {
+        ports.drafts.update = updateDrafts;
+      }
+    }
+    return observed;
+  };
+
+  const result = await runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(checked, true);
+  assert.deepEqual(proxy.requests, []);
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(await ports.drafts.read(), [source]);
+});
+
+test('a correction can finish while a dispatched submit waits for the Proxy reply', async (t) => {
+  const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
+  const proxy = await fakeProxy();
+  t.after(proxy.close);
+  ports.proxy.request = proxyFetchOf(proxy.env);
+  ports.draftCorrections = fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections;
+  const correctionPorts = { ...ports, settings: { recall: false }, draftCorrections: fileStoresOf({ dir: proxy.env.HOME, agent: 'testagent' }).draftCorrections };
+  await ports.sessions.update('s1', () => ({ turn: 1 }));
+  await ports.drafts.update(() => [{ ...draft, sourceCandidate: { turn: 1, at: 10 } }]);
+
+  const dispatched = Promise.withResolvers();
+  const reply = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', (url) => {
+    dispatched.resolve(new URL(url).pathname);
+    return reply.promise;
+  });
+  const publishing = runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+  try {
+    assert.equal(await dispatched.promise, '/asset/submit');
+    await promptSubmitted(correctionPorts, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+    assert.equal(await correctionPorts.draftCorrections.has('s1', 1), true);
+    assert.deepEqual(await ports.drafts.read(), []);
+  } finally {
+    reply.resolve(new Response('{"message_id":"fixture-submit"}'));
+    assert.equal((await publishing).ok, true);
+  }
+});
+
+test('two dead-owner recoverers cannot dispatch a draft after correction', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-draft-recovery-'));
+  const state = fileStoresOf({ dir, agent: 'testagent' });
+  const url = (path) => JSON.stringify(new URL(path, import.meta.url).href);
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import { join } from 'node:path';
+    import { runCommand } from ${url('../../lib/app/commands/index.js')};
+    import { promptSubmitted } from ${url('../../lib/app/prompt.js')};
+    import { proxyFetchOf } from ${url('../../lib/runtime/proxy.js')};
+    import { fileStoresOf } from ${url('../../lib/runtime/store/file-stores.js')};
+    import { memoryPorts } from ${url('./memory-ports.js')};
+    import { until } from ${url('../helpers/lock-contenders.js')};
+    const [dir, lock, role] = process.argv.slice(1);
+    const marker = (name) => join(dir, name);
+    const { sessions, drafts, draftCorrections } = fileStoresOf({ dir, agent: 'testagent' });
+    const { ports } = memoryPorts();
+    Object.assign(ports, { sessions, drafts, draftCorrections, settings: { recall: false } });
+    if (role === 'correction') {
+      const stat = fs.statSync;
+      fs.statSync = (file, ...args) => {
+        const snapshot = stat(file, ...args);
+        if (file === lock) {
+          fs.statSync = stat;
+          fs.writeFileSync(marker('stale-read'), '');
+          const deadline = Date.now() + 10_000;
+          while (!fs.existsSync(marker('resume'))) {
+            if (Date.now() >= deadline) throw new Error('timed out resuming correction');
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+        }
+        return snapshot;
+      };
+      ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
+      await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+      fs.writeFileSync(marker('corrected'), '');
+    } else {
+      const { has, withSession } = draftCorrections;
+      let inGate = false;
+      draftCorrections.has = async (...args) => {
+        const corrected = await has(...args);
+        if (inGate && !corrected) await until(() => fs.existsSync(marker('corrected')));
+        return corrected;
+      };
+      draftCorrections.withSession = (id, work, signal) => {
+        const result = withSession(id, () => {
+          inGate = true;
+          return work();
+        }, signal);
+        fs.writeFileSync(marker('publish-attempted'), '');
+        return result;
+      };
+      globalThis.fetch = async (url) => {
+        assert.equal(new URL(url).pathname, '/asset/submit');
+        fs.writeFileSync(marker('submitted'), '');
+        return new Response('{}');
+      };
+      ports.proxy.request = proxyFetchOf({ HOME: dir });
+      const result = await runCommand(ports, { sessionId: 'another-session', name: 'evolver-drafts', args: 'publish 1' });
+      fs.writeFileSync(marker('result'), JSON.stringify(result));
+    }
+  `;
+  const lockName = createHash('sha256').update('s1').digest('hex').slice(0, 16);
+  const lock = join(dir, 'testagent-distill-corrections', `${lockName}.lock`);
+  const { run, results } = lockContenders(t, dir, script, [dir, lock], ['resume', 'corrected']);
+  const dead = spawnSync(process.execPath, ['-e', ''], { windowsHide: true });
+  assert.equal(dead.status, 0);
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(join(lock, 'owner'), `${dead.pid}:deadbeef`);
+  utimesSync(lock, new Date(0), new Date(0));
+  await state.sessions.update('s1', () => ({ turn: 1 }));
+  const draft = { ...draftOf({ ...RESULT, publishable: true, publish_receipt: RECEIPT }, { title: 'Verified method', sessionId: 's1' }, 100), sourceCandidate: { turn: 1, at: 10 } };
+  await state.drafts.update(() => [draft]);
+
+  run('correction');
+  await until(() => existsSync(join(dir, 'stale-read')));
+  run('publish');
+  await until(() => existsSync(join(dir, 'publish-attempted')));
+  writeFileSync(join(dir, 'resume'), '');
+  const outcomes = await results();
+  assert.ok(outcomes.every(({ code }) => code === 0), JSON.stringify(outcomes));
+  assert.equal(await state.draftCorrections.has('s1', 1), true);
+  assert.equal(existsSync(join(dir, 'submitted')), false);
+  const result = JSON.parse(readFileSync(join(dir, 'result'), 'utf8'));
+  assert.equal(result.ok, false);
+  assert.match(result.text, /invalidated by a correction/i);
+  assert.deepEqual(await state.drafts.read(), [draft]);
+});
 
 test('explicit publication preserves the Proxy receipt and its complete bound bundle', async () => {
   const { ports, requests } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT, event: EVENT });

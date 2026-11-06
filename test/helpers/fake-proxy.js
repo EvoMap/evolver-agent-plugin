@@ -56,7 +56,19 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       server.close();
       server.closeAllConnections();
       endWaiters(home);
-      rmSync(home, { recursive: true, force: true });
+      // A detached worker the hooks started can still be writing its state here after the request a test waits on.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
+}
+
+/** A detached hook worker can still finish a state write after the Proxy received its last request. */
+export async function closeProxyWhenSettled(proxy) {
+  for (let attempt = 0; ; attempt++) {
+    try { return proxy.close(); }
+    catch (error) {
+      if (attempt === 19 || !['ENOTEMPTY', 'EPERM', 'EBUSY'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 }

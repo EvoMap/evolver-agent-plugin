@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { events } from '@evomap/evolver-core';
+
+import { recordReuseLocally } from '../lib/local-ledger.js';
 import { withQueued } from '../lib/report-outbox.js';
 import {
   correctionReportOf,
@@ -139,6 +145,133 @@ test('evidence-bearing reports are recorded locally once; tier none and a trial 
   assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1' }]);
   assert.deepEqual(sinks.posts.map(({ path }) => path), ['/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control', '/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control']);
   assert.deepEqual(sinks.posts[2].body, control.report);
+});
+
+test('a sent report retries a pre-write local failure without posting to the Hub again', async () => {
+  const down = ledgers({ local: false });
+  const queued = withQueued({}, [{ report: immediate({ checks: [{ command: 'npm test', failed: false }] }), sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(down, queued, NOW);
+  assert.equal(down.posts.length, 1);
+  assert.equal(Object.values(sent)[0].sentAt, NOW);
+  assert.equal(Object.values(sent)[0].localAt, undefined);
+  const up = ledgers();
+  const recorded = await deliverPending(up, sent, NOW + 1);
+  assert.equal(up.posts.length, 0);
+  assert.deepEqual(up.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1' }]);
+  assert.equal(Object.values(recorded)[0].sentAt, NOW, 'the original Hub delivery time stays intact');
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  await deliverPending(up, recorded, NOW + 2);
+  assert.equal(up.locals.length, 1);
+  assert.equal(up.posts.length, 0);
+});
+
+test('a new report reaches the Hub before an earlier report retries its local record', async () => {
+  const checks = [{ command: 'npm test', failed: false }];
+  const earlier = await deliverPending(ledgers({ local: false }), withQueued({}, [{ report: immediate({ checks }), sessionId: 'claude-code:s1' }], NOW), NOW);
+  const queued = withQueued(earlier, [{ report: immediate({ checks, sessionId: 'claude-code:s2' }), sessionId: 'claude-code:s2' }], NOW + 1);
+  const order = [];
+  const sinks = ledgers();
+  await deliverPending({
+    ...sinks,
+    proxyFetch: (...request) => { order.push('hub'); return sinks.proxyFetch(...request); },
+    recordLocally: (request) => { order.push(request.sessionId); return sinks.recordLocally(request); },
+  }, queued, NOW + 1);
+  assert.deepEqual(order, ['hub', 'claude-code:s2', 'claude-code:s1']);
+});
+
+function useTemporaryLedger(t) {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-ledger-retry-'));
+  const previous = process.env.EVOLVER_HOME;
+  process.env.EVOLVER_HOME = home;
+  t.after(() => {
+    if (previous === undefined) delete process.env.EVOLVER_HOME;
+    else process.env.EVOLVER_HOME = previous;
+    rmSync(home, { recursive: true, force: true });
+  });
+}
+
+test('a ledger lock timeout retries the local write after Hub delivery', async (t) => {
+  useTemporaryLedger(t);
+  let attempts = 0;
+  t.mock.method(events.Ingestor.prototype, 'ingest', async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw Object.assign(new Error('ledger lock timeout'), { code: 'LOCK_TIMEOUT' });
+    }
+  });
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  const queued = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(sinks, queued, NOW);
+  const [pending] = Object.values(sent);
+  assert.equal(pending.localFailures, 1);
+  assert.equal(pending.localUncertainAt, undefined);
+  assert.equal(pending.sentAt, NOW);
+
+  const recorded = await deliverPending(sinks, sent, NOW + 1);
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  assert.equal(attempts, 2);
+  assert.equal(sinks.posts.length, 1);
+});
+
+test('a ledger path blocked by a directory retries locally after the path is repaired', async (t) => {
+  useTemporaryLedger(t);
+  const path = events.rootEventsPath();
+  mkdirSync(path, { recursive: true });
+
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  const queued = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  const sent = await deliverPending(sinks, queued, NOW);
+  const [pending] = Object.values(sent);
+  assert.equal(pending.sentAt, NOW);
+  assert.equal(pending.localFailures, 1);
+  assert.equal(pending.localUncertainAt, undefined);
+
+  rmdirSync(path);
+  const recorded = await deliverPending(sinks, sent, NOW + 1);
+  assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
+  await deliverPending(sinks, recorded, NOW + 2);
+  assert.equal(sinks.posts.length, 1);
+  const entries = new events.Ingestor({ path }).readAllStrict();
+  assert.deepEqual(entries.map(({ type, payload }) => ({ type, payload })), [
+    { type: 'value.reuse_hit', payload: { assetId: ASSET.assetId, cycleId: 'claude-code:s1' } },
+  ]);
+});
+
+test('an error after appending never retries either ledger', async (t) => {
+  useTemporaryLedger(t);
+  const ingest = events.Ingestor.prototype.ingest;
+  const attempted = t.mock.method(events.Ingestor.prototype, 'ingest', async function (event) {
+    await ingest.call(this, event);
+    throw Object.assign(new Error('ledger failed after appending'), { code: 'EISDIR' });
+  });
+  const sinks = { ...ledgers(), recordLocally: recordReuseLocally };
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  let outbox = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  for (let i = 0; i < 5; i += 1) outbox = await deliverPending(sinks, outbox, NOW + i);
+
+  assert.equal(sinks.posts.length, 1);
+  assert.equal(attempted.mock.callCount(), 1);
+  assert.equal(new events.Ingestor({ path: events.rootEventsPath() }).readAllStrict().length, 1);
+  assert.equal(Object.values(outbox)[0].sentAt, NOW);
+  assert.equal(Object.values(outbox)[0].localUncertainAt, NOW);
+  assert.equal(Object.values(outbox)[0].localAt, undefined);
+});
+
+test('exhausting local attempts does not stop Hub delivery retries', async () => {
+  const down = ledgers({ hub: new Error('Hub offline'), local: false });
+  const report = immediate({ checks: [{ command: 'npm test', failed: false }] });
+  let outbox = withQueued({}, [{ report, sessionId: 'claude-code:s1' }], NOW);
+  for (let i = 0; i < 4; i += 1) outbox = await deliverPending(down, outbox, NOW + i);
+
+  assert.equal(down.posts.length, 4);
+  assert.equal(down.locals.length, 3);
+  const up = ledgers();
+  const sent = await deliverPending(up, outbox, NOW + 4);
+  assert.equal(up.posts.length, 1);
+  assert.equal(up.locals.length, 0);
+  assert.equal(Object.values(sent)[0].sentAt, NOW + 4);
 });
 
 test('a report the Hub already holds counts as delivered and is not retried', async () => {

@@ -10,7 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { PROMPT } from '../app/memory-ports.js';
 import { IR } from '../app/work-turns.js';
 import { installFakeEvolver } from '../helpers/fake-evolver.js';
-import { fakeProxy } from '../helpers/fake-proxy.js';
+import { closeProxyWhenSettled, fakeProxy } from '../helpers/fake-proxy.js';
 
 const SERVER = fileURLToPath(new URL('../../bin/mcp.mjs', import.meta.url));
 let proxy;
@@ -21,7 +21,7 @@ before(async () => {
     capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: IR.capability_summary },
   } });
 });
-after(() => proxy.close());
+after(() => closeProxyWhenSettled(proxy));
 
 async function connected(t, env = {}) {
   const client = new Client({ name: 'evolver-test-client', version: '1.0.0' });
@@ -46,9 +46,12 @@ test('a recalled turn that fixed an error is reported under its turn_id, agent-r
   const turnId = turnIdOf(recalled);
   const checks = [{ command: 'npm test', exit: 1 }, { command: 'npm test', exit: 0 }];
   const reported = textOf(await call(client, 'evolver_report', { turn_id: turnId, outcome: 'success', summary: 'Fixed the retries.', checks, files: ['lib/redis.js'] }));
-  const writtenFor = Number(/written_for (\d+)/.exec(reported)?.[1]);
-  assert.ok(writtenFor > 0);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor + 1, gene: [IR] })), /changed after this answer was asked for/);
+  const writtenFor = /written_for "(v2-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
+  assert.ok(writtenFor);
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: [IR] })), /changed after this answer was asked for/);
+  const legacy = await call(client, 'evolver_distill', { written_for: 123, gene: [IR] });
+  assert.equal(legacy.isError, true);
+  assert.match(textOf(legacy), /written_for/);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: [IR] })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
   for (const args of ['publish 1', 'discard 1']) {
@@ -111,10 +114,10 @@ test('evolver_login answers the link and code, and tells the agent to show them 
   const fakeDir = join(isolated.env.HOME, 'fake-evolver');
   const fake = installFakeEvolver(join(isolated.env.HOME, '.evolver', 'state', 'mcp-generic-engine'), fakeDir);
   const client = await connected(t, { ...isolated.env, ...fake.env });
-  t.after(() => {
+  t.after(async () => {
     const starts = readdirSync(fakeDir).includes('starts') ? readFileSync(join(fakeDir, 'starts'), 'utf8').trim().split('\n') : [];
     for (const line of starts) try { process.kill(Number(line.split(' ')[0]), 'SIGKILL'); } catch {}
-    isolated.close();
+    await closeProxyWhenSettled(isolated);
   });
   const { tools } = await client.listTools();
   assert.match(tools.find((tool) => tool.name === 'evolver_login').description, /Show the link and code to the person verbatim; never open or approve it yourself\.$/);

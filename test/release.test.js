@@ -32,7 +32,11 @@ test('packing with a version stamps it into every manifest a packed host reads',
 
 test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, publish, then the GitHub Release', () => {
   assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /needs: test\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(workflow, /needs: \[test, windows-minimax\]\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  publish:'));
+  assert.match(windows, /runs-on: windows-latest/);
+  assert.match(windows, /node: \[22, 26\]/);
+  assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
   const steps = ['--version=$GITHUB_REF_NAME', 'publish-tag.sh "$GITHUB_REF_NAME" release', 'gh release create'].map((step) => publish.indexOf(step));
   assert.ok(steps.every((at, index) => at > 0 && (index === 0 || at > steps[index - 1])), steps.join(','));
