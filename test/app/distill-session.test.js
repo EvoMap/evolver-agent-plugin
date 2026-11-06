@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { distillText } from '../../lib/app/commands/distill.js';
 import { runCommand } from '../../lib/app/commands/index.js';
-import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, postAgentGene } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers, postAgentGene } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
@@ -41,6 +41,33 @@ async function verifiedTurn(ports, sessionId, prompt = 'fix the flaky redis retr
   await toolFinished(ports, { sessionId, note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
   await turnEnded(ports, { sessionId, reason: 'answer', answer: 'Fixed the retries.', model: 'model-x', projectDir: '/proj' });
 }
+
+test('an unavailable captured route releases the claim and preserves the candidate until the original route returns', async () => {
+  let available = false;
+  const made = await withCandidate({ model: {
+    capture: () => 'model-x',
+    async complete(model) {
+      assert.equal(model, 'model-x');
+      if (!available) throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+      return { answer: JSON.stringify(GENE) };
+    },
+  } });
+  const { ports, requests, wakeUps } = made;
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
+  const candidate = (await ports.candidates.read()).s1;
+  assert.deepEqual([candidate.attempts, candidate.claimedBy, candidate.blocked], [0, null, { reason: 'route_changed' }]);
+  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
+  const armed = wakeUps.length;
+  await armDistillWakeUp(ports);
+  assert.equal(wakeUps.length, armed);
+  made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
+  await dropExpiredLeftovers(ports);
+  assert.ok((await ports.candidates.read()).s1);
+  available = true;
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
 
 test('a session-end distillation the Proxy answers as a draft is kept as a draft and settles the candidate', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
