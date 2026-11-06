@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { checkOutcomeOf } from '../lib/checks.js';
+import { isFailedCheck, turnRecordOf } from '../lib/turn/record.js';
 import { isVerificationCommand, verificationFailed, verificationFailureOf } from '../lib/verification.js';
 
 test('test, build, lint and type-check runs are verifications; other commands are not', () => {
@@ -188,4 +190,56 @@ test('a heredoc body that names a check is data, not a check; the command lines 
   assert.equal(isVerificationCommand(editsReadme), false);
   assert.equal(isVerificationCommand("cat > notes.md <<EOF\nmake build\nEOF\nnpm test"), true);
   assert.equal(isVerificationCommand('npm test <<EOF\nanswers\nEOF'), true);
+});
+
+test('a compound shell result needs check output before it can verify the check', () => {
+  const compounds = ['true || npm test', 'npm test || true', 'npm test | tail -5', 'npm test &',
+    'npm test; echo done', 'false && npm test', 'echo start\nnpm test', '! npm test', 'time ! npm test',
+    'if npm test; then true; fi', 'bash -c "npm test || true"',
+    "/bin/bash -c 'true || npm test'", 'bash -lc "npm test || true"',
+    'corepack pnpm test | tail -5', 'command npm test || true', 'npm exec -- vitest run || true'];
+  for (const command of compounds) {
+    const result = { kind: 'shell', command };
+    for (const exit of [0, 1]) {
+      assert.deepEqual(turnRecordOf([{ ...result, exit }]).checks, [{ command, exit: null, failed: null }]);
+      assert.equal(isFailedCheck({ ...result, exit }), false, command);
+      assert.equal(turnRecordOf([{ ...result, exit, output: '# pass 3\n# fail 0' }]).checks[0].failed, false, command);
+      assert.equal(isFailedCheck({ ...result, exit, output: '# pass 3\n# fail 1' }), true, command);
+    }
+  }
+});
+
+test('a wrapped shell script does not give its compound exit to the check inside it', () => {
+  for (const command of [
+    "env CI=1 bash -c 'true || npm test'",
+    "sudo -n bash -c 'npm test | tail -5'",
+    "cd app && /bin/bash -c 'npm test || true'",
+  ]) {
+    assert.equal(verificationFailureOf({ command, exit: 0 }), null, command);
+    assert.equal(verificationFailureOf({ command, exit: 1 }), null, command);
+    assert.equal(verificationFailureOf({ command, exit: 0, text: '# pass 1\n# fail 0' }), false, command);
+    assert.equal(verificationFailureOf({ command, exit: 0, text: '# pass 0\n# fail 1' }), true, command);
+    const result = { kind: 'shell', command, exit: 0 };
+    const [unverified] = turnRecordOf([result]).checks;
+    assert.deepEqual(unverified, { command, exit: null, failed: null });
+    assert.equal(checkOutcomeOf(unverified), null);
+    const [verified] = turnRecordOf([{ ...result, output: '# pass 1\n# fail 0' }]).checks;
+    assert.deepEqual(checkOutcomeOf(verified), { ok: true });
+  }
+});
+
+test('literal shell text and descriptor redirects preserve a direct check exit', () => {
+  for (const command of ['cd app && npm test', 'cd app&&>test.log npm test', "cd app && /bin/bash -c 'npm test'"]) {
+    const directoryCheck = { kind: 'shell', command };
+    assert.deepEqual(turnRecordOf([{ ...directoryCheck, exit: 0 }]).checks[0], { command, exit: 0, failed: false });
+    assert.deepEqual(turnRecordOf([{ ...directoryCheck, exit: 1 }]).checks[0], { command, exit: null, failed: null });
+  }
+  for (const command of ['npm test -- --grep "a|b; c && d"', 'npm test 2>&1',
+    'npm test &> report.log', 'npm test >| report.log', '>test.log npm test', '2>&1 npm test', 'npm test # after; ignore',
+    "sh -c 'npm test'", 'npm test\n', 'npm test <<EOF\n&& ignore\nEOF',
+    "/bin/bash -c 'npm test'", 'bash -lc "npm test"', "env CI=1 bash -c 'npm test'", "sudo -n bash -c 'npm test'",
+    'corepack pnpm test', 'command npm test', 'npm exec -- vitest run']) {
+    assert.deepEqual(turnRecordOf([{ kind: 'shell', command, exit: 0 }]).checks[0], { command, exit: 0, failed: false });
+    assert.equal(isFailedCheck({ kind: 'shell', command, exit: 1 }), true, command);
+  }
 });

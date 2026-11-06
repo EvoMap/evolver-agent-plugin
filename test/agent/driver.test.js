@@ -107,6 +107,15 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   assert.match(status.content[0].text, /verified turn waiting to be distilled/);
 });
 
+test('a successful compound command reported through MCP does not open a distillation candidate', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(mcpGeneric, made);
+  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
+  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'true || npm test', exit: 0 }], files: ['lib/redis.js'] });
+  assert.equal(reported.content[0].text, 'Reported.');
+  assert.equal((await made.ports.candidates.read()).m1, undefined);
+});
+
 test('a session start answers the engine notice once, and a session end schedules distillation', async () => {
   const made = memoryPorts();
   made.ports.engine.takeUnannounced = async () => ({ status: 'install_failed', error: 'npm missing', at: 1 });
