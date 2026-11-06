@@ -112,10 +112,10 @@ async function waitFor(check, timeoutMs = 15_000) {
   }
 }
 
-async function verifiedTurn(s, prompt = PROMPT) {
+async function fixTurn(s, prompt = PROMPT) {
   const injected = await s.prompt(prompt);
-  await s.patch();
   await s.bash('npm test', FAILED_RUN);
+  await s.patch();
   await s.bash('npm test 2>&1 | tail -5', PASSED_RUN);
   await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.');
   return injected;
@@ -127,8 +127,8 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   const injected = await s.prompt(PROMPT);
   assert.equal(injected.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.match(injected.hookSpecificOutput.additionalContext, new RegExp(`^\\[Evolution Memory\\] ${ASSET.short_title}[\\s\\S]*\\nApply them where they fit\\.$`));
-  assert.deepEqual(await s.patch(), {});
   assert.deepEqual(await s.bash('npm test', FAILED_RUN), {});
+  assert.deepEqual(await s.patch(), {});
   assert.deepEqual(await s.bash('npm test 2>&1 | tail -5', PASSED_RUN), {});
   assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {
     systemMessage: `✓ Goal reached (last check passed: npm test 2>&1 | tail -5) · reused EvoMap strategy "${ASSET.short_title}"`,
@@ -141,10 +141,9 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed after failing earlier.',
     evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' },
   });
-  const candidate = pending()['s-turn'];
-  assert.deepEqual(candidate.model, { model: 'gpt-5.5' });
-  assert.deepEqual(candidate.paths, ['lib/redis.js']);
-  assert.deepEqual(candidate.checks.map((check) => check.failed), [true, false]);
+  const range = pending()['s-turn'];
+  assert.deepEqual(range.model, { model: 'gpt-5.5' });
+  assert.deepEqual(range.turns[0].steps.map(({ kind, path, failed }) => (kind === 'edit' ? path : failed)), [true, 'lib/redis.js', false]);
   assert.ok(readdirSync(stateFile('')).every((name) => name.startsWith('codex-')), 'every state file carries the agent name');
 });
 
@@ -163,7 +162,7 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   assert.match(answer.reason, /^Evolver Proxy running/);
   assert.equal(answer.hookSpecificOutput, undefined, 'nothing reaches the model');
   assert.equal(posted('/asset/fetch').length, fetches);
-  await verifiedTurn(s);
+  await fixTurn(s);
   assert.ok(await waitFor(() => reportOf('codex:s-command:1')), 'the command was no turn');
 });
 
@@ -183,7 +182,7 @@ test('evolver-login typed into the prompt box answers the person: the link and c
   assert.equal((await login()).reason, 'Signed in to https://hub.test; node node_login registered.', 'the sign-in finished after the hook that started it exited');
 });
 
-test('an interrupted turn is reported aborted with the check it ran, and leaves no candidate', posix, async () => {
+test('an interrupted turn is reported aborted with the check it ran, which stays in the session\'s work', posix, async () => {
   const s = session('s-cut');
   await s.prompt(PROMPT);
   await s.bash('npm test', PASSED_RUN);
@@ -191,7 +190,7 @@ test('an interrupted turn is reported aborted with the check it ran, and leaves 
   const report = await waitFor(() => reportOf('codex:s-cut:1'));
   assert.equal(report.evidence.aborted, true);
   assert.deepEqual(report.evidence.check, { kind: 'test', passed: true, fail_then_pass: false });
-  assert.equal(pending()['s-cut'], undefined);
+  assert.deepEqual(pending()['s-cut'].turns.map(({ turn }) => turn), [1]);
 });
 
 test('a turn that ended on an error runs no hook: the next prompt closes it as failed', posix, async () => {
@@ -203,14 +202,14 @@ test('a turn that ended on an error runs no hook: the next prompt closes it as f
   assert.equal(report.evidence.aborted, false);
 });
 
-test('the session end distills its candidate through codex exec, headless, on the session model', posix, async () => {
+test('the session end distills a fixed error through codex exec, headless, on the session model', posix, async () => {
   const s = session('s-done');
-  await verifiedTurn(s);
+  await fixTurn(s);
   assert.deepEqual(await s.end(), {});
   const body = await waitFor(() => posted('/conversation/distill').find((entry) => entry.session_id === 'codex:s-done'));
   assert.deepEqual([body.platform, body.trigger, body.user_prompt], ['codex', 'session_end', PROMPT]);
   assert.deepEqual(body.distill_usage, { inputTokens: 900, cachedInputTokens: 0, outputTokens: 120, reasoningOutputTokens: 0 });
-  const run = codexRuns().find((entry) => entry.prompt?.includes(`## Task\n${PROMPT}`));
+  const run = codexRuns().find((entry) => entry.prompt?.includes(`\nR2 prompt: ${PROMPT}\n`));
   assert.deepEqual(run.args.slice(0, 5), ['exec', '--ephemeral', '--skip-git-repo-check', '--ignore-rules', '--json']);
   assert.deepEqual(run.args.slice(run.args.indexOf('-m'), run.args.indexOf('-m') + 2), ['-m', 'gpt-5.5']);
   assert.equal(run.headless, '1');
@@ -236,7 +235,7 @@ test('a terminal runs the same commands from the packed folder', posix, async ()
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   await new Promise((resolve) => child.on('close', resolve));
   assert.match(stdout, /^Evolver Proxy running/);
-  assert.match(stdout, /verified turn\(s\) waiting to be distilled|No distillation candidate is waiting/, 'a terminal belongs to no session');
+  assert.match(stdout, /session\(s\) have work turns waiting to be distilled|No session has work waiting to be distilled/, 'a terminal belongs to no session');
 });
 
 const digestOf = (key) => createHash('sha256').update(key).digest('hex').slice(0, 16);

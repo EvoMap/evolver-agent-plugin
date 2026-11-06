@@ -15,10 +15,11 @@ import { pathToFileURL } from 'node:url';
 import { pack } from '../../../scripts/pack.mjs';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
+import { IR } from '../../app/work-turns.js';
 
 export { ASSET, PROMPT };
 export const DSH = JSON.parse(readFileSync(new URL('../../fixtures/dsh/payloads.json', import.meta.url), 'utf8'));
-export const GENE = JSON.stringify({ title: 'Stabilise Redis retries', summary: 'Make a flaky Redis client retry deterministically.', strategy: ['Find the retry option.', 'Set it explicitly.'] });
+export const GENE = JSON.stringify(IR);
 export const DRAFTED = { ok: true, distill_id: 'distill_1', quality: { ok: true, score: 0.9 }, gene: { asset_id: 'sha256:gene' }, capsule: { asset_id: 'sha256:capsule', summary: 'Retry Redis deterministically.' } };
 
 const PACKAGE = '@evomap/dsh-evolver';
@@ -239,9 +240,15 @@ export const write = (filePath, content = 'export const options = { maxRetriesPe
   result: { ...DSH.tools.write.result, value: { ...DSH.tools.write.result.value, path: filePath, after: content } },
 });
 
-/** A turn that wrote a file and ended on a passing check: the kind that becomes the session's candidate. */
+/** A turn that wrote a file and ended on a passing check: work the session accumulates. */
 export const verifiedTurn = (dsh, agent, options = {}) => dsh.turn(agent, {
   tools: [write('lib/redis.js'), bash('npm test 2>&1 | tail -5', { text: 'ℹ pass 4\nℹ fail 0' })],
   answer: 'Set maxRetriesPerRequest to null; the suite passes.',
+  ...options,
+});
+
+/** A turn that fixed an error: its check failed, a file was written, the check passed. Enough for distillation alone. */
+export const fixTurn = (dsh, agent, options = {}) => verifiedTurn(dsh, agent, {
+  tools: [bash('npm test 2>&1 | tail -5', { exitCode: 1, text: 'ℹ fail 1\n[exit code: 1]' }), write('lib/redis.js'), bash('npm test 2>&1 | tail -5', { text: 'ℹ pass 4\nℹ fail 0' })],
   ...options,
 });

@@ -15,7 +15,7 @@ test('/evolver-status answers in dsh\'s UI and nothing of it reaches the agent',
   const result = await dsh.command(agent, 'evolver-status');
   assert.equal(result.kind, 'success');
   assert.match(result.text, /^Evolver Proxy running \(public hub, node node_test\)\./);
-  assert.match(result.text, /No distillation candidate in this session\./);
+  assert.match(result.text, /No work turn of this session waits to be distilled\./);
   assert.deepEqual([agent.injected, agent.followups], [[], []]);
   assert.deepEqual(await dsh.command(agent, 'evolver-search'), { kind: 'error', text: 'Usage: /evolver-search <task description or error text>' });
 });
@@ -38,7 +38,7 @@ test('/evolver-search hands its strategy to the conversation, and the turn that 
   assert.equal(reportsOf(proxy)[0].task_id, `dsh:${agent.session.id}:1`);
 });
 
-test('/evolver-evolve becomes a follow-up turn of its own, which is recalled for nothing and never a candidate', async (t) => {
+test('/evolver-evolve becomes a follow-up turn of its own, which is recalled for nothing and never work to distill', async (t) => {
   const proxy = await startProxy(t);
   const dsh = await startDsh();
   const agent = await dsh.createAgent();
@@ -61,12 +61,12 @@ test('/evolver-evolve becomes a follow-up turn of its own, which is recalled for
   assert.equal(reportsOf(proxy)[0].task_id, `dsh:${agent.session.id}:2`);
 });
 
-test('/evolver-distill distills the session\'s verified turn now, and /evolver-drafts lists the draft', async (t) => {
+test('/evolver-distill distills the session\'s work now, even one verified turn, and /evolver-drafts lists the draft', async (t) => {
   await startProxy(t);
   const llm = fakeLlm();
   const dsh = await startDsh({ llm });
   const agent = await dsh.createAgent();
-  assert.deepEqual(await dsh.command(agent, 'evolver-distill'), { kind: 'error', text: 'Nothing to distill yet: no turn of this session finished verified.' });
+  assert.deepEqual(await dsh.command(agent, 'evolver-distill'), { kind: 'error', text: 'Nothing to distill yet: no work turn of this session waits for it.' });
   await verifiedTurn(dsh, agent);
   await dsh.settled(agent);
   const distilled = await dsh.command(agent, 'evolver-distill', 'the retry option');

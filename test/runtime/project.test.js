@@ -47,6 +47,21 @@ test('a work tree snapshot is its root, HEAD and a diff that rebuilds it on HEAD
   assert.deepEqual(big, { diff_omitted: 'too_large' });
 });
 
+test('a range\'s snapshot is taken from the commit it began on, so work committed meanwhile is in its diff; a base that is gone falls back to HEAD', async (t) => {
+  const dir = repo(t);
+  const probe = projectSnapshotOf();
+  const start = await probe.head(dir);
+  assert.deepEqual(start, { root: git(dir, 'rev-parse', '--show-toplevel').trim(), head: git(dir, 'rev-parse', 'HEAD').trim() });
+  writeFileSync(join(dir, 'a.js'), 'export const a = 2;\n');
+  git(dir, 'commit', '-qam', 'committed during the range');
+  writeFileSync(join(dir, 'b.js'), 'export const b = 3;\n');
+  const snapshot = await probe.snapshot(dir, { base: start.head });
+  assert.equal(snapshot.head, start.head);
+  assert.match(snapshot.diff, /\+export const a = 2;[\s\S]*\+export const b = 3;/);
+  const gone = await probe.snapshot(dir, { base: 'e'.repeat(40) });
+  assert.equal(gone.head, git(dir, 'rev-parse', 'HEAD').trim());
+});
+
 test('a work tree whose diff holds a secret, or touches a file keys are kept in, sends no diff at all; a name that only holds such a name does not', async (t) => {
   for (const [file, text] of [['credentials.txt', 'harmless\n'], ['a.js', 'PRIVATE_CREDENTIAL=unique-secret-123\n'], ['deploy.yml', 'deploy_token: unique-secret-123\n'], ['.docker/config.json', '{"harmless": true}\n']]) {
     const dir = repo(t);

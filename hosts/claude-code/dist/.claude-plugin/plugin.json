@@ -33,7 +33,7 @@
     "auto_distill": {
       "type": "boolean",
       "title": "Distill verified work",
-      "description": "Distill the session's last verified turn into a draft once the session has been quiet for 30 minutes or ends, with one completion on your plan. /evolver-distill works either way.",
+      "description": "Distill the session's verified work into drafts once it holds three work turns or a fixed error, 10 minutes after the fix, 30 minutes after the session went quiet or when it ends, with one completion on your plan. /evolver-distill works either way.",
       "default": true
     },
     "node_path": {

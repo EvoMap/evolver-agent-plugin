@@ -130,13 +130,15 @@ test('a Proxy that answers without recording does not count as delivered', async
   assert.equal(Object.values(outbox)[0].attempts, 1);
 });
 
-test('evidence-bearing reports are recorded locally once; tier none never is', async () => {
+test('evidence-bearing reports are recorded locally once; tier none and a trial control never are, and a control goes to its own route', async () => {
   const sinks = ledgers({ hub: new Error('down') });
   const verified = immediate({ checks: [{ command: 'npm test', failed: true }] });
-  const outbox = withQueued({}, [{ report: verified, sessionId: 'claude-code:s1' }, { report: immediate({ turn: 5 }), sessionId: 'claude-code:s1' }], NOW);
+  const control = { report: { asset_id: 'sha256:a', task_id: 'claude-code:s1:3', passed: true, platform: 'claude-code' }, sessionId: 'claude-code:s1', path: '/asset/trial-control' };
+  const outbox = withQueued({}, [{ report: verified, sessionId: 'claude-code:s1' }, { report: immediate({ turn: 5 }), sessionId: 'claude-code:s1' }, control], NOW);
   await deliverPending(sinks, await deliverPending(sinks, outbox, NOW), NOW);
   assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1' }]);
-  assert.equal(sinks.posts.length, 4);
+  assert.deepEqual(sinks.posts.map(({ path }) => path), ['/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control', '/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control']);
+  assert.deepEqual(sinks.posts[2].body, control.report);
 });
 
 test('a report the Hub already holds counts as delivered and is not retried', async () => {

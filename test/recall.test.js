@@ -311,6 +311,22 @@ test('a strategy longer than its budget keeps its opening and safety lines and n
   assert.ok(!match.text.includes('step 11.'));
 });
 
+test('a compiled Gene over its budget keeps its first step and failure line, losing its exact contract first, then its do-not-use line', async () => {
+  const filler = (index) => `${'y'.repeat(300)} step ${index}.`;
+  const tail = [
+    'If npm test fails with ECONNRESET: raise the client retry cap.',
+    `Do not use when: ${'the Redis URL is wrong, not the connection. '.repeat(10)}`,
+    `Exact command (applies when the suite runs): ${'z'.repeat(300)}`,
+  ];
+  const rows = [[10, { doNotUse: true, contract: false }], [11, { doNotUse: false, contract: false }]];
+  for (const [steps, expected] of rows) {
+    const strategy = [...Array.from({ length: steps }, (_, index) => filler(index)), ...tail];
+    const { text } = await recallStrategy(stubProxy({ assets: [{ asset_id: 'sha256:ir', asset_type: 'Gene', similarity: 0.99, strategy }] }).proxyFetch, 'add a retry to the uploader');
+    assert.match(text, /\n1\. y+ step 0\.\n[\s\S]*\. If npm test fails with ECONNRESET: raise the client retry cap\.\n/, `${steps} steps`);
+    assert.deepEqual({ doNotUse: /Do not use when/.test(text), contract: /Exact command/.test(text) }, expected, `${steps} steps`);
+  }
+});
+
 test('a line is capped by tokens, so a Chinese line keeps as much meaning as an English one', async () => {
   const chinese = '紫'.repeat(150);
   const { proxyFetch } = stubProxy({ assets: [{ asset_id: 'sha256:zh', asset_type: 'Gene', strategy: [chinese, '读', '改', '验'] }] });

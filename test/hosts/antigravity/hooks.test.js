@@ -176,8 +176,8 @@ test('a whole turn through the installed hooks: the strategy before each call, a
     evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' },
   });
   assert.equal(proxy.requests.filter((request) => request.path === '/asset/fetch').length, 1);
-  const candidate = JSON.parse(readFileSync(stateFile(proxy.env.HOME, 'antigravity-distill-pending.json'), 'utf8'))['s-e2e'];
-  assert.deepEqual([candidate.prompt, candidate.model, candidate.pid], [PROMPT, { model: 'gemini-test' }, host.pid]);
+  const range = JSON.parse(readFileSync(stateFile(proxy.env.HOME, 'antigravity-distill-pending.json'), 'utf8'))['s-e2e'];
+  assert.deepEqual([range.turns[0].prompt, range.model, range.pid], [PROMPT, { model: 'gemini-test' }, host.pid]);
 });
 
 test('a killed session\'s open strategy is reported aborted at the first model call of the next session', async (t) => {
@@ -205,18 +205,20 @@ test('a killed session\'s open strategy is reported aborted at the first model c
   assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', source: 'observed', aborted: true, stage: 'immediate' });
 });
 
-test('the candidate of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', async (t) => {
+test('the work of a session whose Antigravity process is gone is distilled by agy run headless, in an empty folder', async (t) => {
   const proxy = await fakeProxy({ assets: [] });
   t.after(() => proxy.close());
   const home = proxy.env.HOME;
   install(home, '.gemini/config/plugins');
   mkdirSync(join(home, 'bin'), { recursive: true });
   copyFileSync(FAKE_AGY, join(home, 'bin', 'agy'));
+  copyFileSync(new URL('../../fixtures/session-ir.json', import.meta.url), join(home, 'session-ir.json'));
   chmodSync(join(home, 'bin', 'agy'), 0o755);
   const dead = spawnSync(process.execPath, ['-e', '']).pid;
   mkdirSync(stateFile(home, ''), { recursive: true });
+  const steps = [{ kind: 'check', command: 'npm test', exit: 1, failed: true }, { kind: 'edit', path: 'lib/upload.js' }, { kind: 'check', command: 'npm test', exit: 0, failed: false }];
   writeFileSync(stateFile(home, 'antigravity-distill-pending.json'), JSON.stringify({
-    's-gone': { prompt: 'add a retry to the uploader', commands: ['npm test'], paths: [], checks: [{ command: 'npm test', failed: false }], answer: 'Retries added; npm test passes.', model: { model: 'gemini-test' }, turn: 1, pid: dead, attempts: 0, at: 1 },
+    's-gone': { turns: [{ turn: 1, prompt: 'add a retry to the uploader', steps, answer: 'Retries added; npm test passes.', at: 1 }], model: { model: 'gemini-test' }, pid: dead, attempts: 0, at: 1, changedAt: 1 },
   }));
   const s = conversation(antigravity(t, { ...proxy.env, PATH: `${join(home, 'bin')}:${proxy.env.PATH}` }), home, 's-next');
   s.prompt('what does the uploader do?');
@@ -224,12 +226,12 @@ test('the candidate of a session whose Antigravity process is gone is distilled 
 
   const [body] = await waitFor(() => proxy.requests.filter((request) => request.path === '/conversation/distill').map((request) => request.body), 5_000);
   assert.deepEqual([body.platform, body.trigger, body.user_prompt, body.persist, body.publish], ['antigravity', 'session_end', 'add a retry to the uploader', true, false]);
-  assert.deepEqual(body.strategy, ['Measure.', 'Back off.']);
+  assert.equal(body.ir.title, 'Stabilise Redis retries');
   assert.equal(body.distill_usage.inputTokens, 900);
   const [call] = readFileSync(join(home, 'fake-agy.log'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(call.args, ['--input-format', 'stream-json', '--output-format', 'stream-json', '--disable-slash-commands', '--model', 'gemini-test']);
   assert.equal(call.marker, '1');
-  assert.match(call.prompt, /## Task\nadd a retry to the uploader/);
+  assert.match(call.prompt, /\nR2 prompt: add a retry to the uploader\n/);
   assert.notEqual(call.cwd, realpathSync(home));
   assert.equal(existsSync(call.cwd), false, 'the empty workspace is removed after the run');
 });

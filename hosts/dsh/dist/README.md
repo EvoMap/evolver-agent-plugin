@@ -2,8 +2,9 @@
 
 Evolver for DeepSeek Harness (dsh), powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): before each prompt it recalls one proven strategy, reports at the turn's end how the
-turn that used it went (with the checks it ran as evidence), and distills the session's verified work into a draft
-Gene once the session has been quiet for 30 minutes or ends, through the session's own model.
+turn that used it went (with the checks it ran as evidence), and distills the session's verified work into draft
+Genes once it holds three work turns or a fixed error: 10 minutes after the fix, 30 minutes after the session went
+quiet, or when it ends, through the session's own model.
 
 The plugin runs inside dsh's process, on its plugin events. It registers **no tools and no skill**, so nothing of
 Evolver enters the model's context but the recalled steps, which end with `Apply them where they fit.` dsh shows it
@@ -46,7 +47,8 @@ On Windows, run `dsh plugin remove @evomap/dsh-evolver` and `dsh plugin add -w <
 inside DSH Desktop. Its plugin market installs from npm, which still serves the standalone plugin.
 
 What the standalone plugin left in `~/.evolver/state` carries over at the first session start: undelivered reports,
-retention checks, its distillation candidate, and its open strategies, which are reported as aborted.
+retention checks, its distillation candidate (judged by the same threshold as new work), and its open strategies,
+which are reported as aborted.
 
 ### Requirements
 
@@ -84,10 +86,10 @@ model.
 
 | Command | What it does |
 | --- | --- |
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's work waiting to be distilled, the last distillation's outcome and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub: a link and a code to approve, then, run again, the registered node |
 | `/evolver-search <text>` | Recalls the best strategy for the text and hands it to the conversation's next step; its reuse is reported |
-| `/evolver-distill [focus]` | Distills the session's latest verified turn into a draft now |
+| `/evolver-distill [focus]` | Distills the session's work into drafts now, even below the three-turn threshold |
 | `/evolver-drafts [publish\|discard <n>]` | Lists drafts; `publish <n>` submits one to the EvoMap Hub for review, `discard <n>` drops it |
 | `/evolver-evolve [focus]` | Hands the agent a reflection checkpoint, as a follow-up turn of its own |
 | `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run `evolver <command>` in the project |
@@ -96,13 +98,13 @@ model.
 
 | dsh event | What the plugin does |
 | --- | --- |
-| `agent/created` (`agent/session-start` before dsh 0.2) | Reports whether an earlier session's edits in this project were kept, reports a killed dsh process's open strategies as aborted, sets Evolver up and distills leftover candidates in the background. A one-off notice when it installed, upgraded or could not start Evolver joins the next step. |
+| `agent/created` (`agent/session-start` before dsh 0.2) | Reports whether an earlier session's edits in this project were kept, reports a killed dsh process's open strategies as aborted, sets Evolver up and distills the work sessions left in the background. A one-off notice when it installed, upgraded or could not start Evolver joins the next step. |
 | `agent/pre-step`, a turn's first step | Recalls one strategy for the person's prompt (up to 6 s) and appends it to the step's messages, behind the prompt. A slower recall joins the turn's next step. A turn no person's message opened (a goal round, a scheduled run) is left alone. |
 | `tools/execute` | Notes each call that was allowed to run: `bash` and `pwsh` with their exit code, files `write`, `edit` and `str_replace_editor` change (hashed before the change), files read. A run still in the background has no verdict. |
-| `session/event` `turn/end` | Reports every strategy of the turn, judged by its last test, build, lint or type check, else by how it ended (`completed`, `aborted`, `error`, …). A turn that completed on a passing check and edited files or ran three commands becomes the session's candidate. |
-| `session/disposed`, or the plugin's unload | Ends the session: an open turn is reported as aborted, and the candidate is distilled with one call to the session's model through dsh's model service, outside the conversation, at once or at the next session start. |
+| `session/event` `turn/end` | Reports every strategy of the turn, judged by its last test, build, lint or type check, else by how it ended (`completed`, `aborted`, `error`, …). A turn that edited files, ran a check or ran three commands joins the session's work for distillation. |
+| `session/disposed`, or the plugin's unload | Ends the session: an open turn is reported as aborted, and the session's work, once it holds three work turns or a fixed error and its last check passed, is distilled with one call to the session's model through dsh's model service, outside the conversation, at once or at the next session start. |
 
-The next prompt is read as feedback: a correction drops the candidate and reports the last turn's strategies again
-as failed. A subagent's session is neither recalled for nor recorded. State lives in `~/.evolver/state/dsh-*`.
+The next prompt is read as feedback: a correction stays with the last turn's work for distillation to read, and the
+last turn's strategies are reported again as failed. A subagent's session is neither recalled for nor recorded. State lives in `~/.evolver/state/dsh-*`.
 
 MIT © EvoMap.

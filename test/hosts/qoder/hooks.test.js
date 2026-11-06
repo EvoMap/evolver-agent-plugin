@@ -154,10 +154,9 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed after failing earlier.',
     evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' },
   });
-  const candidate = pending()['s-turn'];
-  assert.deepEqual(candidate.model, { model: 'default' });
-  assert.deepEqual(candidate.paths, [join(project, 'lib', 'redis.js')]);
-  assert.deepEqual(candidate.checks.map((check) => check.failed), [true, false]);
+  const range = pending()['s-turn'];
+  assert.deepEqual(range.model, { model: 'default' });
+  assert.deepEqual(range.turns[0].steps.map(({ kind, path, failed }) => (kind === 'edit' ? path : failed)), [true, join(project, 'lib', 'redis.js'), false]);
   assert.ok(readdirSync(stateFile('')).every((name) => name.startsWith('qoder-')), 'every state file carries the agent name');
 });
 
@@ -233,14 +232,14 @@ test('an interrupted turn no hook closed is closed as aborted by the next prompt
   assert.deepEqual(report.evidence.check, { kind: 'test', passed: true, fail_then_pass: false });
 });
 
-test('the session end distills its candidate through qodercli in print mode, headless', posix, async () => {
+test('the session end distills a fixed error through qodercli in print mode, headless', posix, async () => {
   const s = session('s-done');
   await verifiedTurn(s);
   assert.deepEqual(await s.end(), {});
   const body = await waitFor(() => posted('/conversation/distill').find((entry) => entry.session_id === 'qoder:s-done'));
   assert.deepEqual([body.platform, body.trigger, body.user_prompt], ['qoder', 'session_end', PROMPT]);
   assert.deepEqual(body.distill_usage, { inputTokens: 900, outputTokens: 120 });
-  const run = qoderRuns().find((entry) => entry.prompt?.includes(`## Task\n${PROMPT}`));
+  const run = qoderRuns().find((entry) => entry.prompt?.includes(`\nR2 prompt: ${PROMPT}\n`));
   assert.deepEqual(run.args.slice(0, 3), ['-p', '--output-format', 'json']);
   assert.ok(run.args.includes('--no-session-persistence'));
   assert.equal(run.headless, '1');

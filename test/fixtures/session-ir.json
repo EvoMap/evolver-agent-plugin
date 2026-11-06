@@ -1,0 +1,22 @@
+{
+  "title": "Stabilise Redis retries",
+  "capability_summary": "Flaky Redis-backed tests stop failing once the client keeps retrying a dropped connection instead of giving up after a fixed count.",
+  "kind": "fix",
+  "scope": {
+    "signals": ["MaxRetriesPerRequestError", "flaky redis tests", "redis connection retries", "client gives up reconnecting", "intermittent test failures"],
+    "use_when": ["A test suite talks to a Redis client that drops its connection under load"],
+    "do_not_use_when": ["The Redis URL or credentials are wrong rather than the connection dropping"]
+  },
+  "preconditions": ["The project's tests run against a Redis client"],
+  "procedure": [
+    { "action": "Run the project's test entry point and read the retry error it prints.", "refs": ["R3"] },
+    { "action": "Lift the client's per-request retry cap and run the same tests again.", "refs": ["R1-R3"] }
+  ],
+  "failure_repairs": [
+    { "signal": "tests fail with a retry error", "cause": "the client stops retrying a dropped connection", "response": "lift the per-request retry cap", "verification": "the same test run passes", "refs": ["R3"] }
+  ],
+  "canonical_contracts": [],
+  "project_notes": [],
+  "unknowns": [],
+  "portability": { "class": "portable", "bound_identifiers": [] }
+}

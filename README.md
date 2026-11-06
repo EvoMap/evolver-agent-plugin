@@ -20,9 +20,12 @@ Everything runs from the host's hooks or plugin API:
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
   and roughly how many tokens the reused strategy saved.
-- **Distill.** Once the session has been quiet for 30 minutes, or ends, its last turn that edited files and ended on a
-  passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
-  the network until you publish the draft.
+- **Distill.** A session's work turns (each edited files, ran a test, build, lint or type-check, or ran three
+  commands) add up. Once there are three of them, or one fixed an error (a check failed, files changed, the same
+  check passed), and the last one ended on a passing check, the session's work is distilled into up to two draft
+  Genes: 10 minutes after the fix, 30 minutes after the session went quiet, or when it ends. Everyday questions are
+  never distilled, and nothing reaches the network until you publish a draft. `/evolver-status` names the last
+  distillation's outcome, including why the Proxy refused one.
 
 Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
 When you publish a draft marked `publishable: false`, or a legacy draft without a receipt, the plugin first asks `POST /asset/reverify`
@@ -162,10 +165,10 @@ injections, undelivered reports), so nothing is lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the distillation candidate and waiting drafts |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub with a device code (setting Evolver up first when needed) and shows the registered node |
 | `/evolver-search <task or error text>` | Finds the best matching network strategy |
-| `/evolver-distill [focus]` | Distills the last verified turn into a draft now |
+| `/evolver-distill [focus]` | Distills the session's work since its last distillation into drafts now, even below the three-turn threshold |
 | `/evolver-drafts [publish\|discard <number>]` | Lists drafts; publishes one for Hub review or drops it |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers |
 

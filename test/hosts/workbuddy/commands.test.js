@@ -51,7 +51,7 @@ test('a Gene the headless model could not write is handed to the agent with a co
   assert.equal(lines[0], 'EVOLVER: WRITE THE GENE YOURSELF');
   assert.match(lines[1], /\(Distillation model_failed: spawn codebuddy ENOENT\)\.$/);
   assert.equal(lines[5], "CODEBUDDY_SESSION_ID='s'\\''1' CODEBUDDY_PLUGIN_DATA='/data/evolver' node '/plugin/bin/command.mjs' workbuddy evolver-distill --post 1700 <<'EVOLVER_GENE_0123456789abcdef'");
-  assert.deepEqual(lines.slice(6, 8), ['<the JSON object>', 'EVOLVER_GENE_0123456789abcdef']);
+  assert.deepEqual(lines.slice(6, 8), ['<the JSON answer>', 'EVOLVER_GENE_0123456789abcdef']);
   assert.equal(lines.at(-1), 'Below is the record…');
 });
 

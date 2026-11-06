@@ -64,7 +64,7 @@ const lines = () => {
   };
 };
 
-export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null } = {}) {
+export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null, heads = [] } = {}) {
   const sessions = new Map();
   const notes = lines();
   const edits = lines();
@@ -73,6 +73,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
   const scheduled = [];
   const wakeUps = [];
   const retained = [];
+  const snapshotBases = [];
   let time = now;
   const ports = {
     identity: { agent: 'testagent', label: 'Test Agent' },
@@ -109,6 +110,8 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     candidates: table({}),
     drafts: table([]),
+    outcomes: table([]),
+    corpus: table([]),
     reports: { enqueue: async (entries) => queued.push(...entries) },
     outbox: { drain: async () => true },
     retention: {
@@ -127,7 +130,10 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     model,
     owner: { current: () => owner, self: () => 7, isGone: (pid) => gone.has(pid) },
-    project: { snapshot: async () => project },
+    project: {
+      snapshot: async (dir, { base = null } = {}) => { snapshotBases.push(base); return project; },
+      head: async () => (heads.length > 0 ? { root: '/proj', head: heads.shift() } : null),
+    },
     scheduler: { schedule: (tasks) => scheduled.push(...tasks), wakeAt: (at, tasks) => wakeUps.push({ at, tasks }) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
@@ -135,5 +141,5 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
     signIn: { latest: async () => null, joinOrStart: async () => null, forget: async () => {} },
   };
-  return { ports, requests, queued, scheduled, wakeUps, retained, sessions, advance: (ms) => { time += ms; } };
+  return { ports, requests, queued, scheduled, wakeUps, retained, sessions, snapshotBases, advance: (ms) => { time += ms; } };
 }

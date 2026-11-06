@@ -9,10 +9,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ASSET, PROMPT, recalledFor } from '../../app/memory-ports.js';
+import { IR } from '../../app/work-turns.js';
 
 export { ASSET, PROMPT };
 
-export const GENE = JSON.stringify({ title: 'Stabilise Redis retries', summary: 'Make a flaky Redis client retry deterministically.', strategy: ['Find the retry option.', 'Set it explicitly.'] });
+export const GENE = JSON.stringify(IR);
 
 const DRAFTED = { ok: true, distill_id: 'distill_1', quality: { ok: true, score: 0.9 }, gene: { asset_id: 'sha256:gene' }, capsule: { asset_id: 'sha256:capsule', summary: 'Retry Redis deterministically.' } };
 
@@ -138,9 +139,19 @@ export function host(hooks) {
   };
 }
 
-/** A turn that edited a file and ended on a passing check: the kind that becomes the session's candidate. */
+/** A turn that edited a file and ended on a passing check: work the session accumulates. */
 export async function verifiedTurn(oc, sessionID, prompt = PROMPT) {
   await oc.prompt(sessionID, prompt);
+  await oc.tool(sessionID, 'edit', { filePath: 'lib/redis.js', oldString: 'a', newString: 'maxRetriesPerRequest: null' });
+  await oc.bash(sessionID, 'npm test 2>&1 | tail -5', { exit: 0, output: 'ℹ pass 4\nℹ fail 0' });
+  await oc.answer(sessionID, 'Set maxRetriesPerRequest to null; the suite passes.');
+  await oc.idle(sessionID);
+}
+
+/** A turn that fixed an error: its check failed, a file was edited, the check passed. Enough for distillation alone. */
+export async function fixTurn(oc, sessionID, prompt = PROMPT) {
+  await oc.prompt(sessionID, prompt);
+  await oc.bash(sessionID, 'npm test', { exit: 1, output: 'ℹ fail 1' });
   await oc.tool(sessionID, 'edit', { filePath: 'lib/redis.js', oldString: 'a', newString: 'maxRetriesPerRequest: null' });
   await oc.bash(sessionID, 'npm test 2>&1 | tail -5', { exit: 0, output: 'ℹ pass 4\nℹ fail 0' });
   await oc.answer(sessionID, 'Set maxRetriesPerRequest to null; the suite passes.');

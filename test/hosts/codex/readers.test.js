@@ -37,7 +37,6 @@ test('an exit-less result with no passing evidence cannot verify a turn, includi
       ...payload('PostToolUse.Bash.passed'), tool_input: { command: 'npm test' }, tool_response: 'boom\n', tool_use_id: 'silent-exit',
     });
     await driver.handle('Stop', payload('Stop'));
-    assert.equal((await ports.candidates.read())[SESSION], undefined, `earlier pass: ${earlierPass}`);
     assert.equal(queued[0].report.evidence.tier, 'none');
     assert.equal(queued[0].report.evidence.check, undefined);
   }

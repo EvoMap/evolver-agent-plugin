@@ -2,7 +2,7 @@
   "name": "@evomap/evolver-agent-plugin",
   "version": "1.0.0",
   "private": true,
-  "description": "Evolver as one agent plugin with no tools: strategy recall, evidence-backed reuse reports and distillation of verified turns, from each host's hooks, plugin API or MCP.",
+  "description": "Evolver as one agent plugin with no tools: strategy recall, evidence-backed reuse reports and session-level distillation of verified work, from each host's hooks, plugin API or MCP.",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
