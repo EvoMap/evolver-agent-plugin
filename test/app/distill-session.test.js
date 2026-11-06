@@ -135,7 +135,8 @@ test('a diff is left out as too large when it would push the request past the Pr
   }
 });
 
-test('a range kept before its failed output was cut is cut again as it is sent, and its last turn\'s oldest steps give way to the 256 KiB', async () => {
+test('a range kept under older rules is redacted and cut again as it is sent and kept for calibration, and its last turn\'s oldest steps give way to the 256 KiB', async () => {
+  const token = ['sk-live-', 'Ab3dEf7Gh9Jk2Lm5Np8Qr1St'].join('');
   const wholeOutput = ['x'.repeat(300 * 1024), ...Array.from({ length: 30 }, (_, index) => `line ${index}`)].join('\n');
   const longCheck = (index) => ({ kind: 'check', command: `npm test -- ${'测'.repeat(990)} ${index}`, exit: 1, failed: true, output: 'y'.repeat(2048) });
   const rows = [
@@ -146,11 +147,12 @@ test('a range kept before its failed output was cut is cut again as it is sent, 
     const made = await fixedSession({ model: modelAnswering(IR) });
     await made.ports.candidates.update((pending) => {
       const [turn] = pending.s1.turns;
-      return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, steps: [...steps, ...turn.steps] }] } };
+      return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, prompt: `${turn.prompt} API_TOKEN=${token}`, steps: [...steps, ...turn.steps] }] } };
     });
     await endedAndDistilled(made);
     const [{ body }] = distills(made.requests);
     assert.ok(bytesOf(body) <= 256 * 1024, name);
+    assert.ok(!JSON.stringify([body, await made.ports.corpus.read()]).includes(token), name);
     assert.equal(keptOf(body.record), kept, name);
     assert.equal(body.record.findLast(({ kind }) => kind === 'check').text, 'npm test 2>&1 | tail -5', name);
   }
@@ -273,6 +275,15 @@ test('a correction of a turn being distilled discards the answer, and the range 
       const paused = pausedAtProxy(made.ports);
       paused.started.then(() => correct(made.ports)).then(paused.finish);
     }, async (ports) => postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor: ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1) }), 1],
+    ['while a refused IR is logged', (made) => {
+      made.ports.model = modelAnswering([{ ...IR, title: 'No signals', scope: { ...IR.scope, signals: [] } }, IR]);
+      const update = made.ports.outcomes.update;
+      made.ports.outcomes.update = async (...args) => {
+        made.ports.outcomes.update = update;
+        await correct(made.ports);
+        return update(...args);
+      };
+    }, (ports) => distillSession(ports, { sessionId: 's1' }), 0],
   ];
   for (const [name, arrange, distill, posts] of rows) {
     const made = await fixedSession({ model: modelAnswering(IR) });

@@ -29,10 +29,21 @@ const DEFAULT_MODEL = 'claude -p --output-format json';
 const MODEL_TIMEOUT_MS = 300_000;
 const PROXY_TIMEOUT_MS = 120_000;
 
-// The model runs in a process group of its own, so a timeout ends whatever the shell started, not the shell alone.
+// The model runs in a process group of its own, so a timeout ends whatever the shell started, not the shell alone. That
+// group no longer gets the terminal's Ctrl-C, so a stop of this run ends it too.
+const models = new Set();
+let stopped = false;
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    stopped = true;
+    for (const child of models) endTree(child.pid);
+  });
+}
+
 function modelAnswer(command, prompt) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, { shell: true, detached: process.platform !== 'win32', env: { ...process.env, EVOLVER_HEADLESS: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+    models.add(child);
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -42,6 +53,7 @@ function modelAnswer(command, prompt) {
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.on('error', reject);
     child.on('close', (code) => {
+      models.delete(child);
       clearTimeout(timer);
       if (code === 0 && !timedOut) return resolve(answerTextOf(stdout));
       return reject(new Error(`${withoutSecrets(command)} ${timedOut ? `timed out after ${MODEL_TIMEOUT_MS / 1000} s` : `exited ${code}`}`));
@@ -150,7 +162,10 @@ async function main() {
   const entries = (Array.isArray(corpus) ? corpus : []).slice(-limit);
   const proxy = proxyOf(values.proxy);
   const calibrated = [];
-  for (const entry of entries) calibrated.push({ entry, ...(await calibratedEntry(entry, { model: values.model, proxy })) });
+  for (const entry of entries) {
+    calibrated.push({ entry, ...(await calibratedEntry(entry, { model: values.model, proxy })) });
+    if (stopped) throw new Error('stopped');
+  }
   process.stdout.write(`${JSON.stringify(reportOf(corpusPath, values.model, calibrated), null, 2)}\n`);
 }
 
