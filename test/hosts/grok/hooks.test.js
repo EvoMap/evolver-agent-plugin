@@ -280,9 +280,12 @@ test('the session end distills its candidate through grok -p, headless, in an em
   await waitFor(() => !pending()['s-done']);
 });
 
-test('inside the headless run every hook answers {} and writes nothing', posix, async () => {
+test('inside the headless run every hook answers {} and writes nothing', posix, async (t) => {
+  // Earlier hooks may still be delivering reports to the shared Proxy.
+  const proxy = await fakeProxy();
+  t.after(() => closeWhenSettled(proxy));
   const before = proxy.requests.length;
-  const headless = { ...env, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
+  const headless = { ...env, ...proxy.env, PATH: env.PATH, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
   const base = { sessionId: 's-headless', session_id: 's-headless', cwd: project };
   assert.deepEqual(await answerOf('UserPromptSubmit', { ...PAYLOADS.UserPromptSubmit, ...base, prompt: PROMPT }, headless), {});
   assert.deepEqual(await answerOf('PostToolUse', { ...PAYLOADS['PostToolUse.read_file'], ...base }, headless), {});
