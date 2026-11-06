@@ -325,6 +325,36 @@ for (let i = 0; i < 25; i += 1) updateState(${JSON.stringify(target)}, {}, (stat
   assert.equal(readState(target, {}).count, 100);
 });
 
+test('transient sharing denial while creating a state lock retries before calling the mutator', t => {
+  for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+    const { dir } = stores();
+    const target = join(dir, 'counter.json'), lock = `${target}.lock`;
+    const write = fs.writeFileSync;
+    let attempts = 0;
+    let mutations = 0;
+    t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+      if (file === lock) {
+        attempts += 1;
+        if (attempts === 1) throw Object.assign(new Error('sharing violation'), { code });
+      }
+      return write(file, ...args);
+    });
+    try {
+      updateState(target, {}, state => {
+        mutations += 1;
+        assert.ok(existsSync(lock));
+        return { count: (state.count ?? 0) + 1 };
+      });
+      assert.equal(attempts, 2, code);
+      assert.equal(mutations, 1, code);
+      assert.equal(readState(target, {}).count, 1, code);
+      assert.equal(existsSync(lock), false, code);
+    } finally {
+      t.mock.restoreAll();
+    }
+  }
+});
+
 test('transient sharing denial while releasing a state lock leaves no orphaned lock', t => {
   for (const operation of ['readFileSync', 'unlinkSync']) {
     const { dir } = stores();

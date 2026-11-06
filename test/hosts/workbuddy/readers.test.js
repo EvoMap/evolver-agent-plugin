@@ -68,8 +68,8 @@ test('a WorkBuddy turn yields its commands, paths, edited files and checks from 
   appendFileSync(file, LRU_TURN);
   const turn = turnOf(file, mark);
   assert.deepEqual(turn.checks, [
-    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -12', exit: 1, failed: true },
-    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -9', exit: 0, failed: false },
+    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -12', exit: null, failed: true },
+    { command: 'cd /tmp/lru-e2e && node --test 2>&1 | tail -9', exit: null, failed: false },
   ]);
   assert.deepEqual(turn.edits, ['/tmp/lru-e2e/lru-cache.test.js', '/tmp/lru-e2e/lru-cache.js']);
   assert.ok(turn.paths.includes('/tmp/lru-e2e/lru-cache.js'));
@@ -86,9 +86,12 @@ test('an edit the host refused is no edited file, and a background run is no che
 test('a non-zero exit or failure output fails a check; an incomplete call failed; one without a result says nothing', () => {
   const checksOf = (records) => turnOf(transcriptWith(records.map(line).join('')), null).checks;
   assert.equal(checksOf(bashRecords('npm run build', shellText('npm run build', 'done', 2)))[0].failed, true);
+  assert.equal(checksOf(bashRecords('true || npm test', shellText('true || npm test', 'done', 0)))[0].failed, null);
+  assert.equal(checksOf(bashRecords('false && npm test', shellText('false && npm test', 'done', 1)))[0].failed, null);
   assert.equal(checksOf(bashRecords('npm test | tail -3', shellText('npm test | tail -3', 'AssertionError: expected 1 to equal 2\n1 test failed', 0)))[0].failed, true);
   assert.equal(checksOf(bashRecords('npm test -- --grep "test failed"', shellText('npm test', 'ℹ pass 4\nℹ fail 0', 0)))[0].failed, false);
   assert.equal(checksOf(bashRecords('npm test', 'Interrupted', { status: 'incomplete' }))[0].failed, true);
+  assert.equal(checksOf(bashRecords('npm test | tail -3', 'Interrupted', { status: 'incomplete' }))[0].failed, true);
   assert.equal(checksOf(bashRecords('npm test', 'boom\n'))[0].failed, null, 'completed says the tool returned, not that its process exited zero');
   assert.deepEqual(checksOf([bashRecords('npm test', '')[0]]), []);
   assert.equal(checksOf(bashRecords('npm test', shellText('npm test', 'ℹ fail 0', 0)).map((record) => ({ ...record, name: 'PowerShell' }))).length, 1);

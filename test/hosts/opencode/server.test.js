@@ -57,7 +57,7 @@ test('a verified turn reports its strategy with the last check and becomes the s
   const candidate = pending(proxy).ses_ok;
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { providerID: 'anthropic', modelID: 'claude-sonnet' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: 0, failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: null, failed: false }]);
   assert.equal(candidate.pid, process.pid);
 });
 

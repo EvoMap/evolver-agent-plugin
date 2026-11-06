@@ -56,6 +56,18 @@ test('a session-end distillation the Proxy answers as a draft is kept as a draft
   assert.deepEqual(body.distill_usage, { inputTokens: 10, outputTokens: 5 });
 });
 
+test('distillation omits a legacy snapshot with a credential before posting to the Proxy', async () => {
+  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
+  const diff = 'diff --git a/settings.json b/settings.json\n+{"accessToken":"opaque-example-123456789"}\n';
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, project: { ...PROJECT, diff } } }));
+
+  const outcome = await distillSession(ports, { sessionId: 's1' });
+  assert.equal(outcome.status, 'drafted');
+  const { body } = requests.find((request) => request.path === '/conversation/distill');
+  assert.deepEqual(body.project, { diff_omitted: 'secret' });
+  assert.doesNotMatch(JSON.stringify(body), /opaque-example/);
+});
+
 test('a diff that would push the distillation past the Proxy\'s 256 KiB body limit is left out and marked truncated', async () => {
   const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), project: { ...PROJECT, diff: 'x'.repeat(256 * 1024 - 100) } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
