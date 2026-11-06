@@ -130,23 +130,31 @@ test('a range that comes due while another is distilled is woken for shortly aft
 });
 
 test('a trial Gene the Proxy withheld from a turn is reported as its control under the withholding\'s id, once the turn ran a check, even after its own end could not queue it', async () => {
-  const { ports, queued } = memoryPorts({ assets: [] });
-  const answered = ports.proxy.request;
-  let withheld = { asset_id: 'sha256:trial', withheld_id: 'wh-1' };
-  ports.proxy.request = async (method, path, body) => (path === '/asset/fetch' && !body?.asset_ids ? { ok: true, data: { assets: [], trial_withheld: withheld } } : answered(method, path, body));
-  await verifiedTurn(ports, 's1');
-  const enqueue = ports.reports.enqueue;
-  ports.reports.enqueue = async () => { throw new Error('killed'); };
-  await assert.rejects(end(ports, 's1'));
-  ports.reports.enqueue = enqueue;
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'and explain why the retries were flaky', ...WAIT });
-  await end(ports, 's1');
-  withheld = { asset_id: 'sha256:trial' };
-  await verifiedTurn(ports, 's1');
-  await end(ports, 's1');
-  assert.deepEqual(queued.filter(({ path }) => path), [
-    { report: { asset_id: 'sha256:trial', withheld_id: 'wh-1', task_id: 'testagent:s1:1', passed: true, platform: 'testagent' }, sessionId: 's1', path: '/asset/trial-control' },
-  ]);
+  const later = [
+    ['the next turn end', async (ports) => {
+      await promptSubmitted(ports, { sessionId: 's1', prompt: 'and explain why the retries were flaky', ...WAIT });
+      await end(ports, 's1');
+    }],
+    ['the session end', (ports) => sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' })],
+  ];
+  for (const [name, after] of later) {
+    const { ports, queued } = memoryPorts({ assets: [] });
+    const answered = ports.proxy.request;
+    let withheld = { asset_id: 'sha256:trial', withheld_id: 'wh-1' };
+    ports.proxy.request = async (method, path, body) => (path === '/asset/fetch' && !body?.asset_ids ? { ok: true, data: { assets: [], trial_withheld: withheld } } : answered(method, path, body));
+    await verifiedTurn(ports, 's1');
+    const enqueue = ports.reports.enqueue;
+    ports.reports.enqueue = async () => { throw new Error('killed'); };
+    await assert.rejects(end(ports, 's1'));
+    ports.reports.enqueue = enqueue;
+    await after(ports);
+    withheld = { asset_id: 'sha256:trial' };
+    await verifiedTurn(ports, 's1');
+    await end(ports, 's1');
+    assert.deepEqual(queued.filter(({ path }) => path), [
+      { report: { asset_id: 'sha256:trial', withheld_id: 'wh-1', task_id: 'testagent:s1:1', passed: true, platform: 'testagent' }, sessionId: 's1', path: '/asset/trial-control' },
+    ], name);
+  }
 });
 
 test('a turn end clears only the pending controls it queued, never one another end left meanwhile', async () => {

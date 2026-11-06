@@ -22,19 +22,30 @@ import { irProblemOf, irReplyOf } from '../lib/distill/ir.js';
 import { distillBodiesOf } from '../lib/distill/request.js';
 import { distillResultOf } from '../lib/distill/result.js';
 import { withoutSecrets } from '../lib/redact.js';
+import { endTree } from '../lib/runtime/process/spawn.js';
 import { proxyFetchOf } from '../lib/runtime/proxy.js';
 
 const DEFAULT_MODEL = 'claude -p --output-format json';
 const MODEL_TIMEOUT_MS = 300_000;
 const PROXY_TIMEOUT_MS = 120_000;
 
+// The model runs in a process group of its own, so a timeout ends whatever the shell started, not the shell alone.
 function modelAnswer(command, prompt) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, { shell: true, env: { ...process.env, EVOLVER_HEADLESS: '1' }, stdio: ['pipe', 'pipe', 'inherit'], timeout: MODEL_TIMEOUT_MS });
+    const child = spawn(command, { shell: true, detached: process.platform !== 'win32', env: { ...process.env, EVOLVER_HEADLESS: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      endTree(child.pid);
+    }, MODEL_TIMEOUT_MS);
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(answerTextOf(stdout)) : reject(new Error(`${withoutSecrets(command)} exited ${code}`))));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && !timedOut) return resolve(answerTextOf(stdout));
+      return reject(new Error(`${withoutSecrets(command)} ${timedOut ? `timed out after ${MODEL_TIMEOUT_MS / 1000} s` : `exited ${code}`}`));
+    });
     child.stdin.end(prompt);
   });
 }
@@ -123,12 +134,20 @@ function reportOf(corpusPath, model, calibrated) {
   };
 }
 
+function limitOf(text) {
+  if (text === undefined) return Infinity;
+  const limit = Number(text);
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(`--limit takes a whole number of entries, 1 or more, not ${text}`);
+  return limit;
+}
+
 async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: { model: { type: 'string', default: DEFAULT_MODEL }, proxy: { type: 'string' }, limit: { type: 'string' } } });
   const [corpusPath] = positionals;
   if (!corpusPath) throw new Error('Usage: node scripts/distill-calibrate.mjs <corpus.json> [--model "<command>"] [--proxy <url>] [--limit <n>]');
+  const limit = limitOf(values.limit);
   const corpus = JSON.parse(readFileSync(corpusPath, 'utf8'));
-  const entries = (Array.isArray(corpus) ? corpus : []).slice(-(Number(values.limit) || Infinity));
+  const entries = (Array.isArray(corpus) ? corpus : []).slice(-limit);
   const proxy = proxyOf(values.proxy);
   const calibrated = [];
   for (const entry of entries) calibrated.push({ entry, ...(await calibratedEntry(entry, { model: values.model, proxy })) });

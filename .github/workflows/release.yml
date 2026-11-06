@@ -12,9 +12,9 @@ permissions:
 
 jobs:
   test:
-    # The org's self-hosted pool runs trusted code only: a pull request from a fork of this public repository stays on
-    # a GitHub-hosted runner.
-    runs-on: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && fromJSON('["self-hosted","Linux","X64","evox-gcp"]') || 'ubuntu-latest' }}
+    # The org's self-hosted pool runs trusted code only: a pull request from a fork of this public repository, or one
+    # Dependabot opened with a dependency no one has reviewed yet, stays on a GitHub-hosted runner.
+    runs-on: ${{ (github.event_name != 'pull_request' || (!github.event.pull_request.head.repo.fork && github.event.pull_request.user.login != 'dependabot[bot]')) && fromJSON('["self-hosted","Linux","X64","evox-gcp"]') || 'ubuntu-latest' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false

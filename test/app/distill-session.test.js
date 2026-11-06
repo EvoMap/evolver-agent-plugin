@@ -135,6 +135,27 @@ test('a diff is left out as too large when it would push the request past the Pr
   }
 });
 
+test('a range kept before its failed output was cut is cut again as it is sent, and its last turn\'s oldest steps give way to the 256 KiB', async () => {
+  const wholeOutput = ['x'.repeat(300 * 1024), ...Array.from({ length: 30 }, (_, index) => `line ${index}`)].join('\n');
+  const longCheck = (index) => ({ kind: 'check', command: `npm test -- ${'测'.repeat(990)} ${index}`, exit: 1, failed: true, output: 'y'.repeat(2048) });
+  const rows = [
+    ['a whole output', [{ kind: 'check', command: 'npm test', exit: 1, failed: true, output: wholeOutput }], (record) => record.find(({ kind }) => kind === 'output').text, 'line 10'],
+    ['sixty long failed checks', Array.from({ length: 60 }, (_, index) => longCheck(index)), (record) => record.some(({ text }) => text === longCheck(0).command), false],
+  ];
+  for (const [name, steps, keptOf, kept] of rows) {
+    const made = await fixedSession({ model: modelAnswering(IR) });
+    await made.ports.candidates.update((pending) => {
+      const [turn] = pending.s1.turns;
+      return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, steps: [...steps, ...turn.steps] }] } };
+    });
+    await endedAndDistilled(made);
+    const [{ body }] = distills(made.requests);
+    assert.ok(bytesOf(body) <= 256 * 1024, name);
+    assert.equal(keptOf(body.record), kept, name);
+    assert.equal(body.record.findLast(({ kind }) => kind === 'check').text, 'npm test 2>&1 | tail -5', name);
+  }
+});
+
 test('the gate decides without a model call whether a session\'s work is distilled, and distilled turns never are again', async () => {
   const rows = [
     ['two work turns', async (ports) => { await changeTurn(ports, 's1', 1); await changeTurn(ports, 's1', 2); }, ['below_threshold'], 0],
@@ -368,6 +389,10 @@ test('a correction after its turn was distilled removes that turn\'s draft and m
     ['a session with an epoch', async () => {}, async () => {}, 1],
     ['an epoch an older plugin version dropped', async () => {}, (ports) => ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older), 1],
     ['a session written before epochs existed', (ports) => ports.sessions.update('s1', () => ({ turn: 4 })), async () => {}, 5],
+    ['a later range an older plugin version wrote without an epoch', async () => {}, async (ports) => {
+      await ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older);
+      await ports.candidates.update((pending) => ({ ...pending, s1: { turns: [{ turn: 1, prompt: 'p', steps: [], answer: '' }], at: ports.clock.now() + 1 } }));
+    }, 1],
   ];
   for (const [name, before, after, turn] of rows) {
     const { ports } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });

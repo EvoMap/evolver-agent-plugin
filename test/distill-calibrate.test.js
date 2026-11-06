@@ -52,3 +52,10 @@ test('the calibration runner gates the corpus the plugin kept, asks the model, h
   assert.deepEqual([body.persist, body.publish, body.ir_version, body.session_id], [false, false, 'session-gene-ir-v1', 'testagent:fixed']);
   assert.ok(!JSON.stringify(body).includes(token), 'a turn kept before a redaction rule existed is redacted again as it is replayed');
 });
+
+test('the calibration runner refuses a limit that is not a count of entries before it reads the corpus', async () => {
+  for (const limit of ['0', '-1', '1.5', 'all']) {
+    const run = promisify(execFile)(process.execPath, [SCRIPT, 'missing-corpus.json', `--limit=${limit}`]);
+    await assert.rejects(run, (error) => error.code === 1 && error.stderr.includes(`--limit takes a whole number of entries, 1 or more, not ${limit}`), limit);
+  }
+});

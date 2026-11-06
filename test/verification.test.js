@@ -168,6 +168,7 @@ test('missing exit status is unknown unless a supported summary proves the check
     [' Tests  3 passed (3)', false], [' Tests  1 failed | 2 passed (3)', true], ['Tests:       3 passed, 3 total', false],
     ['test result: ok. 3 passed; 0 failed; 0 ignored', false], ['test result: FAILED. 2 passed; 1 failed;', true],
   ]) assert.equal(verificationFailureOf({ command: 'npm test | tail -3', exit: 0, text }), failed, text);
+  assert.equal(verificationFailureOf({ command: 'pytest | tail -n 1; exit 1', exit: 1, text: '1 passed in 0.01s' }), null);
 });
 
 test('a passing summary with cancelled tests does not verify a completed run', () => {
