@@ -48,7 +48,7 @@ function hook(hostEvent, payload, env = proxy.env) {
 const statePath = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
 const reuseReports = () => proxy.requests.filter((request) => request.path === '/asset/reuse-result').map((request) => request.body);
 const fetches = () => proxy.requests.filter((request) => request.path === '/asset/fetch');
-const candidates = () => (existsSync(statePath('cursor-distill-pending.json')) ? JSON.parse(readFileSync(statePath('cursor-distill-pending.json'), 'utf8')) : {});
+const candidates = () => (existsSync(statePath('cursor-distill-ranges.json')) ? JSON.parse(readFileSync(statePath('cursor-distill-ranges.json'), 'utf8')) : {});
 
 async function waitFor(read, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;

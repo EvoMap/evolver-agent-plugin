@@ -109,7 +109,7 @@ function session(id) {
 }
 
 const stateFile = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
-const pending = () => (existsSync(stateFile('qoder-distill-pending.json')) ? JSON.parse(readFileSync(stateFile('qoder-distill-pending.json'), 'utf8')) : {});
+const pending = () => (existsSync(stateFile('qoder-distill-ranges.json')) ? JSON.parse(readFileSync(stateFile('qoder-distill-ranges.json'), 'utf8')) : {});
 const posted = (path) => proxy.requests.filter((request) => request.path === path).map((request) => request.body);
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
 const qoderRuns = () => (existsSync(env.FAKE_QODER_LOG) ? readFileSync(env.FAKE_QODER_LOG, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : []);

@@ -116,7 +116,7 @@ function session(id) {
 
 const stateFile = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
 const sessionState = (id) => JSON.parse(readFileSync(stateFile(`grok-session-${createHash('sha256').update(id).digest('hex').slice(0, 16)}.json`), 'utf8'));
-const pending = () => (existsSync(stateFile('grok-distill-pending.json')) ? JSON.parse(readFileSync(stateFile('grok-distill-pending.json'), 'utf8')) : {});
+const pending = () => (existsSync(stateFile('grok-distill-ranges.json')) ? JSON.parse(readFileSync(stateFile('grok-distill-ranges.json'), 'utf8')) : {});
 const posted = (path) => proxy.requests.filter((request) => request.path === path).map((request) => request.body);
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
 const grokRuns = () => (existsSync(env.FAKE_GROK_LOG) ? readFileSync(env.FAKE_GROK_LOG, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : []);

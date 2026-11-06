@@ -97,7 +97,7 @@ function session(id) {
 }
 
 const stateFile = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
-const pending = () => (existsSync(stateFile('codex-distill-pending.json')) ? JSON.parse(readFileSync(stateFile('codex-distill-pending.json'), 'utf8')) : {});
+const pending = () => (existsSync(stateFile('codex-distill-ranges.json')) ? JSON.parse(readFileSync(stateFile('codex-distill-ranges.json'), 'utf8')) : {});
 const posted = (path) => proxy.requests.filter((request) => request.path === path).map((request) => request.body);
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
 const codexRuns = () => (existsSync(env.FAKE_CODEX_LOG) ? readFileSync(env.FAKE_CODEX_LOG, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : []);

@@ -108,7 +108,7 @@ async function verifiedTurn(s, prompt = PROMPT) {
 
 const pending = () => {
   try {
-    return JSON.parse(readFileSync(join(data, 'workbuddy-distill-pending.json'), 'utf8'));
+    return JSON.parse(readFileSync(join(data, 'workbuddy-distill-ranges.json'), 'utf8'));
   } catch {
     return {};
   }

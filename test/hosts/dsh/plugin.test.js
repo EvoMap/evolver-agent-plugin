@@ -56,8 +56,8 @@ test('a verified turn is reported with its last check and joins the session\'s w
   assert.equal(report.asset_id, ASSET.asset_id);
   assert.equal(report.outcome, 'success');
   assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the session\'s work');
-  const range = stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id];
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id], 'the session\'s work');
+  const range = stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id];
   const [turn] = range.turns;
   assert.deepEqual([turn.prompt, turn.answer], [PROMPT, 'Set maxRetriesPerRequest to null; the suite passes.']);
   assert.deepEqual(range.model, { provider: 'deepseek-official', model: 'deepseek-flash' });
@@ -71,7 +71,7 @@ test('a session dsh disposes is distilled through the model service on the sessi
   const dsh = await startDsh({ llm });
   const agent = await dsh.createAgent();
   await fixTurn(dsh, agent);
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the session\'s work');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id], 'the session\'s work');
   assert.equal(llm.calls.length, 0, 'nothing runs at turn end');
   dsh.disposeSession(agent);
   await until(() => distills(proxy).length === 1, 'the distillation');
@@ -101,10 +101,10 @@ test('a failed model call keeps the session\'s work for the next session start',
   const dsh = await startDsh({ llm });
   const agent = await dsh.createAgent();
   await fixTurn(dsh, agent);
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the session\'s work');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id], 'the session\'s work');
   dsh.disposeSession(agent);
   await until(() => llm.calls.length === 1, 'the distillation attempt');
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id]?.claimedBy === null, 'the claim to be released');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id]?.claimedBy === null, 'the claim to be released');
   assert.deepEqual(distills(proxy), []);
 });
 
@@ -113,17 +113,17 @@ test('the plugin\'s unload ends the open sessions; the next dsh process distills
   const first = await startDsh();
   const done = await first.createAgent();
   await fixTurn(first, done);
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[done.session.id], 'the session\'s work');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[done.session.id], 'the session\'s work');
   const running = await first.createAgent();
   await first.preStep(running, { turn: 1, step: 1, messages: [{ ...DSH.preStep.prompt.messages[0], content: [{ type: 'text', text: PROMPT }] }] });
   await first.dispose();
-  assert.equal(stateFile(proxy, 'dsh-distill-pending.json')[done.session.id].closed, true);
+  assert.equal(stateFile(proxy, 'dsh-distill-ranges.json')[done.session.id].closed, true);
   await until(() => reportsOf(proxy).some((report) => report.task_id === `dsh:${running.session.id}:1`), 'the open turn\'s report');
   const aborted = reportsOf(proxy).find((report) => report.task_id === `dsh:${running.session.id}:1`);
   assert.equal(aborted.evidence.aborted, true);
   assert.equal(aborted.outcome, 'failed');
 
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[done.session.id]?.attempts === 1, 'the try without a model service to count');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[done.session.id]?.attempts === 1, 'the try without a model service to count');
   elapseRetryWaits(proxy);
   const llm = fakeLlm();
   const next = await startDsh({ llm });
@@ -214,7 +214,7 @@ test('a failing check, a run still in the background and an unfinished turn are 
   const cut = await dsh.createAgent();
   await verifiedTurn(dsh, cut, { reason: { kind: 'max-tokens' } });
   await Promise.all([failing, background, cut].map((agent) => dsh.settled(agent)));
-  const pending = stateFile(proxy, 'dsh-distill-pending.json');
+  const pending = stateFile(proxy, 'dsh-distill-ranges.json');
   const lastCheckOf = (agent) => pending[agent.session.id].turns[0].steps.findLast(({ kind }) => kind === 'check') ?? null;
   assert.deepEqual([lastCheckOf(failing)?.failed, lastCheckOf(background), lastCheckOf(cut)?.failed], [true, null, false]);
 });
@@ -224,9 +224,9 @@ test('a correction stays with the turn it corrects and revises that turn\'s repo
   const dsh = await startDsh();
   const agent = await dsh.createAgent();
   await verifiedTurn(dsh, agent);
-  await until(() => stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id], 'the session\'s work');
+  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id], 'the session\'s work');
   await dsh.turn(agent, { turn: 2, prompt: '不对，还是报错' });
-  assert.equal(stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id].turns[0].correction, '不对，还是报错');
+  assert.equal(stateFile(proxy, 'dsh-distill-ranges.json')[agent.session.id].turns[0].correction, '不对，还是报错');
   await until(() => reportsOf(proxy).some((report) => report.task_id.endsWith(':1:correction')), 'the correction report');
   const correction = reportsOf(proxy).find((report) => report.task_id.endsWith(':1:correction'));
   assert.equal(correction.outcome, 'failed');
@@ -245,7 +245,7 @@ test('a subagent\'s session is neither recalled for nor recorded', async (t) => 
   await dsh.settled(subagent);
   assert.deepEqual(fetches(proxy), []);
   assert.deepEqual(reportsQueued(proxy), []);
-  assert.deepEqual(stateFile(proxy, 'dsh-distill-pending.json'), {});
+  assert.deepEqual(stateFile(proxy, 'dsh-distill-ranges.json'), {});
 });
 
 test('a turn no person\'s message opened is recalled for nothing and records nothing', async (t) => {
@@ -257,7 +257,7 @@ test('a turn no person\'s message opened is recalled for nothing and records not
   await dsh.settled(agent);
   assert.deepEqual(reportsQueued(proxy), []);
   assert.deepEqual(fetches(proxy), []);
-  assert.deepEqual(stateFile(proxy, 'dsh-distill-pending.json'), {});
+  assert.deepEqual(stateFile(proxy, 'dsh-distill-ranges.json'), {});
 });
 
 test('options: proxyPort reaches the Proxy when settings name none, and assetPrimeEnabled: false turns recall off', async (t) => {

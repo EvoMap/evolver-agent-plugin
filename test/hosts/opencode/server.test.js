@@ -15,7 +15,7 @@ async function harness(t, { client, assets, recallDelayMs, options } = {}) {
 
 const pending = (proxy) => {
   try {
-    return JSON.parse(readFileSync(join(proxy.stateDir, 'opencode-distill-pending.json'), 'utf8'));
+    return JSON.parse(readFileSync(join(proxy.stateDir, 'opencode-distill-ranges.json'), 'utf8'));
   } catch {
     return {};
   }

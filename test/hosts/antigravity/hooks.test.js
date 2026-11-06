@@ -176,7 +176,7 @@ test('a whole turn through the installed hooks: the strategy before each call, a
     evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' },
   });
   assert.equal(proxy.requests.filter((request) => request.path === '/asset/fetch').length, 1);
-  const range = JSON.parse(readFileSync(stateFile(proxy.env.HOME, 'antigravity-distill-pending.json'), 'utf8'))['s-e2e'];
+  const range = JSON.parse(readFileSync(stateFile(proxy.env.HOME, 'antigravity-distill-ranges.json'), 'utf8'))['s-e2e'];
   assert.deepEqual([range.turns[0].prompt, range.model, range.pid], [PROMPT, { model: 'gemini-test' }, host.pid]);
 });
 

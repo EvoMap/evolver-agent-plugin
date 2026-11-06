@@ -52,7 +52,7 @@ test('/evolver-evolve becomes a follow-up turn of its own, which is recalled for
   await dsh.settled(agent);
   assert.deepEqual(reportsQueued(proxy), []);
   assert.deepEqual(fetches(proxy), []);
-  assert.deepEqual(stateFile(proxy, 'dsh-distill-pending.json'), {});
+  assert.deepEqual(stateFile(proxy, 'dsh-distill-ranges.json'), {});
   const sessions = (await import('node:fs')).readdirSync(proxy.stateDir).filter((name) => name.startsWith('dsh-session-'));
   assert.equal(stateFile(proxy, sessions[0]).isCommand, true);
 
