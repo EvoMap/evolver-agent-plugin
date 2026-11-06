@@ -49,7 +49,9 @@ test('a recalled turn is reported under its turn_id, agent-reported, and its Gen
   const writtenFor = /written_for "(v1-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
   assert.ok(writtenFor);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: GENE })), /newer turn replaced/);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 123, gene: GENE })), /newer turn replaced/);
+  const legacy = await call(client, 'evolver_distill', { written_for: 123, gene: GENE });
+  assert.equal(legacy.isError, true);
+  assert.match(textOf(legacy), /written_for/);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: GENE })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
   for (const args of ['publish 1', 'discard 1']) {
