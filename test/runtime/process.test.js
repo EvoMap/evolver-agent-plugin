@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { profileNamed } from '../../lib/agent/registry.js';
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
 import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
+import { waitForWakeUp } from '../../lib/runtime/lifetime/ephemeral.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
@@ -71,6 +72,15 @@ test('a hook process arms one sleeping waiter, another only for an earlier time 
   await until(() => ownerIsGone(waking.pid), 'the woken waiter to run and exit');
   assert.deepEqual([waiter(), await stores.candidates.read()], [null, {}], 'its record is gone, and its distill task dropped the expired leftover');
   assert.equal(ownerIsGone(sleeping.pid), false, 'the later waiter sleeps on');
+});
+
+test('an unreadable waiter record neither stops a woken waiter nor is removed by it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-waiter-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const waiterFile = join(dir, 'waiter.json');
+  writeFileSync(waiterFile, '{unfinished');
+  await waitForWakeUp(0, { waiterFile, clock: { now: () => 1, sleep: async () => {} } });
+  assert.equal(readFileSync(waiterFile, 'utf8'), '{unfinished');
 });
 
 test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
