@@ -47,7 +47,7 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   assert.equal(body.trigger, 'session_end');
   assert.equal(body.session_id, 'opencode:ses_d');
   assert.equal(body.user_prompt, PROMPT);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', exit: 0 }] });
+  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', exit: 0, source: 'observed' }] });
   assert.deepEqual(body.distill_usage, { input: 900, output: 120 });
   assert.equal((await stores.drafts.read()).length, 1);
 });
@@ -73,7 +73,7 @@ test('the helper session triggers none of this plugin\'s own work', async (t) =>
   assert.equal(reportsOf(proxy).length, 1);
 });
 
-test('a distillation the model failed keeps the candidate, and the next session start retries it', async (t) => {
+test('a distillation the model failed keeps the candidate, and a session start once its retry wait is over retries it', async (t) => {
   const { oc, proxy, client, stores } = await harness(t, { answer: 'not json' });
   await verifiedTurn(oc, 'ses_f');
   await deleted(oc, 'ses_f');
@@ -84,6 +84,8 @@ test('a distillation the model failed keeps the candidate, and the next session 
   assert.deepEqual(distills(proxy), []);
   assert.equal(callsNamed(client, 'delete').length, 1, 'the helper session is removed');
 
+  assert.ok(kept.retryAt > Date.now(), 'the next try waits');
+  await stores.candidates.update((pending) => ({ ...pending, ses_f: { ...pending.ses_f, retryAt: 0 } }));
   client.answer = JSON.stringify({ title: 'Retry', summary: 'Retry Redis connections deterministically.' });
   await oc.prompt('ses_next', 'what does this repo do?');
   await until(() => distills(proxy).length === 1, 'the retry');
@@ -98,7 +100,7 @@ test('a strategy whose turn never ended is reported aborted when its session is 
   const [report] = reportsOf(proxy);
   assert.equal(report.task_id, 'opencode:ses_cut:1');
   assert.equal(report.outcome, 'failed');
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', aborted: true, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', source: 'observed', aborted: true, stage: 'immediate' });
 });
 
 test('shutting OpenCode down only writes what its sessions leave; the next instance delivers and distills it', async (t) => {

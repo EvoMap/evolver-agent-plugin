@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { profileNamed } from '../../lib/agent/registry.js';
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
+import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
-import { ownerProbeOf } from '../../lib/runtime/process/owner.js';
+import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
+import { readState, writeState } from '../../lib/runtime/store/file-lock.js';
+import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
 const node = process.execPath;
 
@@ -17,28 +24,43 @@ test('a run gets its input on stdin and the headless marker only when asked', as
   assert.equal((await runProcess(node, echo, { input: 'hi', headless: true })).stdout, 'hi|1');
 });
 
+test('a binary run preserves stdout bytes that cannot be decoded as UTF-8', async () => {
+  const bytes = [0xff, 0, 0xc3, 0xa9];
+  const result = await runProcess(node, ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`], { encoding: 'buffer' });
+  assert.equal(result.code, 0);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.stdout, Buffer.from(bytes));
+});
+
 test('a run past its timeout is killed and says so; a missing command reads as ENOENT', async () => {
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
   assert.equal((await runProcess('evolver-no-such-command-xyz', [])).error.code, 'ENOENT');
 });
 
-test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async () => {
+test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async (t) => {
   const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
-  const child = `
-    const { spawn } = require('node:child_process');
-    const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore', windowsHide: true });
-    console.log(JSON.stringify([process.pid, descendant.pid]));
-    setTimeout(() => {}, 5000);
-  `;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-stripped-process-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const child = join(dir, 'child.exe');
+  // A fresh Node 22 child can fail its native RNG bootstrap before any JavaScript runs without SystemRoot.
+  const compiler = join(process.env.SystemRoot || process.env.WINDIR, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  await promisify(execFile)(compiler, ['/nologo', '/target:exe', '/out:' + child, fileURLToPath(new URL('../fixtures/process/windows-child.cs', import.meta.url))], { timeout: 12000, windowsHide: true });
   const fixture = `
+    import assert from 'node:assert/strict';
     import { setTimeout as delay } from 'node:timers/promises';
-    const env = { ...process.env };
-    for (const key of Object.keys(process.env)) {
-      if (/^(systemroot|windir|comspec)$/i.test(key)) delete process.env[key];
+    // Seed every key so stripping is exercised even when the host already omitted it.
+    const env = { ...process.env, SystemRoot: 'fixture-root', WINDIR: 'fixture-root', COMSPEC: 'fixture-shell' };
+    for (const key of Object.keys(env)) {
+      if (/^(systemroot|windir|comspec)$/i.test(key)) {
+        delete env[key];
+        delete process.env[key];
+      }
     }
+    assert.deepEqual(Object.keys(env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'child env still contains a system directory variable');
+    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'runtime imported with a system directory variable');
     const { runProcess } = await import(${JSON.stringify(runtime)});
-    const result = await runProcess(process.execPath, ['--input-type=commonjs', '-e', ${JSON.stringify(child)}], { env, timeoutMs: 1500 });
+    const result = await runProcess(${JSON.stringify(child)}, [], { env, timeoutMs: 1500 });
     if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
     const pids = JSON.parse(result.stdout);
     const alive = pid => {
@@ -60,6 +82,44 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
+test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
+  const profile = await profileNamed('codex');
+  const { scheduler } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: async () => true }).ports;
+  const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
+  await stores.candidates.update(() => ({ leftover: { closed: true, at: 1 } }));
+  const waiter = () => readState(stores.distillWaiter, null);
+  const started = [];
+  t.after(() => {
+    for (const pid of [...started, waiter()?.pid]) if (pid && !ownerIsGone(pid)) process.kill(pid);
+    rmSync(home, { recursive: true, force: true });
+  });
+  const until = async (check, what) => {
+    for (const deadline = Date.now() + 10_000; !check(); await new Promise((resolve) => setTimeout(resolve, 20))) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    }
+  };
+  const inAnHour = Date.now() + 60 * 60_000;
+  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { stdio: 'ignore' });
+  started.push(stranger.pid);
+  writeState(stores.distillWaiter, { pid: stranger.pid, startedAt: Date.now() - 10 * 60_000, at: inAnHour });
+  scheduler.wakeAt(inAnHour, ['distill']);
+  const sleeping = waiter();
+  started.push(sleeping.pid);
+  assert.notEqual(sleeping.pid, stranger.pid, 'a dead waiter whose pid another process took arms nothing');
+  assert.equal(sleeping.at, inAnHour);
+  scheduler.wakeAt(inAnHour + 1, ['distill']);
+  assert.deepEqual(waiter(), sleeping, 'a later wake-up is already armed');
+  scheduler.wakeAt(Date.now(), ['distill']);
+  const waking = waiter();
+  started.push(waking.pid);
+  assert.notEqual(waking.pid, sleeping.pid, 'an earlier wake-up starts its own waiter');
+  await until(() => ownerIsGone(waking.pid), 'the woken waiter to run and exit');
+  assert.deepEqual([waiter(), await stores.candidates.read()], [null, {}], 'its record is gone, and its distill task dropped the expired leftover');
+  assert.equal(ownerIsGone(sleeping.pid), false, 'the later waiter sleeps on');
+});
+
 test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
   const { elapsedMsOf } = await import('../../lib/runtime/process/identity.js');
   const ps = (stdout) => ({ probe: () => ({ stdout }), platform: 'darwin' });
@@ -67,7 +127,7 @@ test("a process's age is read from every form ps prints it in, and is unknown wh
   assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
   assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
   assert.equal(elapsedMsOf(1, ps('')), null);
-  assert.equal(elapsedMsOf(1, { platform: 'win32' }), null);
+  assert.equal(elapsedMsOf(-1, { platform: 'win32' }), null);
 });
 
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {

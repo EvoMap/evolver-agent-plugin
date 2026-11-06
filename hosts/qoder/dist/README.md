@@ -3,7 +3,7 @@
 Evolver for Qoder CLI, powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): before each prompt it recalls one proven strategy, reports at the turn's end how the
 turn that used it went (with the checks it ran as evidence), and distills the session's verified work into a draft
-Gene when the session ends.
+Gene once the session has been quiet for 30 minutes or ends.
 
 The plugin runs entirely from Qoder hooks. It registers **no tools, no skill and no MCP server**, so nothing of
 Evolver enters the model's context but the recalled steps, which end with `Apply them where they fit.`
@@ -69,9 +69,9 @@ where no session is current, so `evolver-distill` takes the newest candidate:
 node ~/.qoder/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs qoder evolver-status
 ```
 
-## Session-end distillation
+## Background distillation
 
-When the session ends, a detached process runs Qoder CLI itself in print mode —
+Once the session has been quiet for 30 minutes, or when it ends, a detached process runs Qoder CLI itself in print mode —
 `qodercli -p --output-format json --tools "" --strict-mcp-config --settings '{"disableAllHooks":true}' --max-turns 1 --no-session-persistence`
 in an empty folder, with the prompt on stdin — to write a Gene from a digest of the candidate turn (task, commands,
 paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's `POST /conversation/distill`.

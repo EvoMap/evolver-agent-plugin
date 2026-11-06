@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import profile from '../../../hosts/minimax/profile.js';
 import { createDriver } from '../../../lib/agent/driver.js';
 import { runBackgroundTasks } from '../../../lib/app/background.js';
+import { RETRY_BASE_MS } from '../../../lib/distill/candidate.js';
 import { environmentFor, RESIDENT } from '../../../lib/runtime/environment.js';
 import { ownerIsGone } from '../../../lib/runtime/process/owner.js';
 import { transcripts } from '../../../lib/runtime/transcripts.js';
@@ -31,6 +32,8 @@ async function fixture({ failFirst = false } = {}) {
     model: { complete: async () => { calls += 1; if (failFirst && calls === 1) throw new Error('transient model failure'); return { answer: JSON.stringify(GENE), usage: null }; } },
     engine: { needsSetup: async () => false, takeUnannounced: async () => null },
   } });
+  let elapsed = 0;
+  ports.clock = { ...ports.clock, now: () => Date.now() + elapsed };
   const driver = createDriver({ profile, ports, transcripts, env, lifetime: RESIDENT });
   const payload = (session, turn) => ({ session_id: session, turn_id: turn, cwd: project, model: 'native-bare-model' });
   const hook = (event, session = 's1', turn = 't1', extra = {}) => driver.handle(event, { ...payload(session, turn), ...extra });
@@ -52,7 +55,7 @@ async function fixture({ failFirst = false } = {}) {
     if (host.exitCode === null && host.signalCode === null) { const ended = once(host, 'close'); host.kill(); await ended; }
     proxy.close();
   };
-  return { proxy, ports, hook, idle, verified, killHost, close, calls: () => calls };
+  return { proxy, ports, hook, idle, verified, killHost, close, calls: () => calls, advance: (ms) => { elapsed += ms; } };
 }
 
 test('a dead native owner is recovered without SessionEnd, distilled once and kept as an unpublished draft', async () => {
@@ -76,7 +79,7 @@ test('a dead native owner is recovered without SessionEnd, distilled once and ke
   } finally { await f.close(); }
 });
 
-test('a failed recovered completion releases its claim and succeeds at the next start without lowering validation', async () => {
+test('a failed recovered completion releases its claim and succeeds after the background retry delay', async () => {
   const f = await fixture({ failFirst: true });
   try {
     await f.verified(); await f.killHost();
@@ -85,6 +88,9 @@ test('a failed recovered completion releases its claim and succeeds at the next 
     assert.equal(due.attempts, 1);
     assert.equal(due.claimedBy, null);
     assert.equal((await f.ports.drafts.read()).length, 0);
+    await f.hook('SessionStart', 'before-retry'); await f.idle();
+    assert.equal(f.calls(), 1, 'a new session cannot bypass the retry delay');
+    f.advance(RETRY_BASE_MS);
     await f.hook('SessionStart', 'retry-two'); await f.idle();
     assert.equal(f.calls(), 2);
     assert.equal((await f.ports.drafts.read()).length, 1);

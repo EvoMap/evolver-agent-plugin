@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -12,6 +12,7 @@ import { PROMPT } from '../../app/memory-ports.js';
 import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
 
 const fakeCli = fileURLToPath(new URL('../../fixtures/minimax/fake-mcode.mjs', import.meta.url));
+const ledgerCore = fileURLToPath(new URL('../../../node_modules/@evomap/evolver-core', import.meta.url));
 const DRAFT = { ok: true, status: 'draft', distill_id: 'native-hook-draft', quality: { ok: true, score: 6 }, gene: { type: 'Gene', asset_id: `sha256:${'1'.repeat(64)}` }, capsule: { type: 'Capsule', asset_id: `sha256:${'2'.repeat(64)}` } };
 
 async function run(command, args, { env, cwd, input = '', shell = false }) {
@@ -33,6 +34,10 @@ async function fixture(t) {
   const data = join(proxy.env.HOME, 'native'), project = join(proxy.env.HOME, "workspace user's tiếng Việt"), bin = join(proxy.env.HOME, "runtime user's & bin");
   const state = join(data, 'v2/plugin-data/hooks/evolver-plugin');
   for (const dir of [join(data, 'v2/sqlite'), project, bin]) mkdirSync(dir, { recursive: true });
+  // Keep ledger delivery on the pinned test dependency instead of probing globally installed npm or Core.
+  const engineModules = join(state, 'minimax-engine', 'node_modules', '@evomap');
+  mkdirSync(engineModules, { recursive: true });
+  symlinkSync(ledgerCore, join(engineModules, 'evolver-core'), process.platform === 'win32' ? 'junction' : 'dir');
   const db = new DatabaseSync(join(data, 'v2/sqlite/runtime-state.sqlite'));
   db.exec('CREATE TABLE local_runtime_sessions (session_id TEXT PRIMARY KEY, extra_data_json TEXT); CREATE TABLE local_runtime_session_agent_definitions (session_id TEXT PRIMARY KEY, definition_json TEXT); CREATE TABLE local_runtime_turn_ingress (session_id TEXT, turn_id TEXT, status TEXT)');
   db.prepare('INSERT INTO local_runtime_sessions VALUES (?, ?)').run('s1', JSON.stringify({ effectiveModel: 'custom_provider:first/model-a' }));
@@ -69,9 +74,13 @@ async function fixture(t) {
     await hook('Stop', { last_assistant_message: 'The retry check now passes after the repair.' });
   };
   t.after(async () => {
-    await until(() => !existsSync(join(state, 'minimax-outbox.lock')));
-    db.close(); rmSync(plugin, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    await closeProxyWhenSettled(proxy);
+    try {
+      await until(() => !existsSync(join(state, 'minimax-outbox.lock')));
+    } finally {
+      db.close();
+      try { await closeProxyWhenSettled(proxy); }
+      finally { rmSync(plugin, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+    }
   });
   return { proxy, plugin, data, state, env, project, db, hook, read, calls, verified, originalConfig };
 }
