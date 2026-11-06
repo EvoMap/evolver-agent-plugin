@@ -386,9 +386,10 @@ test('a session file outlives the outbox: a session resumed within a month still
   assert.deepEqual(await stores.sessions.read('s1'), {});
 });
 
-test('a recorded draft correction survives reopening and pruning the source session', async () => {
+test('a recorded draft correction survives reopening and pruning the source session while its draft is saved', async () => {
   const { dir, stores: first } = stores();
   await first.sessions.update('s1', () => ({ turn: 2, sessionEpoch: 10 }));
+  await first.drafts.update(() => [{ id: 'd1', sessionId: 's1', sourceCandidate: { at: 1, turn: 2, sessionEpoch: 10 } }]);
   await first.draftCorrections.mark('s1', 2, 10);
   await first.draftCorrections.mark('s1', 2, 10);
   first.prune(Date.now() + 31 * 24 * 60 * 60 * 1000);
@@ -399,6 +400,23 @@ test('a recorded draft correction survives reopening and pruning the source sess
   assert.equal(await reopened.draftCorrections.has('s1', 2, 20), false);
   assert.equal(await reopened.draftCorrections.has('s1', 1, 10), false);
   assert.equal(await reopened.draftCorrections.has('s2', 2, 10), false);
+});
+
+test('a draft correction no saved draft refers to is pruned once it is as old as a session file may get', async () => {
+  const { dir, stores: cursor } = stores();
+  const day = 24 * 60 * 60 * 1000;
+  await cursor.drafts.update(() => [{ id: 'd1', sessionId: 's1', sourceCandidate: { at: 1, turn: 2 } }]);
+  await cursor.draftCorrections.mark('s1', 2, undefined);
+  await cursor.draftCorrections.mark('s1', 3, 10);
+  await cursor.draftCorrections.mark('s2', 1, 10);
+
+  cursor.prune(Date.now() + 20 * day);
+  assert.equal(await cursor.draftCorrections.has('s1', 3, 10), true);
+  await cursor.draftCorrections.withSession('s3', () => cursor.prune(Date.now() + 31 * day));
+  assert.equal(await cursor.draftCorrections.has('s1', 2, undefined), true);
+  assert.equal(await cursor.draftCorrections.has('s1', 3, 10), false);
+  assert.equal(await cursor.draftCorrections.has('s2', 1, 10), false);
+  assert.equal(readdirSync(join(dir, 'cursor-distill-corrections')).length, 1);
 });
 
 test('a publish gate in another process waits for the source session correction', async (t) => {
