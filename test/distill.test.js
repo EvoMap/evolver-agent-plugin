@@ -5,6 +5,7 @@ import {
   distillPromptOf, distillRequestOf, draftNamed, draftOf, draftsListText, isDistillableTurn, lessonOf, skipReasonOf,
   submitRequestOf, withDraft, withoutDraft,
 } from '../lib/distill.js';
+import { isCurrentCandidate, settledCandidate } from '../lib/distill/candidate.js';
 
 const LESSON = {
   reusable: true,
@@ -13,6 +14,15 @@ const LESSON = {
   strategy: ['Measure the failure rate', 'Retry with jittered exponential backoff', 'Cap the retries and alert'],
   signals: ['timeout'],
 };
+
+test('settling an earlier turn cannot remove a candidate with the same timestamp', () => {
+  const earlier = { at: 1_000, turn: 1 };
+  const current = { at: 1_000, turn: 2 };
+  const pending = { session: current };
+  assert.equal(isCurrentCandidate(pending, 'session', earlier), false);
+  assert.equal(settledCandidate(pending, 'session', earlier, { done: true }), undefined);
+  assert.equal(isCurrentCandidate(pending, 'session', current), true);
+});
 
 test('only an answered person turn that edited and ended on a passing check is distillable', () => {
   const turn = { reason: 'answer', agentId: undefined, isPersonTurn: true, changedLines: 3, checks: [{ command: 'npm test', failed: false }] };

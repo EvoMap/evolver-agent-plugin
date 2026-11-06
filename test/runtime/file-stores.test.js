@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import { once } from 'node:events';
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -383,4 +384,77 @@ test('a session file outlives the outbox: a session resumed within a month still
   assert.equal((await stores.sessions.read('s1')).turn, 9);
   stores.prune(Date.now() + 31 * day);
   assert.deepEqual(await stores.sessions.read('s1'), {});
+});
+
+test('a recorded draft correction survives reopening and pruning the source session while its draft is saved', async () => {
+  const { dir, stores: first } = stores();
+  await first.sessions.update('s1', () => ({ turn: 2, sessionEpoch: 10 }));
+  await first.drafts.update(() => [{ id: 'd1', sessionId: 's1', sourceCandidate: { at: 1, turn: 2, sessionEpoch: 10 } }]);
+  await first.draftCorrections.mark('s1', 2, 10);
+  await first.draftCorrections.mark('s1', 2, 10);
+  first.prune(Date.now() + 31 * 24 * 60 * 60 * 1000);
+
+  const reopened = fileStoresOf({ dir, agent: 'cursor' });
+  assert.deepEqual(await reopened.sessions.read('s1'), {});
+  assert.equal(await reopened.draftCorrections.has('s1', 2, 10), true);
+  assert.equal(await reopened.draftCorrections.has('s1', 2, 20), false);
+  assert.equal(await reopened.draftCorrections.has('s1', 1, 10), false);
+  assert.equal(await reopened.draftCorrections.has('s2', 2, 10), false);
+});
+
+test('a draft correction no saved draft refers to is pruned once it is as old as a session file may get', async () => {
+  const { dir, stores: cursor } = stores();
+  const day = 24 * 60 * 60 * 1000;
+  await cursor.drafts.update(() => [{ id: 'd1', sessionId: 's1', sourceCandidate: { at: 1, turn: 2 } }]);
+  await cursor.draftCorrections.mark('s1', 2, undefined);
+  await cursor.draftCorrections.mark('s1', 3, 10);
+  await cursor.draftCorrections.mark('s2', 1, 10);
+
+  cursor.prune(Date.now() + 20 * day);
+  assert.equal(await cursor.draftCorrections.has('s1', 3, 10), true);
+  await cursor.draftCorrections.withSession('s3', () => cursor.prune(Date.now() + 31 * day));
+  assert.equal(await cursor.draftCorrections.has('s1', 2, undefined), true);
+  assert.equal(await cursor.draftCorrections.has('s1', 3, 10), false);
+  assert.equal(await cursor.draftCorrections.has('s2', 1, 10), false);
+  assert.equal(readdirSync(join(dir, 'cursor-distill-corrections')).length, 1);
+});
+
+test('a publish gate in another process waits for the source session correction', async (t) => {
+  const { dir, stores: parent } = stores();
+  const module = new URL('../../lib/runtime/store/file-stores.js', import.meta.url).href;
+  const script = `import { once } from 'node:events';
+import { fileStoresOf } from ${JSON.stringify(module)};
+const { draftCorrections } = fileStoresOf({ dir: ${JSON.stringify(dir)}, agent: 'cursor' });
+await draftCorrections.withSession('s1', async () => {
+  const release = once(process, 'message');
+  process.send('locked');
+  await release;
+  await draftCorrections.mark('s1', 2, 10);
+});
+process.disconnect();`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  t.after(() => child.kill());
+  const exited = once(child, 'exit');
+  const locked = once(child, 'message');
+  const [ready] = await Promise.race([locked, exited]);
+  assert.equal(ready, 'locked');
+
+  let checked = false;
+  const publication = parent.draftCorrections.withSession('s1', async () => {
+    checked = true;
+    return parent.draftCorrections.has('s1', 2, 10);
+  });
+  assert.equal(checked, false);
+  child.send('release');
+  assert.equal(await publication, true);
+  assert.deepEqual(await exited, [0, null]);
+});
+
+test('a correction lock that stays held refuses with ELOCKED, so a hook reports it', async () => {
+  const { stores: cursor } = stores();
+  let release;
+  const holder = cursor.draftCorrections.withSession('s1', () => new Promise((resolve) => { release = resolve; }));
+  await assert.rejects(cursor.draftCorrections.withSession('s1', () => assert.fail('work must not run')), { code: 'ELOCKED' });
+  release();
+  await holder;
 });
