@@ -43,7 +43,7 @@ test('the recalled strategy is the only thing added to the prompt, behind it, as
   assert.match(part.id, /^prt_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
   assert.match(part.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(part.text.endsWith('Apply them where they fit.'));
-  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' } });
+  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' }, signals: ['flaky', 'redis', 'connection', 'retries', 'tests'] });
 });
 
 test('a verified turn reports its strategy with the last check and becomes the session candidate, on its model', async (t) => {
@@ -53,11 +53,11 @@ test('a verified turn reports its strategy with the last check and becomes the s
   const [report] = reportsOf(proxy);
   assert.equal(report.task_id, 'opencode:ses_ok:1');
   assert.equal(report.outcome, 'success');
-  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, aborted: false, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
   const candidate = pending(proxy).ses_ok;
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { providerID: 'anthropic', modelID: 'claude-sonnet' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: 0, failed: false }]);
   assert.equal(candidate.pid, process.pid);
 });
 

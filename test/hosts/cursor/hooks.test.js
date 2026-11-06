@@ -218,7 +218,7 @@ test('a chat closed while its turn runs reports the strategy aborted, once', asy
   await c.stop('aborted');
   const [report] = await waitFor(reuseReports);
   assert.equal(report.task_id, 'cursor:s-gone:1');
-  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', aborted: true, stage: 'immediate' });
+  assert.deepEqual(report.evidence, { tier: 'none', applied: 'used', source: 'observed', aborted: true, stage: 'immediate' });
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(reuseReports().length, 1);
 });
