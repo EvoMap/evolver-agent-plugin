@@ -142,6 +142,21 @@ test('a held state lock never runs an unguarded mutator after its wait expires',
   assert.equal(readFileSync(lock, 'utf8'), held);
 });
 
+test('a long-held state lock is recovered only once its live PID proves to be a newer process', (t) => {
+  const { target, lock } = scratch(t);
+  const ownStart = Math.round(Date.now() - process.uptime() * 1000);
+  const longAgo = new Date(Date.now() - 60_000);
+  const sameProcess = `${process.pid}:a11ce:${ownStart}`;
+  writeFileSync(lock, sameProcess);
+  fs.utimesSync(lock, longAgo, longAgo);
+  assert.throws(() => updateState(target, {}, () => assert.fail('mutator must not run')), BUSY);
+  assert.equal(readFileSync(lock, 'utf8'), sameProcess);
+  writeFileSync(lock, `${process.pid}:5e1ec7:${ownStart - 60_000}`);
+  fs.utimesSync(lock, longAgo, longAgo);
+  assert.deepEqual(updateState(target, {}, (stored) => ({ count: stored.count + 1 })), { count: 1 });
+  assert.equal(existsSync(lock), false);
+});
+
 test('a legacy dead state owner is recovered, and file permission errors stop before mutation', (t) => {
   const { target, lock } = scratch(t);
   const exited = spawnSync(process.execPath, ['-e', '']);
