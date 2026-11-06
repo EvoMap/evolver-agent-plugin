@@ -401,3 +401,12 @@ process.disconnect();`;
   assert.equal(await publication, true);
   assert.deepEqual(await exited, [0, null]);
 });
+
+test('a correction lock that stays held refuses with ELOCKED, so a hook reports it', async () => {
+  const { stores: cursor } = stores();
+  let release;
+  const holder = cursor.draftCorrections.withSession('s1', () => new Promise((resolve) => { release = resolve; }));
+  await assert.rejects(cursor.draftCorrections.withSession('s1', () => assert.fail('work must not run')), { code: 'ELOCKED' });
+  release();
+  await holder;
+});
