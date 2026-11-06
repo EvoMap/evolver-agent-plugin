@@ -51,6 +51,13 @@ test('a recalled turn is reported under its turn_id, agent-reported, and its Gen
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor + 1, gene: GENE })), /newer turn replaced/);
   assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: GENE })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
+  for (const args of ['publish 1', 'discard 1']) {
+    const refused = await call(client, 'evolver_drafts', { args });
+    assert.equal(refused.isError, true);
+    assert.match(textOf(refused), /Draft changes require a direct command/);
+  }
+  assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
+  assert.ok(!proxy.requests.some(({ path }) => ['/asset/reverify', '/asset/submit'].includes(path)));
   const delivered = () => proxy.requests.find((request) => request.path === '/asset/reuse-result')?.body;
   for (let tries = 0; tries < 50 && !delivered(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual([delivered().evidence.tier, delivered().evidence.reported_by], ['none', 'agent']);
