@@ -62,15 +62,17 @@ async function fixture(t) {
   };
   const read = (name, fallback) => existsSync(join(state, name)) ? JSON.parse(readFileSync(join(state, name), 'utf8')) : fallback;
   const calls = () => existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) : [];
-  const verified = async () => {
+  const check = async (exit) => {
+    const actual = await run(process.execPath, ['-e', `process.exit(${exit})`], { env, cwd: project });
+    await hook('PostToolUse', { tool_name: 'bash', tool_input: { command: 'node --test' }, tool_response: { details: { execution: { reason: 'exited', exitCode: actual.code }, processOutput: { stdout: exit ? '# fail 1' : '# pass 1\n# fail 0', stderr: '', interrupted: false } } } });
+  };
+  const fixedError = async () => {
     await hook('UserPromptSubmit', { prompt: PROMPT });
+    await check(1);
     const file = join(project, 'fixture.txt'); writeFileSync(file, 'before');
     const edit = { tool_name: 'edit', tool_input: { file_path: file, old_string: 'before', new_string: 'after' } };
     await hook('PreToolUse', edit); writeFileSync(file, 'after'); await hook('PostToolUse', { ...edit, tool_response: { details: { diff: '-before\n+after' } } });
-    for (const exit of [1, 0]) {
-      const actual = await run(process.execPath, ['-e', `process.exit(${exit})`], { env, cwd: project });
-      await hook('PostToolUse', { tool_name: 'bash', tool_input: { command: 'node --test' }, tool_response: { details: { execution: { reason: 'exited', exitCode: actual.code }, processOutput: { stdout: exit ? '# fail 1' : '# pass 1\n# fail 0', stderr: '', interrupted: false } } } });
-    }
+    await check(0);
     await hook('Stop', { last_assistant_message: 'The retry check now passes after the repair.' });
   };
   t.after(async () => {
@@ -82,7 +84,7 @@ async function fixture(t) {
       finally { rmSync(plugin, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
     }
   });
-  return { proxy, plugin, data, state, env, project, db, hook, read, calls, verified, originalConfig };
+  return { proxy, plugin, data, state, env, project, db, hook, read, calls, fixedError, originalConfig };
 }
 
 test('packed shell hooks persist settings across processes, expose status in chat and keep manual distill available', async t => {
@@ -92,7 +94,7 @@ test('packed shell hooks persist settings across processes, expose status in cha
   assert.equal((await f.hook('UserPromptSubmit', { prompt: PROMPT })).hookSpecificOutput, undefined);
   assert.equal(f.proxy.requests.filter(x => x.path === '/asset/fetch').length, recalls);
   await f.hook('UserPromptSubmit', { prompt: 'evolver-config auto-distill off' });
-  await f.verified(); await f.hook('SessionEnd');
+  await f.fixedError(); await f.hook('SessionEnd');
   assert.equal(f.calls().length, 0);
   assert.equal(f.read('minimax-settings.json').autoDistill, false);
   const manual = await run(process.execPath, [join(f.plugin, 'bin/command.mjs'), 'minimax', 'evolver-distill'], { env: { ...f.env, EVOLVER_SESSION_ID: 's1' }, cwd: f.project });
@@ -104,11 +106,11 @@ test('packed shell hooks persist settings across processes, expose status in cha
 });
 
 test('automatic distill uses the captured session route after another model becomes current and settles only once', async t => {
-  const f = await fixture(t); await f.verified();
-  assert.deepEqual(f.read('minimax-distill-pending.json').s1.model, { model: 'custom_provider:first/model-a' });
+  const f = await fixture(t); await f.fixedError();
+  assert.deepEqual(f.read('minimax-distill-ranges.json').s1.model, { model: 'custom_provider:first/model-a' });
   f.db.prepare('UPDATE local_runtime_sessions SET extra_data_json = ?').run(JSON.stringify({ effectiveModel: 'custom_provider:second/model-b' }));
   await f.hook('SessionEnd');
-  await until(() => f.read('minimax-distill-drafts.json', []).length === 1 && !f.read('minimax-distill-pending.json', {}).s1);
+  await until(() => f.read('minimax-distill-drafts.json', []).length === 1 && !f.read('minimax-distill-ranges.json', {}).s1);
   const [call] = f.calls();
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'custom_provider:first/model-a');
   assert.equal(call.marker, '1'); assert.equal(existsSync(call.cwd), false);
@@ -119,7 +121,7 @@ test('automatic distill uses the captured session route after another model beco
 });
 
 test('a chat distill runs in a detached worker, reports its result in chat, and leaves publication explicit', async t => {
-  const f = await fixture(t); await f.verified();
+  const f = await fixture(t); await f.fixedError();
   const admission = await f.hook('UserPromptSubmit', { prompt: 'evolver-distill retry handling' });
   assert.equal(admission.decision, 'block');
   const id = /Job ([0-9a-f-]+):/.exec(admission.reason)?.[1]; assert.ok(id);
@@ -138,6 +140,6 @@ test('native cancellation closes the matching turn through its durable status, w
   await f.hook('UserPromptSubmit', { prompt: PROMPT });
   f.db.prepare('UPDATE local_runtime_turn_ingress SET status = ?').run('aborted');
   await until(() => f.proxy.requests.some(item => item.path === '/asset/reuse-result' && item.body.outcome === 'failed' && item.body.evidence.aborted));
-  assert.deepEqual(f.read('minimax-distill-pending.json', {}), {});
+  assert.deepEqual(f.read('minimax-distill-ranges.json', {}), {});
   assert.equal(f.calls().length, 0);
 });

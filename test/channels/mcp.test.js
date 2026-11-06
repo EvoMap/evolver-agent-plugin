@@ -8,18 +8,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { PROMPT } from '../app/memory-ports.js';
+import { IR } from '../app/work-turns.js';
 import { installFakeEvolver } from '../helpers/fake-evolver.js';
 import { closeProxyWhenSettled, fakeProxy } from '../helpers/fake-proxy.js';
 
 const SERVER = fileURLToPath(new URL('../../bin/mcp.mjs', import.meta.url));
-const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
-
 let proxy;
 before(async () => {
   proxy = await fakeProxy({ distillAnswer: {
-    ok: true, status: 'draft', distill_id: 'd'.repeat(16), quality: { ok: true, score: 6, threshold: 5 },
-    gene: { type: 'Gene', asset_id: 'sha256:' + 'g'.repeat(64), summary: GENE.summary },
-    capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: GENE.summary },
+    ok: true, status: 'draft', distill_id: 'd'.repeat(16), quality: { ok: true },
+    gene: { type: 'Gene', asset_id: 'sha256:' + 'g'.repeat(64), summary: IR.capability_summary },
+    capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: IR.capability_summary },
   } });
 });
 after(() => closeProxyWhenSettled(proxy));
@@ -40,19 +39,20 @@ test('an official MCP client sees exactly the seven Evolver tools', async (t) =>
   assert.deepEqual(tools.map((tool) => tool.name).sort(), ['evolver_distill', 'evolver_drafts', 'evolver_login', 'evolver_recall', 'evolver_report', 'evolver_search', 'evolver_status']);
 });
 
-test('a recalled turn is reported under its turn_id, agent-reported, and its Gene becomes a draft', async (t) => {
+test('a recalled turn that fixed an error is reported under its turn_id, agent-reported, and its IRs become a draft', async (t) => {
   const client = await connected(t);
   const recalled = textOf(await call(client, 'evolver_recall', { task: PROMPT }));
   assert.match(recalled, /Apply them where they fit\./);
   const turnId = turnIdOf(recalled);
-  const reported = textOf(await call(client, 'evolver_report', { turn_id: turnId, outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] }));
-  const writtenFor = /written_for "(v1-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
+  const checks = [{ command: 'npm test', exit: 1 }, { command: 'npm test', exit: 0 }];
+  const reported = textOf(await call(client, 'evolver_report', { turn_id: turnId, outcome: 'success', summary: 'Fixed the retries.', checks, files: ['lib/redis.js'] }));
+  const writtenFor = /written_for "(v2-[A-Za-z0-9_-]{43})"/.exec(reported)?.[1];
   assert.ok(writtenFor);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: GENE })), /newer turn replaced/);
-  const legacy = await call(client, 'evolver_distill', { written_for: 123, gene: GENE });
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: 'wrong-reference', gene: [IR] })), /changed after this answer was asked for/);
+  const legacy = await call(client, 'evolver_distill', { written_for: 123, gene: [IR] });
   assert.equal(legacy.isError, true);
   assert.match(textOf(legacy), /written_for/);
-  assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: GENE })), /Distilled "Stabilise Redis retries" into a draft/);
+  assert.match(textOf(await call(client, 'evolver_distill', { written_for: writtenFor, gene: [IR] })), /Distilled "Stabilise Redis retries" into a draft/);
   assert.match(textOf(await call(client, 'evolver_drafts')), /Stabilise Redis retries/);
   for (const args of ['publish 1', 'discard 1']) {
     const refused = await call(client, 'evolver_drafts', { args });

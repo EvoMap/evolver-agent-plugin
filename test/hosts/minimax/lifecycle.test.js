@@ -8,14 +8,14 @@ import { test } from 'node:test';
 import profile from '../../../hosts/minimax/profile.js';
 import { createDriver } from '../../../lib/agent/driver.js';
 import { runBackgroundTasks } from '../../../lib/app/background.js';
-import { RETRY_BASE_MS } from '../../../lib/distill/candidate.js';
+import { RETRY_BASE_MS } from '../../../lib/distill/range.js';
 import { environmentFor, RESIDENT } from '../../../lib/runtime/environment.js';
 import { ownerIsGone } from '../../../lib/runtime/process/owner.js';
 import { transcripts } from '../../../lib/runtime/transcripts.js';
 import { PROMPT } from '../../app/memory-ports.js';
+import { IR } from '../../app/work-turns.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
-const GENE = { title: 'Stabilise retries', summary: 'A shared queue client recovers from transient connection failures when its retry limit is removed.', strategy: ['Reproduce the failing check.', 'Remove the fixed retry limit.', 'Run the same verification again.'] };
 const DRAFT = { ok: true, status: 'draft', distill_id: 'minimax-draft', quality: { ok: true, score: 6 }, gene: { type: 'Gene', asset_id: `sha256:${'1'.repeat(64)}` }, capsule: { type: 'Capsule', asset_id: `sha256:${'2'.repeat(64)}` } };
 
 async function fixture({ failFirst = false } = {}) {
@@ -30,7 +30,7 @@ async function fixture({ failFirst = false } = {}) {
   const { ports } = environmentFor({ profile, env, lifetime: RESIDENT, runBackground: runBackgroundTasks, overrides: {
     owner: { current: () => owner, self: () => process.pid, isGone: ownerIsGone },
     clock: { now: () => Date.now() + skew, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
-    model: { complete: async () => { calls += 1; if (failFirst && calls === 1) throw new Error('transient model failure'); return { answer: JSON.stringify(GENE), usage: null }; } },
+    model: { complete: async () => { calls += 1; if (failFirst && calls === 1) throw new Error('transient model failure'); return { answer: JSON.stringify(IR), usage: null }; } },
     engine: { needsSetup: async () => false, takeUnannounced: async () => null },
   } });
   const driver = createDriver({ profile, ports, transcripts, env, lifetime: RESIDENT });
@@ -38,14 +38,16 @@ async function fixture({ failFirst = false } = {}) {
   const hook = (event, session = 's1', turn = 't1', extra = {}) => driver.handle(event, { ...payload(session, turn), ...extra });
   const idle = () => ports.scheduler.idle();
   const killHost = async () => { const ended = once(host, 'close'); host.kill(); await ended; owner = process.pid; assert.equal(ownerIsGone(host.pid), true); };
-  const verified = async () => {
+  const check = (exitCode, stdout) => ({ tool_name: 'bash', tool_input: { command: 'node --test' }, tool_response: { details: { execution: { reason: 'exited', exitCode }, processOutput: { stdout, stderr: '', interrupted: false } } } });
+  const fixedError = async () => {
     await hook('SessionStart'); await idle();
     const answer = await hook('UserPromptSubmit', 's1', 't1', { prompt: PROMPT });
     assert.match(answer.hookSpecificOutput.additionalContext, /Evolution Memory/);
+    await hook('PostToolUse', 's1', 't1', check(1, '# pass 0\n# fail 1'));
     const edit = { tool_name: 'edit', tool_input: { file_path: file, old_string: 'before', new_string: 'after' } };
     await hook('PreToolUse', 's1', 't1', edit); writeFileSync(file, 'after');
     await hook('PostToolUse', 's1', 't1', { ...edit, tool_response: { details: { diff: '-before\n+after' } } });
-    await hook('PostToolUse', 's1', 't1', { tool_name: 'bash', tool_input: { command: 'node --test' }, tool_response: { details: { execution: { reason: 'exited', exitCode: 0 }, processOutput: { stdout: '# pass 1\n# fail 0', stderr: '', interrupted: false } } } });
+    await hook('PostToolUse', 's1', 't1', check(0, '# pass 1\n# fail 0'));
     await hook('Stop', 's1', 't1', { last_assistant_message: 'Retries fixed and verification passes.' }); await idle();
     assert.equal((await ports.candidates.read()).s1.pid, host.pid);
   };
@@ -55,15 +57,15 @@ async function fixture({ failFirst = false } = {}) {
     proxy.close();
   };
   const advance = (ms) => { skew += ms; };
-  return { proxy, ports, hook, idle, verified, killHost, close, advance, calls: () => calls };
+  return { proxy, ports, hook, idle, fixedError, killHost, close, advance, calls: () => calls };
 }
 
 test('a dead native owner is recovered without SessionEnd, distilled once and kept as an unpublished draft', async () => {
   const f = await fixture();
   try {
-    await f.verified();
+    await f.fixedError();
     await f.hook('SessionStart', 'still-live'); await f.idle();
-    assert.equal(f.calls(), 0, 'an idle live host does not lose its candidate');
+    assert.equal(f.calls(), 0, 'an idle live host does not lose its range');
     await f.killHost();
     await f.hook('SessionStart', 'recovery'); await f.idle();
     assert.equal(f.calls(), 1);
@@ -82,7 +84,7 @@ test('a dead native owner is recovered without SessionEnd, distilled once and ke
 test('a failed recovered completion releases its claim and succeeds at a start after its retry wait without lowering validation', async () => {
   const f = await fixture({ failFirst: true });
   try {
-    await f.verified(); await f.killHost();
+    await f.fixedError(); await f.killHost();
     await f.hook('SessionStart', 'retry-one'); await f.idle();
     const due = (await f.ports.candidates.read()).s1;
     assert.equal(due.attempts, 1);

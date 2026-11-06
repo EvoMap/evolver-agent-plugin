@@ -15,7 +15,7 @@ async function harness(t, { client, assets, recallDelayMs, options } = {}) {
 
 const pending = (proxy) => {
   try {
-    return JSON.parse(readFileSync(join(proxy.stateDir, 'opencode-distill-pending.json'), 'utf8'));
+    return JSON.parse(readFileSync(join(proxy.stateDir, 'opencode-distill-ranges.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -33,7 +33,7 @@ test('the plugin registers no tool, and /evolver-evolve as its one prompt comman
 });
 
 test('the recalled strategy is the only thing added to the prompt, behind it, as synthetic text', async (t) => {
-  const { oc, proxy } = await harness(t);
+  const { oc, proxy, directory } = await harness(t);
   const output = await oc.prompt('ses_a', PROMPT, [{ id: 'prt_1', type: 'text', synthetic: true, text: 'attached file contents' }]);
   assert.equal(output.parts.length, 3);
   const part = output.parts.at(-1);
@@ -43,10 +43,10 @@ test('the recalled strategy is the only thing added to the prompt, behind it, as
   assert.match(part.id, /^prt_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
   assert.match(part.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(part.text.endsWith('Apply them where they fit.'));
-  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' }, signals: ['flaky', 'redis', 'connection', 'retries', 'tests'] });
+  assert.deepEqual(requestsTo(proxy, '/asset/fetch')[0].body, { text: PROMPT, context: { task: PROMPT, trigger: 'turn_start' }, signals: ['flaky', 'redis', 'connection', 'retries', 'tests'], project_dir: directory });
 });
 
-test('a verified turn reports its strategy with the last check and becomes the session candidate, on its model', async (t) => {
+test('a verified turn reports its strategy with the last check and joins the session\'s work, on its model', async (t) => {
   const { oc, proxy } = await harness(t);
   await verifiedTurn(oc, 'ses_ok');
   await until(() => reportsOf(proxy).length === 1, 'the turn-end report');
@@ -54,25 +54,26 @@ test('a verified turn reports its strategy with the last check and becomes the s
   assert.equal(report.task_id, 'opencode:ses_ok:1');
   assert.equal(report.outcome, 'success');
   assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
-  const candidate = pending(proxy).ses_ok;
-  assert.equal(candidate.prompt, PROMPT);
-  assert.deepEqual(candidate.model, { providerID: 'anthropic', modelID: 'claude-sonnet' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: null, failed: false }]);
-  assert.equal(candidate.pid, process.pid);
+  const range = pending(proxy).ses_ok;
+  assert.equal(range.turns[0].prompt, PROMPT);
+  assert.deepEqual(range.model, { providerID: 'anthropic', modelID: 'claude-sonnet' });
+  assert.deepEqual(range.turns[0].steps.filter(({ kind }) => kind === 'check'), [{ kind: 'check', command: 'npm test 2>&1 | tail -5', exit: null, failed: false }]);
+  assert.equal(range.pid, process.pid);
 });
 
-test('a correction drops the candidate; a question keeps it', async (t) => {
+test('a correction stays with the turn it corrects; a question is none', async (t) => {
   const { oc, proxy } = await harness(t);
   await verifiedTurn(oc, 'ses_c');
   await oc.prompt('ses_c', '这样不对吧？');
-  assert.ok(pending(proxy).ses_c);
+  assert.equal(pending(proxy).ses_c.turns[0].correction, undefined);
   await oc.answer('ses_c', 'It holds.');
   await oc.idle('ses_c');
+  await verifiedTurn(oc, 'ses_c', 'now share one redis client');
   await oc.prompt('ses_c', '不对，还是报错');
-  assert.equal(pending(proxy).ses_c, undefined);
+  assert.deepEqual(pending(proxy).ses_c.turns.map(({ turn, correction }) => [turn, correction]), [[1, undefined], [3, '不对，还是报错']]);
 });
 
-test('a turn leaves no candidate when its check failed, it ran nothing, or it was interrupted', async (t) => {
+test('a turn that ran a check is work whether it failed or was interrupted; one that ran nothing is not', async (t) => {
   const { oc, proxy } = await harness(t, { assets: [] });
   await oc.prompt('ses_f', 'fix the build');
   await oc.tool('ses_f', 'edit', { filePath: 'a.js', oldString: 'a', newString: 'b' });
@@ -87,7 +88,7 @@ test('a turn leaves no candidate when its check failed, it ran nothing, or it wa
   await oc.bash('ses_x', 'npm run build', { exit: 0 });
   await oc.answer('ses_x', 'Stopped.', { error: { name: 'MessageAbortedError', data: { message: 'Aborted' } } });
   await oc.idle('ses_x');
-  assert.deepEqual(Object.keys(pending(proxy)), []);
+  assert.deepEqual(Object.keys(pending(proxy)).sort(), ['ses_f', 'ses_x']);
 });
 
 test('an interrupted turn is reported aborted and an errored one failed, from how OpenCode ended them', async (t) => {

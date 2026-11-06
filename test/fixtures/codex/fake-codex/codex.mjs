@@ -1,6 +1,6 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 
-const GENE = { title: 'Retry uploads', summary: 'Retry a flaky upload with backoff.', strategy: '1. Measure. 2. Back off.', signals: ['retry'] };
+const GENE = JSON.parse(readFileSync(new URL('../../session-ir.json', import.meta.url), 'utf8'));
 
 // `mcp list --json` answers FAKE_CODEX_MCP (a JSON listing; `fail` exits 1), and is logged like a run.
 if (process.argv.slice(2).includes('mcp')) {

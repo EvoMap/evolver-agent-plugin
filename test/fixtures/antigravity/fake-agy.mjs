@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 // Answers like `agy --input-format stream-json --output-format stream-json`: one `user` event per stdin line, a
 // `result` event per turn, and an ERROR result with exit 1 for a line that is not JSON, as the headless docs say.
-const GENE = { title: 'Retry uploads', summary: 'Retry a flaky upload with backoff.', strategy: '1. Measure. 2. Back off.', signals: ['retry'] };
+const GENE = JSON.parse(readFileSync(new URL('../session-ir.json', import.meta.url), 'utf8'));
 const usage = { input_tokens: 900, output_tokens: 120, thinking_tokens: 30, cache_read_tokens: 0, total_tokens: 1020 };
 const result = (fields) => `${JSON.stringify({ event: 'result', result: { conversation_id: 'c-headless', num_turns: 1, usage, ...fields } })}\n`;
 

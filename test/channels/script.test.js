@@ -6,6 +6,7 @@ import { after, before, test } from 'node:test';
 import { defineProfile } from '../../lib/agent/profile.js';
 import { runCommandScript } from '../../lib/channels/script/runner.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
+import { IR } from '../app/work-turns.js';
 import { fakeProxy } from '../helpers/fake-proxy.js';
 
 // A host whose own readers know nothing of a script: the channel must not need them.
@@ -59,16 +60,17 @@ test('a Gene posted for no candidate says there is nothing to distill', async ()
   assert.match(await run('evolver-distill', { input: '{"summary":"s"}', argv: ['--post', '123'] }), /^Nothing to distill yet/);
 });
 
-test('the terminal sends a Gene reference unchanged to the candidate it names', async () => {
-  const candidate = { at: 1_000, turn: 1, attempts: 0, prompt: 'Repair retries', answer: 'Done', paths: [], commands: [], checks: [] };
+test('the terminal sends a Gene reference unchanged to the range it names', async () => {
+  const turn = { turn: 1, prompt: 'Repair retries', steps: [{ kind: 'check', command: 'npm test', exit: 0, failed: false }], answer: 'Done', at: 1_000 };
+  const range = { turns: [turn], at: 1_000, changedAt: 1_000, attempts: 0 };
   const { candidates } = fileStoresOf({ dir: profile.stateDir(proxy.env), agent: profile.name });
-  await candidates.update(() => ({ s1: candidate }));
-  const input = '{"summary":"Retry safely","strategy":["Retry once"]}';
+  await candidates.update(() => ({ s1: range }));
+  const input = JSON.stringify(IR);
   const posted = () => proxy.requests.filter(({ path }) => path === '/conversation/distill');
 
-  assert.match(await run('evolver-distill', { input, argv: ['--post', String(candidate.at)], env: { TEST_SESSION_ID: 's1' } }), /^A newer turn replaced/);
+  assert.match(await run('evolver-distill', { input, argv: ['--post', String(range.changedAt)], env: { TEST_SESSION_ID: 's1' } }), /^The session's work changed/);
   assert.equal(posted().length, 0);
-  assert.match(await run('evolver-distill', { input, argv: ['--post', candidates.referenceOf('s1', candidate)] }), /not_in_this_test/);
+  assert.match(await run('evolver-distill', { input, argv: ['--post', candidates.referenceOf('s1', range)] }), /not_in_this_test/);
   assert.deepEqual(posted().map(({ body }) => body.session_id), ['testscript:s1']);
 });
 

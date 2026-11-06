@@ -122,7 +122,7 @@ test('only records after the turn\'s mark are read, and a shrunken transcript fa
   appendFileSync(file, bashRecords('npm run lint', shellText('npm run lint', 'ok', 0), { callId: 'new' }).map(line).join(''));
   assert.deepEqual(turnOf(file, mark).commands, ['npm run lint']);
   writeFileSync(file, [userPrompt('new'), { ...ANSWER, content: [{ type: 'output_text', text: 'answer' }] }].map(line).join(''));
-  assert.deepEqual(turnOf(file, mark), { commands: [], paths: [], edits: [], checks: [], answer: 'answer' });
+  assert.deepEqual(turnOf(file, mark), { commands: [], paths: [], edits: [], checks: [], steps: [], answer: 'answer' });
 });
 
 test('a transcript rewritten past the old mark is read from the last prompt, even with a line break at that offset', () => {

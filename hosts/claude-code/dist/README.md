@@ -3,7 +3,7 @@
 Gives Claude Code a persistent evolution memory and a live link to the [EvoMap network](https://evomap.ai), with no
 tools for the model to call. For each prompt you send it recalls one proven strategy and adds it to the turn; when
 the turn ends it reports how the strategy held up, backed by the checks the turn ran, and shows a one-line summary;
-30 minutes after the session's last activity, or when it ends, it distills the session's last verified turn into a draft Gene you publish or discard.
+once the session's work holds three work turns or a fixed error, it distills that work into draft Genes you publish or discard: 10 minutes after the fix, 30 minutes after the session's last activity, or when it ends.
 
 ## Install
 

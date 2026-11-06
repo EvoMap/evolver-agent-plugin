@@ -34,6 +34,14 @@ test('every file carries the agent name, so two agents in one directory never me
   assert.deepEqual(seen, [['s1', 5]]);
 });
 
+test('ranges stay out of the pending file an earlier version claims from, and its leftovers move over once', async () => {
+  const { dir, stores: cursor } = stores();
+  writeFileSync(join(dir, 'cursor-distill-pending.json'), JSON.stringify({ old: { prompt: 'p', at: 1 } }));
+  await cursor.candidates.update((ranges) => ({ ...ranges, s1: { turns: [], at: 2 } }));
+  assert.deepEqual([Object.keys(readState(join(dir, 'cursor-distill-ranges.json'), {})).sort(), readState(join(dir, 'cursor-distill-pending.json'), {})],
+    [['old', 's1'], {}]);
+});
+
 test('one corrupt session file is preserved and reported without stopping the update of the others', async () => {
   const { dir, stores: cursor } = stores();
   await cursor.sessions.update('good', () => ({ turn: 1 }));

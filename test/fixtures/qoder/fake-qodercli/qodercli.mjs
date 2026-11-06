@@ -7,7 +7,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 // as its result, or, with FAKE_QODER_SIGNED_OUT=1, what it printed signed out before exiting 1; logs each run with
 // its prompt on stdin.
 
-const GENE = { title: 'Retry uploads', summary: 'Retry a flaky upload with backoff.', strategy: '1. Measure. 2. Back off.', signals: ['retry'] };
+const GENE = JSON.parse(readFileSync(new URL('../../session-ir.json', import.meta.url), 'utf8'));
 const fixture = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 
 let prompt = '';

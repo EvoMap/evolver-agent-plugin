@@ -53,7 +53,7 @@ test('the runner finds grok and runs it headless in an empty folder, the prompt 
     const log = join(scratch, 'calls.jsonl');
     const env = { ...process.env, PATH: [FAKE_GROK, dirname(process.execPath), process.env.PATH].join(delimiter), FAKE_GROK_NODE: process.execPath, FAKE_GROK_LOG: log };
     const reply = await modelRunnerOf(grok.model, env).complete({ model: null }, '## Task\nadd a retry', AbortSignal.timeout(10_000));
-    assert.equal(JSON.parse(reply.answer).title, 'Retry uploads');
+    assert.equal(JSON.parse(reply.answer).title, 'Stabilise Redis retries');
     const [call] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(call.prompt, '## Task\nadd a retry');
     assert.equal(call.headless, '1', 'the plugin\'s own hooks stay quiet inside the run');

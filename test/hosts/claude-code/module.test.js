@@ -9,17 +9,17 @@ import { pathToFileURL } from 'node:url';
 
 import { pack } from '../../../scripts/pack.mjs';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
+import { IR } from '../../app/work-turns.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
 
 // Claude Code loads the packed folder's `hooks/register.ts` with its engine as `$`. Here the module runs over a
 // stand-in engine whose processes, network and clock are real, so it starts the packed relay and talks to it.
 
 const { captured } = JSON.parse(readFileSync(new URL('../../fixtures/claude-code/events.json', import.meta.url), 'utf8'));
-const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
 const DRAFTED = {
   ok: true, status: 'draft', distill_id: 'd'.repeat(16), quality: { ok: true, score: 6, threshold: 5 },
-  gene: { type: 'Gene', asset_id: 'sha256:' + 'g'.repeat(64), summary: GENE.summary },
-  capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: GENE.summary },
+  gene: { type: 'Gene', asset_id: 'sha256:' + 'g'.repeat(64), summary: IR.capability_summary },
+  capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: IR.capability_summary },
 };
 const USAGE = { input_tokens: 1_200, output_tokens: 800 };
 
@@ -93,7 +93,7 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     },
     model: { complete: async (request) => {
       seen.completions.push(request);
-      return { isAnswered: true, text: JSON.stringify(GENE), usage: { input_tokens: 900, output_tokens: 120 } };
+      return { isAnswered: true, text: JSON.stringify(IR), usage: { input_tokens: 900, output_tokens: 120 } };
     } },
     command: { register: async (spec) => { seen.commands.push(spec); } },
     prompt: { submit: async ({ text }) => { seen.submitted.push(text); } },
@@ -303,5 +303,6 @@ test('a failed check recalls for its output and hands the strategy to the model 
     text: 'changed: maxRetriesPerRequest | AssertionError: expected 3 to equal null | files: redis.js',
     context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
     signals: ['AssertionError', 'changed', 'maxretriesperrequest', 'expected', 'equal', 'null', 'files', 'redis.js'],
+    project_dir: cc.project,
   });
 });
