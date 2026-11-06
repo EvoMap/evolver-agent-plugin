@@ -10,7 +10,7 @@ import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/candidate.js';
+import { BLOCKED_ROUTE_TTL_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/candidate.js';
 import { memoryPorts } from './memory-ports.js';
 
 const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
@@ -56,11 +56,10 @@ test('an unavailable captured route releases the claim and preserves the candida
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
   assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
   const candidate = (await ports.candidates.read()).s1;
-  assert.deepEqual([candidate.attempts, candidate.claimedBy, candidate.blocked], [0, null, { reason: 'route_changed' }]);
+  assert.deepEqual([candidate.attempts, candidate.claimedBy, candidate.blocked], [0, null, { reason: 'route_changed', at: ports.clock.now() }]);
   assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
-  const armed = wakeUps.length;
   await armDistillWakeUp(ports);
-  assert.equal(wakeUps.length, armed);
+  assert.deepEqual(wakeUps.at(-1), { at: candidate.blocked.at + BLOCKED_ROUTE_TTL_MS, tasks: [TASKS.DISTILL] });
   made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
   await dropExpiredLeftovers(ports);
   assert.ok((await ports.candidates.read()).s1);
@@ -94,7 +93,52 @@ test('a blocked route stays parked when another session wakes the distillation w
   assert.equal(calls, 2, 'the worker should only run the newly due session');
   assert.deepEqual(scheduledWhileBlocked, []);
   assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.session_id), ['testagent:s2']);
-  assert.deepEqual((await ports.candidates.read()).s1.blocked, { reason: 'route_changed' });
+  assert.equal((await ports.candidates.read()).s1.blocked.reason, 'route_changed');
+});
+
+test('a blocked candidate expires from its first block even after a failed manual retry', async () => {
+  let calls = 0;
+  const { ports, advance, wakeUps } = await withCandidate({ model: {
+    capture: () => 'model-x',
+    async complete() {
+      calls++;
+      throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+    },
+  } });
+  advance(IDLE_DISTILL_MS);
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  const deadline = ports.clock.now() + BLOCKED_ROUTE_TTL_MS;
+  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
+  advance(BLOCKED_ROUTE_TTL_MS - 1);
+  ports.settings = { autoDistill: false };
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'blocked');
+  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
+
+  advance(1);
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DISTILL]), true);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(calls, 2);
+});
+
+test('an expired legacy block is pruned without interrupting a live manual claim', async () => {
+  const { ports, advance } = await withCandidate({ model: {
+    capture: () => 'model-x',
+    complete: () => assert.fail('expiry must not call the model'),
+  } });
+  await verifiedTurn(ports, 's2');
+  const blocked = { reason: 'route_changed' };
+  await ports.candidates.update((pending) => ({
+    ...pending,
+    s1: { ...pending.s1, blocked, claimedBy: ports.owner.self() },
+    s2: { ...pending.s2, blocked },
+  }));
+  advance(BLOCKED_ROUTE_TTL_MS);
+  assert.deepEqual(await distillDue(ports), []);
+  assert.deepEqual(Object.keys(await ports.candidates.read()), ['s1']);
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'busy');
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, claimedBy: null } }));
+  assert.deepEqual(await distillSession(ports, { sessionId: 's1' }), { status: 'nothing' });
+  assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
 test('a candidate without a captured route requires a new verified turn and never uses current credentials', async () => {
@@ -102,7 +146,7 @@ test('a candidate without a captured route requires a new verified turn and neve
     capture: () => assert.fail('the current route cannot stand in for the original route'),
     complete: () => assert.fail('a turn without a captured route cannot call a model'),
   } });
-  await ports.candidates.update(pending => ({ ...pending, s1: { ...pending.s1, model: null } }));
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, model: null } }));
 
   const outcome = await distillSession(ports, { sessionId: 's1' });
 
@@ -111,7 +155,7 @@ test('a candidate without a captured route requires a new verified turn and neve
   assert.equal((await ports.candidates.read()).s1, undefined);
 
   await verifiedTurn(ports, 's2');
-  await ports.candidates.update(pending => ({ ...pending, s2: { ...pending.s2, model: null, blocked: { reason: 'route_unresolved' } } }));
+  await ports.candidates.update((pending) => ({ ...pending, s2: { ...pending.s2, model: null, blocked: { reason: 'route_unresolved' } } }));
   await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
   assert.deepEqual(await distillDue(ports), [{ status: 'route_not_captured' }], 'a previously blocked unbound candidate can settle');
   assert.equal((await ports.candidates.read()).s2, undefined);
