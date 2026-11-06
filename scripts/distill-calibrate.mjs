@@ -21,6 +21,7 @@ import { IR_VERSION } from '../lib/distill/ir-prompt.js';
 import { irProblemOf, irReplyOf } from '../lib/distill/ir.js';
 import { distillBodiesOf } from '../lib/distill/request.js';
 import { distillResultOf } from '../lib/distill/result.js';
+import { withoutSecrets } from '../lib/redact.js';
 import { proxyFetchOf } from '../lib/runtime/proxy.js';
 
 const DEFAULT_MODEL = 'claude -p --output-format json';
@@ -33,7 +34,7 @@ function modelAnswer(command, prompt) {
     let stdout = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(answerTextOf(stdout)) : reject(new Error(`${command} exited ${code}`))));
+    child.on('close', (code) => (code === 0 ? resolve(answerTextOf(stdout)) : reject(new Error(`${withoutSecrets(command)} exited ${code}`))));
     child.stdin.end(prompt);
   });
 }
@@ -111,7 +112,7 @@ function reportOf(corpusPath, model, calibrated) {
   return {
     corpus: corpusPath,
     prompt_version: IR_VERSION,
-    model,
+    model: withoutSecrets(model),
     entries: calibrated.length,
     gate: { passed, pass_rate: calibrated.length > 0 ? Number((passed / calibrated.length).toFixed(3)) : 0, below: calibrated.filter(({ gate }) => !gate.passed).reduce((counts, { gate }) => counted(counts, gate.reason), {}) },
     model_answers: calibrated.filter(({ model: answer }) => answer).reduce((counts, { model: answer }) => counted(counts, answer), {}),

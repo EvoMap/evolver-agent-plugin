@@ -36,7 +36,9 @@ test('the calibration runner gates the corpus the plugin kept, asks the model, h
   });
   const corpus = join(dir, 'corpus.json');
   writeFileSync(corpus, JSON.stringify(await corpusOf([['fixed', fixTurn], ['small', changeTurn]])));
-  const { stdout } = await promisify(execFile)(process.execPath, [SCRIPT, corpus, '--model', `"${process.execPath}" "${MODEL}"`], { env: proxy.env });
+  const token = ['sk-live-', 'Ab3dEf7Gh9Jk2Lm5Np8Qr1St'].join('');
+  const { stdout } = await promisify(execFile)(process.execPath, [SCRIPT, corpus, '--model', `API_TOKEN=${token} "${process.execPath}" "${MODEL}"`], { env: proxy.env });
+  assert.ok(!stdout.includes(token), 'the report does not repeat a credential written into the model command');
   const report = JSON.parse(stdout);
   assert.deepEqual([report.prompt_version, report.entries, report.gate], ['session-gene-ir-v1', 2, { passed: 1, pass_rate: 0.5, below: { too_little_work: 1 } }]);
   assert.deepEqual([report.model_answers, report.irs, report.outcomes, report.rejection_reasons], [{ answered: 1 }, 1, { rejected: 1 }, { too_project_specific: 1 }]);
