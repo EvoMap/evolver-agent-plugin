@@ -85,8 +85,8 @@ test('a cancelled run is ended and reported cancelled', async () => {
 
 test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
-  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
-  const profile = await profileNamed('codex');
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off', MINIMAX_DATA_DIR: home, PLUGIN_DATA: '' };
+  const profile = await profileNamed(process.platform === 'win32' ? 'minimax' : 'codex');
   const { scheduler } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: async () => true }).ports;
   const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
   await stores.candidates.update(() => ({ leftover: { closed: true, at: 1 } }));
@@ -137,7 +137,7 @@ test("a process's age is read from every form ps prints it in, and is unknown wh
   assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
   assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
   assert.equal(elapsedMsOf(1, ps('')), null);
-  assert.equal(elapsedMsOf(1, { platform: 'win32' }), null);
+  assert.equal(elapsedMsOf(process.pid, { platform: 'win32' }), null, 'Windows hosts must opt in to start-time probes');
 });
 
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {
