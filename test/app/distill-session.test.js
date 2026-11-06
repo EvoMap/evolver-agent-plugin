@@ -96,7 +96,7 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
 
 test('the record holds every work turn in order: a failed check\'s redacted output tail, the correction, and a diff cut to fit a prompt', async () => {
   const output = [...Array.from({ length: 30 }, (_, index) => `line ${index}`), 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123'].join('\n');
-  const files = Array.from({ length: 40 }, (_, index) => `diff --git a/src/f${index}.js b/src/f${index}.js\n--- a/src/f${index}.js\n+++ b/src/f${index}.js\n@@ -0,0 +1,40 @@\n${'+export const value = 1;\n'.repeat(40)}`);
+  const files = Array.from({ length: 40 }, (_, index) => `diff --git a/src/f${index}.js b/src/f${index}.js\n--- a/src/f${index}.js\n+++ b/src/f${index}.js\n@@ -0,0 +1,40 @@\n${'+export const value = 1;\n'.repeat(39)}+++count;\n`);
   const made = memoryPorts({ model: modelAnswering(IR), distillAnswer: DRAFTED, project: { ...PROJECT, diff: files.join('') } });
   await turnOf(made.ports, 's1', { steps: [['note', { kind: 'shell', command: 'npm test', exit: 1, output }]] });
   await turnOf(made.ports, 's1', { prompt: '还是报错', steps: [['edit', '/proj/lib/redis.js'], ['pass', 'npm test']] });
