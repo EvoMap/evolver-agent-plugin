@@ -42,7 +42,7 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   assert.equal(body.trigger, 'session_end');
   assert.equal(body.session_id, 'opencode:ses_d');
   assert.equal(body.user_prompt, PROMPT);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', exit: 0, source: 'observed' }] });
+  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', ok: true, source: 'observed' }] });
   assert.deepEqual(body.distill_usage, { input: 900, output: 120 });
   assert.equal((await stores.drafts.read()).length, 1);
 });

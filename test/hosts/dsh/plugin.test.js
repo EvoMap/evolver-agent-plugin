@@ -60,7 +60,7 @@ test('a verified turn is reported with its last check and becomes the session\'s
   const candidate = stateFile(proxy, 'dsh-distill-pending.json')[agent.session.id];
   assert.equal(candidate.prompt, PROMPT);
   assert.deepEqual(candidate.model, { provider: 'deepseek-official', model: 'deepseek-flash' });
-  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: 0, failed: false }]);
+  assert.deepEqual(candidate.checks, [{ command: 'npm test 2>&1 | tail -5', exit: null, failed: false }]);
   assert.equal(candidate.answer, 'Set maxRetriesPerRequest to null; the suite passes.');
   assert.equal(candidate.pid, process.pid);
 });

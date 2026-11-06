@@ -163,14 +163,17 @@ test('an interrupted turn is reported aborted and leaves no candidate; a command
   assert.equal(pending()['s-kept'].turn, 1, 'the command turn neither replaced nor dropped the candidate');
 });
 
-test('inside the headless distillation run every hook answers {} and writes nothing', posix, async () => {
+test('inside the headless distillation run every hook answers {} and writes nothing', posix, async (t) => {
+  // Earlier hooks may still be delivering reports; this Proxy sees only the headless hooks under test.
+  const proxy = await fakeProxy();
+  t.after(() => proxy.close());
   const before = proxy.requests.length;
   const s = session('s-headless');
-  const env = { ...hookEnv, EVOLVER_HEADLESS: '1', CODEBUDDY_PLUGIN_DATA: join(home, 'headless-data') };
+  const env = { ...hookEnv, ...proxy.env, PATH: hookEnv.PATH, EVOLVER_HEADLESS: '1', CODEBUDDY_PLUGIN_DATA: join(proxy.env.HOME, 'headless-data') };
   assert.deepEqual(await runHook('UserPromptSubmit', { ...PAYLOADS.UserPromptSubmit, session_id: 's-headless', transcript_path: s.transcript, prompt: PROMPT }, env), {});
   assert.deepEqual(await runHook('FinalStop', { ...PAYLOADS.FinalStop, session_id: 's-headless', transcript_path: s.transcript }, env), {});
   assert.equal(proxy.requests.length, before);
-  assert.equal(existsSync(join(home, 'headless-data')), false);
+  assert.equal(existsSync(join(proxy.env.HOME, 'headless-data')), false);
 });
 
 test('the commands answer from the plugin data folder their script line names', posix, async () => {
