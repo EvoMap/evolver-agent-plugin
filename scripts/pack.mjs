@@ -22,12 +22,12 @@ const MODULE_PACKAGE = { private: true, type: 'module' };
 const PACKED_MARK = '.evolver-packed';
 const TOML_VENDOR = { name: 'smol-toml', version: '1.9.1', type: 'module', license: 'BSD-3-Clause' };
 const TOML_ROOT = 'lib/vendor/smol-toml';
-const TOML_ENTRY = TOML_ROOT + '/dist/index.js';
-const isVendorFile = (file) => file.startsWith(TOML_ROOT + '/');
-const sourceOf = (file) => path.join(ROOT, isVendorFile(file) ? 'node_modules/smol-toml/' + file.slice(TOML_ROOT.length + 1) : file);
+const TOML_ENTRY = `${TOML_ROOT}/dist/index.js`;
+const isVendorFile = (file) => file.startsWith(`${TOML_ROOT}/`);
+const sourceOf = (file) => path.join(ROOT, isVendorFile(file) ? `node_modules/smol-toml/${file.slice(TOML_ROOT.length + 1)}` : file);
 
 function checkVendorManifest() {
-  const manifest = JSON.parse(readFileSync(sourceOf(TOML_ROOT + '/package.json'), 'utf8'));
+  const manifest = JSON.parse(readFileSync(sourceOf(`${TOML_ROOT}/package.json`), 'utf8'));
   if (Object.entries(TOML_VENDOR).some(([key, value]) => manifest[key] !== value)
     || manifest.exports?.import !== './dist/index.js' || Object.keys(manifest.dependencies ?? {}).length) {
     throw new Error('Expected the pinned smol-toml@1.9.1 ESM package; run npm ci before packing.');
@@ -60,13 +60,13 @@ export function closureOf(entries, vendors = []) {
       if (specifier.startsWith('node:') || (isDynamic && !specifier.startsWith('.'))) continue;
       if (optIn && specifier === TOML_VENDOR.name && !isVendorFile(file)) {
         queue.push(TOML_ENTRY);
-        seen.add(TOML_ROOT + '/package.json');
-        seen.add(TOML_ROOT + '/LICENSE');
+        seen.add(`${TOML_ROOT}/package.json`);
+        seen.add(`${TOML_ROOT}/LICENSE`);
         continue;
       }
       if (!specifier.startsWith('.')) throw new Error(`${file} imports the package ${specifier}, which a packed host does not ship`);
       const dependency = path.posix.join(path.posix.dirname(file), specifier);
-      if (isVendorFile(file) !== isVendorFile(dependency)) throw new Error('Vendor imports must use the pinned package entry: ' + file + ' -> ' + specifier);
+      if (isVendorFile(file) !== isVendorFile(dependency)) throw new Error(`Vendor imports must use the pinned package entry: ${file} -> ${specifier}`);
       queue.push(dependency);
     }
   }
@@ -84,9 +84,9 @@ function copied(from, to) {
 
 function copyModule(file, out, includesVendor) {
   const target = path.join(out, file);
-  if (file === TOML_ROOT + '/package.json') {
+  if (file === `${TOML_ROOT}/package.json`) {
     mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, JSON.stringify(TOML_VENDOR, null, 2) + '\n');
+    writeFileSync(target, `${JSON.stringify(TOML_VENDOR, null, 2)}\n`);
     return;
   }
   copied(sourceOf(file), target);
@@ -96,7 +96,7 @@ function copyModule(file, out, includesVendor) {
   for (const { specifier, isDynamic, offset } of importsOf(source).reverse()) {
     if (isDynamic || specifier !== TOML_VENDOR.name) continue;
     const relative = path.posix.relative(path.posix.dirname(file), TOML_ENTRY);
-    const entry = relative.startsWith('.') ? relative : './' + relative;
+    const entry = relative.startsWith('.') ? relative : `./${relative}`;
     rewritten = rewritten.slice(0, offset) + entry + rewritten.slice(offset + specifier.length);
   }
   if (rewritten !== source) writeFileSync(target, rewritten);
