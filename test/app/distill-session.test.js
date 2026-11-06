@@ -230,6 +230,7 @@ test('the model\'s answer is read as fenced JSON, an array or one object; up to 
     ['fenced', `Here it is:\n\`\`\`json\n${JSON.stringify(IR)}\n\`\`\``, [IR.title], 'drafted'],
     ['an array of three', JSON.stringify([IR, second, { ...IR, title: 'A third' }]), [IR.title, second.title], 'drafted'],
     ['a signal over 64 characters', JSON.stringify(tooLong), [], 'rejected'],
+    ['a contract that says not when it applies', JSON.stringify({ ...IR, canonical_contracts: [{ kind: 'command', exemplar: 'npm test', refs: ['R1'] }] }), [], 'rejected'],
   ];
   for (const [name, answer, titles, status] of rows) {
     const made = await fixedSession({ model: modelAnswering(answer) });
@@ -243,12 +244,22 @@ test('the model\'s answer is read as fenced JSON, an array or one object; up to 
   assert.deepEqual((await made.ports.outcomes.read()).at(-1), { status: 'rejected', title: IR.title, by: 'plugin', reason: 'ir_invalid', field: 'ir.scope.signals', session: 'testagent:s1', trigger: 'session_end', at: made.ports.clock.now() });
 });
 
-test('work turns that join the range while the model answers stay for the next distillation', async () => {
-  const made = await fixedSession();
-  made.ports.model = modelAnswering(IR, () => changeTurn(made.ports, 's1', 2));
-  made.advance(EPISODE_QUIET_MS);
-  assert.deepEqual((await distillDue(made.ports)).map(({ status }) => status), ['drafted']);
-  assert.deepEqual((await made.ports.candidates.read()).s1.turns.map(({ turn }) => turn), [2]);
+test('work turns that join the range or are judged again while the model answers stay for the next distillation', async () => {
+  const judgedAgain = (ports) => ports.candidates.update((pending) => {
+    const [turn] = pending.s1.turns;
+    return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, steps: [...turn.steps, { kind: 'command', command: 'npm run build' }] }] } };
+  });
+  const rows = [
+    ['a turn joins', (ports) => changeTurn(ports, 's1', 2), 'drafted', [2]],
+    ['its turn is judged again', judgedAgain, 'dropped', [1]],
+  ];
+  for (const [name, meanwhile, status, left] of rows) {
+    const made = await fixedSession();
+    made.ports.model = modelAnswering(IR, () => meanwhile(made.ports));
+    made.advance(EPISODE_QUIET_MS);
+    assert.deepEqual((await distillDue(made.ports)).map((outcome) => outcome.status), [status], name);
+    assert.deepEqual((await made.ports.candidates.read()).s1.turns.map(({ turn }) => turn), left, name);
+  }
 });
 
 test('a correction of a turn being distilled discards the answer, and the range waits with the correction for the next distillation', async () => {
