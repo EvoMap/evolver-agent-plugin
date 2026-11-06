@@ -100,6 +100,11 @@ test('the gate decides without a model call whether a session\'s work is distill
     ['two work turns', async (ports) => { await changeTurn(ports, 's1', 1); await changeTurn(ports, 's1', 2); }, ['below_threshold'], 0],
     ['three work turns', async (ports) => { for (const index of [1, 2, 3]) await changeTurn(ports, 's1', index); }, ['drafted'], 1],
     ['one fixed error', (ports) => fixTurn(ports, 's1'), ['drafted'], 1],
+    ['one fixed error, checked again over the whole file through tail', (ports) => turnOf(ports, 's1', { steps: [
+      ['note', { kind: 'shell', command: 'python -m pytest testing/test_rewrite.py::TestIssue::test_number', exit: 1, output: 'E   TypeError: int\n1 failed in 0.21s' }],
+      ['edit', '/proj/src/rewrite.py'],
+      ['note', { kind: 'shell', command: 'python -m pytest testing/test_rewrite.py -q 2>&1 | tail -3', exit: 0, output: '115 passed, 1 skipped in 1.99s' }],
+    ] }), ['drafted'], 1],
     ['an error left unfixed', (ports) => turnOf(ports, 's1', { steps: [['fail', 'npm test'], ['edit', '/proj/a.js'], ['fail', 'npm test']] }), ['below_threshold'], 0],
     ['only reading and answering', (ports) => turnOf(ports, 's1', { prompt: 'explain the retry policy', steps: [['run', 'cat lib/redis.js']] }), [], 0],
   ];

@@ -163,6 +163,11 @@ test('missing exit status is unknown unless a supported summary proves the check
   assert.equal(verificationFailureOf({ text: 'ℹ pass 3\nℹ fail 1' }), true);
   assert.equal(verificationFailureOf({ exit: 0, text: '# pass 1\n# fail 1' }), true);
   assert.equal(verificationFailureOf({ text: 'TypeError: cannot read properties of undefined' }), true);
+  for (const [text, failed] of [
+    ['115 passed, 1 skipped in 1.99s', false], ['1 failed, 114 passed, 1 skipped in 3.46s', true], ['===== 2 failed in 0.30s =====', true],
+    [' Tests  3 passed (3)', false], [' Tests  1 failed | 2 passed (3)', true], ['Tests:       3 passed, 3 total', false],
+    ['test result: ok. 3 passed; 0 failed; 0 ignored', false], ['test result: FAILED. 2 passed; 1 failed;', true],
+  ]) assert.equal(verificationFailureOf({ command: 'npm test | tail -3', exit: 0, text }), failed, text);
 });
 
 test('a passing summary with cancelled tests does not verify a completed run', () => {
