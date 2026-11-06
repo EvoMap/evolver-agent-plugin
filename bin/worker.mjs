@@ -4,5 +4,5 @@
 
 import { runWorkerProcess } from '../lib/channels/worker/runner.js';
 
-const [agent, ...tasks] = process.argv.slice(2);
-await runWorkerProcess(agent, tasks);
+const [agent, ...args] = process.argv.slice(2);
+await runWorkerProcess(agent, args);

@@ -27,12 +27,12 @@ test('only the person\'s own sessions count: a task tool\'s child and the distil
 
 test('a bash check passes or fails on its exit code, and on failure output a `| tail` hid from it', () => {
   assert.deepEqual(checksOf(bash.passed, bash.failed, bash.failedThroughTail).map((check) => check.failed), [false, true, true]);
-  assert.deepEqual(checksOf({ title: 'npm test', output: 'done', metadata: {} }), [{ command: 'npm test', failed: null }]);
+  assert.deepEqual(checksOf({ title: 'npm test', output: 'done', metadata: {} }), [{ command: 'npm test', exit: null, failed: null }]);
 });
 
 test('a check the person interrupted gives no verdict, while one its timeout killed failed', () => {
   assert.deepEqual(checksOf(bash.interrupted), []);
-  assert.deepEqual(checksOf(bash.timedOut), [{ command: 'npm test', failed: true }]);
+  assert.deepEqual(checksOf(bash.timedOut), [{ command: 'npm test', exit: 124, failed: true }]);
   const record = turnRecordOf([note({ tool: 'bash', args: { command: 'npm test' }, result: bash.interrupted })]);
   assert.deepEqual(record.commands, ['npm test']);
 });

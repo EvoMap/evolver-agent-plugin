@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import profile from '../../../hosts/minimax/profile.js';
 import { createDriver } from '../../../lib/agent/driver.js';
 import { runBackgroundTasks } from '../../../lib/app/background.js';
+import { RETRY_BASE_MS } from '../../../lib/distill/candidate.js';
 import { environmentFor, RESIDENT } from '../../../lib/runtime/environment.js';
 import { ownerIsGone } from '../../../lib/runtime/process/owner.js';
 import { transcripts } from '../../../lib/runtime/transcripts.js';
@@ -23,11 +24,12 @@ async function fixture({ failFirst = false } = {}) {
   const file = join(project, 'fixture.txt'); writeFileSync(file, 'before');
   const host = spawn(process.execPath, ['-e', 'setInterval(()=>{},60000)'], { windowsHide: true, stdio: 'ignore' });
   await once(host, 'spawn');
-  let owner = host.pid, calls = 0;
+  let owner = host.pid, calls = 0, skew = 0;
   const nativeData = join(proxy.env.HOME, 'native');
   const env = { ...proxy.env, MINIMAX_DATA_DIR: nativeData, PLUGIN_DATA: join(nativeData, 'v2', 'plugin-data', 'hooks', 'evolver-plugin') };
   const { ports } = environmentFor({ profile, env, lifetime: RESIDENT, runBackground: runBackgroundTasks, overrides: {
     owner: { current: () => owner, self: () => process.pid, isGone: ownerIsGone },
+    clock: { now: () => Date.now() + skew, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
     model: { complete: async () => { calls += 1; if (failFirst && calls === 1) throw new Error('transient model failure'); return { answer: JSON.stringify(GENE), usage: null }; } },
     engine: { needsSetup: async () => false, takeUnannounced: async () => null },
   } });
@@ -52,7 +54,8 @@ async function fixture({ failFirst = false } = {}) {
     if (host.exitCode === null && host.signalCode === null) { const ended = once(host, 'close'); host.kill(); await ended; }
     proxy.close();
   };
-  return { proxy, ports, hook, idle, verified, killHost, close, calls: () => calls };
+  const advance = (ms) => { skew += ms; };
+  return { proxy, ports, hook, idle, verified, killHost, close, advance, calls: () => calls };
 }
 
 test('a dead native owner is recovered without SessionEnd, distilled once and kept as an unpublished draft', async () => {
@@ -76,7 +79,7 @@ test('a dead native owner is recovered without SessionEnd, distilled once and ke
   } finally { await f.close(); }
 });
 
-test('a failed recovered completion releases its claim and succeeds at the next start without lowering validation', async () => {
+test('a failed recovered completion releases its claim and succeeds at a start after its retry wait without lowering validation', async () => {
   const f = await fixture({ failFirst: true });
   try {
     await f.verified(); await f.killHost();
@@ -85,6 +88,9 @@ test('a failed recovered completion releases its claim and succeeds at the next 
     assert.equal(due.attempts, 1);
     assert.equal(due.claimedBy, null);
     assert.equal((await f.ports.drafts.read()).length, 0);
+    await f.hook('SessionStart', 'too-soon'); await f.idle();
+    assert.equal(f.calls(), 1);
+    f.advance(RETRY_BASE_MS);
     await f.hook('SessionStart', 'retry-two'); await f.idle();
     assert.equal(f.calls(), 2);
     assert.equal((await f.ports.drafts.read()).length, 1);

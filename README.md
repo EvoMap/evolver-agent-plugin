@@ -20,7 +20,7 @@ Everything runs from the host's hooks or plugin API:
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
   and roughly how many tokens the reused strategy saved.
-- **Distill.** After the session ends, its last turn that edited files and ended on a
+- **Distill.** Once the session has been quiet for 30 minutes, or ends, its last turn that edited files and ended on a
   passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
   the network until you publish the draft.
 
