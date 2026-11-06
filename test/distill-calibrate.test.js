@@ -35,8 +35,10 @@ test('the calibration runner gates the corpus the plugin kept, asks the model, h
     rmSync(dir, { recursive: true, force: true });
   });
   const corpus = join(dir, 'corpus.json');
-  writeFileSync(corpus, JSON.stringify(await corpusOf([['fixed', fixTurn], ['small', changeTurn]])));
   const token = ['sk-live-', 'Ab3dEf7Gh9Jk2Lm5Np8Qr1St'].join('');
+  const kept = await corpusOf([['fixed', fixTurn], ['small', changeTurn]]);
+  kept[0].turns[0].prompt += ` API_TOKEN=${token}`;
+  writeFileSync(corpus, JSON.stringify(kept));
   const { stdout } = await promisify(execFile)(process.execPath, [SCRIPT, corpus, '--model', `API_TOKEN=${token} "${process.execPath}" "${MODEL}"`], { env: proxy.env });
   assert.ok(!stdout.includes(token), 'the report does not repeat a credential written into the model command');
   const report = JSON.parse(stdout);
@@ -48,4 +50,5 @@ test('the calibration runner gates the corpus the plugin kept, asks the model, h
   }]);
   const [{ body }] = proxy.requests.filter((request) => request.path === '/conversation/distill');
   assert.deepEqual([body.persist, body.publish, body.ir_version, body.session_id], [false, false, 'session-gene-ir-v1', 'testagent:fixed']);
+  assert.ok(!JSON.stringify(body).includes(token), 'a turn kept before a redaction rule existed is redacted again as it is replayed');
 });
