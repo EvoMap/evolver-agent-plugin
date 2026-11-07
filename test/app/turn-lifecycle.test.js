@@ -553,3 +553,23 @@ test('a verified native report retries with its original evidence after a local 
   await sessionEnded(ports, { sessionId: 's1' });
   assert.equal(queued.length, 1);
 });
+
+test('native fallback close uses the provided turn record after terminal confirmation', async () => {
+  const { ports, queued } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  ports.turnStatus = () => ({ status: 'completed' });
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  await closeUnfinishedTurn(ports, { sessionId: 's1', recordOf: () => NATIVE_PASS });
+  assert.equal((await ports.sessions.read('s1')).open, false);
+  assert.deepEqual(queued.map(({ report }) => report.outcome), ['success']);
+});
+
+test('native fallback close without a status reader never invents a completion', async () => {
+  const { ports, queued } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  await closeUnfinishedTurn(ports, { sessionId: 's1', recordOf: () => NATIVE_PASS });
+  assert.equal((await ports.sessions.read('s1')).open, false);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(await ports.candidates.read(), {});
+});

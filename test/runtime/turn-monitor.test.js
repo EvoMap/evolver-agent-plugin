@@ -68,3 +68,36 @@ test('an available ZCode status table can record cancellation after more than 30
   assert.equal(reason, 'aborted');
   assert.equal(now, 45_000);
 });
+
+test('a native turn gets bounded time for its final record after the owner exits', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-zcode-owner-exit-'));
+  const env = { ZCODE_SESSION_DB_PATH: join(dir, 'db.sqlite') };
+  const db = new DatabaseSync(zcode.turnEnd.statusRecord.file(env));
+  t.after(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+  db.exec('CREATE TABLE turn_usage (session_id TEXT, turn_id TEXT, status TEXT, completed_at INTEGER)');
+
+  const ownerExitAt = 5 * 60_000 - 500;
+  for (const status of ['cancelled', null]) {
+    const turnId = status ?? 'no-terminal-row';
+    db.prepare("INSERT INTO turn_usage VALUES ('s1', ?, 'running', NULL)").run(turnId);
+    const at = { sessionId: 's1', turnId, projectDir: dir };
+    const opened = { open: true, turnId, turn: 1, sessionEpoch: 1 };
+    let now = 0, closed;
+    const ports = {
+      sessions: { read: async () => opened },
+      owner: { isGone: () => now >= ownerExitAt },
+      turnStatus: recordReaderOf(zcode.turnEnd.statusRecord, env),
+      confirmTurnCompletion: true,
+    };
+    await monitorTurn(ports, at, result => { closed = result; }, {
+      dir: join(dir, 'locks'), now: () => now, sleep: async () => {
+        now = now === 0 ? ownerExitAt : now + 500;
+        if (status && now === ownerExitAt + 5_000) {
+          db.prepare("UPDATE turn_usage SET status = ?, completed_at = ? WHERE session_id = 's1' AND turn_id = ?").run(status, now, turnId);
+        }
+      },
+    });
+    assert.deepEqual(closed, status ? { sessionId: 's1', turnId, reason: 'aborted', expectedTurn: opened } : undefined);
+    assert.equal(now, ownerExitAt + (status ? 5_000 : 30_000));
+  }
+});

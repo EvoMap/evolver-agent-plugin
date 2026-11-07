@@ -236,6 +236,25 @@ test('a cli model declaration runs headless and parses its answer; none or in-se
   assert.equal(modelRunnerOf({ kind: 'cli', command: () => null }), null);
 });
 
+test('a cli model marked isolated without an env does not inherit parent variables', async (t) => {
+  const key = 'EVOLVER_TEST_ISOLATED_MODEL_SECRET';
+  const previous = process.env[key];
+  process.env[key] = 'synthetic-credential';
+  t.after(() => {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  });
+  const runner = modelRunnerOf({
+    kind: 'cli',
+    command: () => node,
+    isolated: true,
+    args: () => ['-e', `console.log(JSON.stringify({ inherited: Object.hasOwn(process.env, '${key}'), headless: process.env.EVOLVER_HEADLESS }))`],
+    parse: ({ stdout }) => ({ answer: JSON.parse(stdout) }),
+  });
+  const { answer } = await runner.complete('m', '', AbortSignal.timeout(5_000));
+  assert.deepEqual(answer, { inherited: false, headless: '1' });
+});
+
 test('the CLI runs the plugin-installed engine in the project directory, before any on PATH', async () => {
   const { evolverCliOf } = await import('../../lib/runtime/cli-executor.js');
   const { mkdtempSync, writeFileSync, realpathSync } = await import('node:fs');
