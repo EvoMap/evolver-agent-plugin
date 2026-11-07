@@ -446,3 +446,88 @@ test('a host\'s own turn number keeps the count at least there, so a session res
   assert.equal(resumed.turn, 4);
   assert.equal((await promptSubmitted(ports, { sessionId: 's1', prompt: 'and the readme', hostTurn: 2, ...WAIT })).turn, 5, 'never back');
 });
+
+const NATIVE_ROUTE = { configDigest: 'digest-a', selection: { providerId: 'account-a', modelId: 'model-a' } };
+const NATIVE_PASS = { edits: [], commands: ['npm test'], checks: [{ command: 'npm test', exit: 0, failed: false }], answer: 'Fixed.' };
+
+test('a closing native turn cannot report injections or controls from a replacement session epoch', async () => {
+  const { ports, queued, advance } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  ports.modelForTurn = () => NATIVE_ROUTE;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: PROMPT, ...WAIT });
+  const old = await ports.sessions.read('s1');
+  const ended = await end(ports, 's1', { turnId: 'old', recordOf: async () => {
+    advance(1);
+    await ports.sessions.update('s1', () => ({ turn: 0 }));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: PROMPT, ...WAIT });
+    await ports.sessions.update('s1', (current) => ({
+      ...current, pendingControls: [{ sessionId: 's1', report: { withheld_id: 'new-control' } }],
+    }));
+    return NATIVE_PASS;
+  } });
+  const current = await ports.sessions.read('s1');
+  assert.notEqual(current.sessionEpoch, old.sessionEpoch);
+  assert.equal(current.turn, old.turn);
+  assert.equal(current.open, true);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(ended?.reports ?? [], []);
+  assert.equal(current.injected[ASSET.asset_id].reportedAt, undefined);
+  assert.equal(current.pendingControls.length, 1);
+  assert.deepEqual(await ports.candidates.read(), {});
+});
+
+test('a delayed native project snapshot cannot replace a newer epoch range', async () => {
+  const { ports, advance } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  ports.modelForTurn = () => NATIVE_ROUTE;
+  ports.settings = { recall: false };
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: 'Old project' });
+  const old = await ports.sessions.read('s1');
+  const newRoute = { configDigest: 'digest-b', selection: { providerId: 'account-b', modelId: 'model-b' } };
+  ports.project.snapshot = async () => {
+    advance(1);
+    await ports.sessions.update('s1', () => ({ turn: 0 }));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: 'New project' });
+    await end(ports, 's1', { turnId: 'new', model: newRoute, projectDir: null, recordOf: () => NATIVE_PASS });
+    return { root: '/old', head: 'old-head' };
+  };
+  await end(ports, 's1', { turnId: 'old', recordOf: () => NATIVE_PASS });
+  const range = (await ports.candidates.read()).s1;
+  assert.notEqual(range.sessionEpoch, old.sessionEpoch);
+  assert.deepEqual(range.model, newRoute);
+  assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
+});
+
+test('an unverified native turn stays unreported and its injections do not borrow a later pass', async () => {
+  const second = { ...ASSET, asset_id: 'sha256:' + 'b'.repeat(64), signals_match: ['next-fixture'] };
+  const { ports, queued } = memoryPorts({ assets: [ASSET, second] });
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  await end(ports, 's1', { turnId: 't1', reason: 'aborted', recordOf: () => NATIVE_PASS });
+  assert.deepEqual(queued, []);
+  assert.equal((await ports.sessions.read('s1')).injected[ASSET.asset_id].reportedAt, undefined);
+  const next = await promptSubmitted(ports, { sessionId: 's1', turnId: 't2', prompt: 'fix the next-fixture retry policy', ...WAIT });
+  assert.ok(next.injection);
+  await end(ports, 's1', { turnId: 't2', recordOf: () => NATIVE_PASS });
+  assert.deepEqual(queued.map(({ report }) => report.asset_id), [second.asset_id]);
+  assert.equal((await ports.sessions.read('s1')).injected[ASSET.asset_id].reportedAt, undefined);
+});
+
+test('the current native epoch replaces an older range with its own snapshot base', async () => {
+  const { ports, advance, snapshotBases } = memoryPorts({ heads: ['old-head', 'new-head'] });
+  ports.confirmTurnCompletion = true;
+  ports.modelForTurn = () => NATIVE_ROUTE;
+  ports.settings = { recall: false };
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: 'Old project', projectDir: '/proj' });
+  await end(ports, 's1', { turnId: 'old', recordOf: () => NATIVE_PASS });
+
+  advance(1);
+  await ports.sessions.update('s1', () => ({ turn: 0 }));
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: 'New project', projectDir: '/proj' });
+  await end(ports, 's1', { turnId: 'new', recordOf: () => NATIVE_PASS });
+
+  const range = (await ports.candidates.read()).s1;
+  assert.deepEqual(snapshotBases, ['old-head', 'new-head']);
+  assert.deepEqual(range.base, { root: '/proj', head: 'new-head' });
+  assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
+});

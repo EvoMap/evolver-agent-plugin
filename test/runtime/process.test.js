@@ -33,6 +33,29 @@ test('a binary run preserves stdout bytes that cannot be decoded as UTF-8', asyn
   assert.deepEqual(result.stdout, Buffer.from(bytes));
 });
 
+test('a stdout handshake can close stdin after the capture limit', async () => {
+  const fixture = `
+    process.stdin.resume();
+    process.stdin.on('end', () => process.stderr.write('stdin closed'));
+    process.stdout.write(Buffer.alloc(17 * 1024 * 1024, 'x'), () => {
+      process.stdout.write('overlong line suffix\\nrea', () => process.stdout.write('dy\\n'));
+    });
+  `;
+  const lines = [];
+  const result = await runProcess(node, ['-e', fixture], {
+    timeoutMs: 2_000,
+    closeInputOn: (line) => {
+      lines.push(line.length);
+      return line === 'ready';
+    },
+  });
+  assert.ifError(result.error);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, 'stdin closed');
+  assert.deepEqual(lines, ['ready'.length]);
+  assert.equal(result.stdout.includes('ready'), false, 'stdout capture remains bounded');
+});
+
 test('a run past its timeout is killed and says so; a missing command reads as ENOENT', async () => {
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
