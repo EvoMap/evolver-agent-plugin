@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import profile from '../../hosts/minimax/profile.js';
+import zcode from '../../hosts/zcode/profile.js';
 import { recordReaderOf } from '../../lib/runtime/records.js';
 import { monitorTurn } from '../../lib/runtime/turn-monitor.js';
 
@@ -40,4 +41,30 @@ test('completed, stale, missing or unavailable metadata never invent a terminal 
     await monitorTurn(ports, at, () => assert.fail('must not close'), { dir, now: () => now, sleep: async () => { now += 500; } });
     assert.ok(now <= 30_000);
   }
+});
+
+test('an available ZCode status table can record cancellation after more than 30 seconds without a row', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-zcode-status-'));
+  const env = { ZCODE_SESSION_DB_PATH: join(dir, 'db.sqlite') };
+  const file = zcode.turnEnd.statusRecord.file(env);
+  mkdirSync(dirname(file), { recursive: true });
+  const db = new DatabaseSync(file);
+  t.after(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+  db.exec('CREATE TABLE turn_usage (session_id TEXT, turn_id TEXT, status TEXT, completed_at INTEGER)');
+  const at = { sessionId: 's1', turnId: 't1', projectDir: dir };
+  const ports = {
+    sessions: { read: async () => ({ open: true, turnId: 't1', turn: 1, sessionEpoch: 1 }) },
+    owner: { isGone: () => false },
+    turnStatus: recordReaderOf(zcode.turnEnd.statusRecord, env),
+    confirmTurnCompletion: true,
+  };
+  let now = 0, reason;
+  await monitorTurn(ports, at, result => { reason = result.reason; }, {
+    dir: join(dir, 'locks'), now: () => now, sleep: async () => {
+      now += 500;
+      if (now === 45_000) db.prepare('INSERT INTO turn_usage VALUES (?, ?, ?, ?)').run('s1', 't1', 'cancelled', now);
+    },
+  });
+  assert.equal(reason, 'aborted');
+  assert.equal(now, 45_000);
 });

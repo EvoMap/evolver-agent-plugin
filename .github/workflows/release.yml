@@ -31,7 +31,7 @@ jobs:
       - run: npm test
       - run: npm run pack
 
-  # The Windows MiniMax suite gates a release, not every PR or push.
+  # The Windows host suites gate releases.
   windows-minimax:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, Windows, X64, evox-gcp-win]
@@ -48,6 +48,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:minimax
+      - run: npm run test:zcode
       - run: npm run pack
 
   # A release is a tag vX.Y.Z a maintainer pushes on main; nothing on main names a version. The tag's version is

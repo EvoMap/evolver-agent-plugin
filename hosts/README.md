@@ -48,6 +48,12 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | State | default | **plugin data folder** | default | default | default | default | default | default | default | default | PLUGIN_DATA; persistent recall/auto-distill preferences |
 | Installed from | **`dist/claude-code` on the `release` branch** (`git-subdir`) | **`dist/workbuddy` on the `release` branch** (`git-subdir`); **the old data folder is moved in** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`git-subdir`, `.agents/plugins/marketplace.json`) | **`dist/dsh` on the `release` branch, as `@evomap/dsh-evolver` (`dsh plugin add -w <folder>`; npm not published yet)** | **`dist/grok` on the `release` branch** (`git-subdir`, `.grok-plugin/marketplace.json`) | **`dist/qoder` on the `release` branch** (`git-subdir`, `.qoder-plugin/marketplace.json`) | dist/minimax locally; scripts/install-minimax.mjs stages install/update |
 
+ZCode on Windows uses native session and turn IDs and foreground Bash exit codes. The prompt hook returns
+`additionalContext`. The adapter waits for the native `turn_usage` record before using completed work and closes
+cancelled turns without a reuse report or distillation evidence. State lives in `ZCODE_PLUGIN_DATA` when the host
+sets it. Headless distillation uses the Desktop-bundled CLI with a private copy of the recorded provider route.
+[The ZCode adapter guide](zcode/dist/README.md) describes local installation and the runtime configuration paths.
+
 ## Adding a host
 
 MiniMax Code's local adapter uses the hook defaults for `session_id`, `turn_id`, prompt and additional context.

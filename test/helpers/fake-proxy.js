@@ -9,9 +9,22 @@ import { recipeSearchAnswer } from './recipe-search.js';
 
 // A verified turn's hook arms a detached waiter for background distillation, which would sleep on past the test.
 function endWaiters(home) {
-  for (const record of readdirSync(home, { recursive: true }).filter((name) => name.endsWith('-distill-waiter.json'))) {
+  let entries;
+  try { entries = readdirSync(home, { withFileTypes: true }); }
+  catch (error) {
+    // A worker can release and remove its lock directory while teardown walks the profile.
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const entry of entries) {
+    const target = join(home, entry.name);
+    if (entry.isDirectory()) {
+      endWaiters(target);
+      continue;
+    }
+    if (!entry.name.endsWith('-distill-waiter.json')) continue;
     try {
-      const { pid, startedAt } = JSON.parse(readFileSync(join(home, record), 'utf8'));
+      const { pid, startedAt } = JSON.parse(readFileSync(target, 'utf8'));
       if (isSameProcess(pid, startedAt)) process.kill(pid);
     } catch {
     }
