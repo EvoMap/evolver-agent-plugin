@@ -346,6 +346,44 @@ scripts/               pack.mjs, publish-tag.sh
   rejection reason, and per IR its references per rule, failure repairs, unknowns, contracts and project notes. A
   change to the prompt, the gate or a limit is compared on it with the version before.
 
+## Indexed native sessions and isolated ACP completion
+
+Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 and Desktop 1.2.1 on Windows.
+Both local clients use the same Kimi profile and managed plugin. It declares the native workspace/session
+layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked, replaced, malformed or partial
+records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
+using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer
+hint. A detached native monitor catches terminal writes after the last hook; recovery reads those records before
+orphan abort reporting. Turn number, session epoch and owner guards keep a late observer with its original turn.
+Background checks remain unknown until matching native task metadata settles them. Other hosts retain their
+existing transcript/tool-result adapters; Kimi subagents and concurrent prompts are outside this v1 contract.
+
+The optional ModelRunner `capture` port records the selected alias, provider, upstream model, effort and a
+credential/config binding before recall returns. The `acp` runner revalidates that binding before creating one
+private session and sending one prompt. It uses a private HOME and a selected-only TOML config; the credential is
+passed in an environment variable. The private agent has no tools/subagents, project hooks, user plugins or MCP
+servers. ACP success, the native/provider terminal, exact route and native process closure must agree. A separate
+IPC guardian handles cancellation and owner death before removing owned scratch. On Windows the system
+PowerShell helper assigns the native process to a non-inheritable kill-on-close Job Object at creation, with
+only its stdio handles inherited. The helper terminates remaining job members and proves the job is empty
+after native exit or stop. It reports proof separately from native output. Scratch with no proof is kept;
+the job does not contain processes created by an external broker outside the descendant tree.
+
+When a captured route is unavailable or has changed, preflight preserves the candidate for seven days from the
+first block. The person can retry after restoring the original binding. A repeat block keeps the original
+deadline. A verified turn with a missing or unmatched binding is cleared on the first distill without
+calling the model or Proxy. A new verified turn can capture its own binding. Ordinary model and protocol failures
+keep the existing retry policy.
+The `kimi.com` managed route reads the current access token and device identity from the exact native profile.
+It binds both to the snapshot, preserves the native provider family separately from its transport, and passes
+only the access token in the private child's environment. It does not manage login or refresh.
+Draft publication still uses the shared explicit command and Proxy contract. Other regions, clients and native
+acceptance on each target OS are separate gates, not inferred from fixture tests.
+
+The Kimi pack manifest opts in to the pinned `smol-toml` ESM closure and its BSD license. The packer rewrites
+Kimi's parser import to a relative path, so installed Kimi bundles load without npm. Source and release packing
+install the pinned dependency first.
+
 ## Claude Code engine behaviour found while testing
 
 - A `hooks.json` that lists `modules` still runs its command `hooks`.
@@ -369,6 +407,7 @@ scripts/               pack.mjs, publish-tag.sh
 ```bash
 npm ci
 npm test
+npm run test:kimi
 npm run test:minimax
 npx -p typescript tsc -p .
 npm run validate
@@ -380,6 +419,8 @@ update. `npm run validate` packs `dist/claude-code` and runs `claude plugin vali
 version: bump `version` in a host's manifest with every change meant to reach its users, or the host reports the old
 version as the latest.
 
+PR CI runs the Kimi packed-hook and shared runtime tests on Windows with Node 22 and 26. The suite uses disposable
+profiles and local service fixtures. It requires no developer account, Hub token or globally installed Kimi CLI.
 Release CI runs the full suite on Linux and the MiniMax/packed-hook/shared-runtime suite on Windows, each
 on Node 22 and 26. Both jobs must pass before publication. MiniMax tests use disposable native profiles and
 local service fixtures; they do not require a developer's MiniMax account, Hub token or globally installed CLI.

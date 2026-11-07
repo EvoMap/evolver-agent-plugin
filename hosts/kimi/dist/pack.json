@@ -1,0 +1,9 @@
+{
+  "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
+  "vendors": ["smol-toml"],
+  "root": {
+    "kimi.plugin.json": "hosts/kimi/dist/kimi.plugin.json",
+    "README.md": "hosts/kimi/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

@@ -8,6 +8,7 @@ import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropEx
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { TASKS } from '../../lib/app/ports.js';
+import { draftSourcesOf } from '../../lib/distill.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { BLOCKED_ROUTE_TTL_MS, EPISODE_QUIET_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/range.js';
 import { memoryPorts } from './memory-ports.js';
@@ -421,12 +422,13 @@ test('a correction after its turn was distilled removes that turn\'s draft and m
     await before(ports);
     await fixTurn(ports, 's1');
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted', name);
-    const [{ sourceCandidate }] = await ports.drafts.read();
-    assert.deepEqual([sourceCandidate.turn, sourceCandidate.sessionEpoch === undefined], [turn, turn === 5], name);
+    const [draft] = await ports.drafts.read();
+    const [source] = draftSourcesOf(draft);
+    assert.deepEqual([source.turn, source.sessionEpoch === undefined], [turn, turn === 5], name);
     await after(ports);
     await correct(ports);
     assert.deepEqual(await ports.drafts.read(), [], name);
-    assert.equal(await ports.draftCorrections.has('s1', turn, sourceCandidate.sessionEpoch), true, name);
+    assert.equal(await ports.draftCorrections.has('s1', turn, source.sessionEpoch), true, name);
   }
 });
 
@@ -470,7 +472,8 @@ test('a correction crossing a draft write takes back only that draft: earlier dr
     let replacement;
     if (replace) await update((drafts) => drafts.map((draft) => {
       if (draft.id !== DRAFTED.distill_id) return draft;
-      replacement = { ...draft, title: 'Concurrent method', sourceCandidate: { ...draft.sourceCandidate, turn: draft.sourceCandidate.turn + 1 } };
+      const [source] = draftSourcesOf(draft);
+      replacement = { ...draft, title: 'Concurrent method', sourceRange: { ...draft.sourceRange, turns: [{ ...source, turn: source.turn + 1 }] } };
       return replacement;
     }));
     await correct(ports);
