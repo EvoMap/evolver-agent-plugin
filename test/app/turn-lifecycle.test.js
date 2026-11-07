@@ -531,3 +531,25 @@ test('the current native epoch replaces an older range with its own snapshot bas
   assert.deepEqual(range.base, { root: '/proj', head: 'new-head' });
   assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
 });
+
+test('a verified native report retries with its original evidence after a local queue failure', async () => {
+  const second = { ...ASSET, asset_id: 'sha256:' + 'b'.repeat(64), signals_match: ['next-fixture'] };
+  const { ports, queued } = memoryPorts({ assets: [ASSET, second] });
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async () => { throw new Error('local queue unavailable'); };
+  await assert.rejects(end(ports, 's1', { turnId: 't1', recordOf: () => NATIVE_PASS }), /local queue unavailable/);
+  ports.reports.enqueue = enqueue;
+
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't2', prompt: 'fix the next-fixture retry policy', ...WAIT });
+  await end(ports, 's1', { turnId: 't2', reason: 'aborted', recordOf: () => NATIVE_PASS });
+  assert.deepEqual(queued.map(({ report }) => [report.task_id, report.asset_id, report.outcome, report.evidence.check.passed]), [
+    ['testagent:s1:1', ASSET.asset_id, 'success', true],
+  ]);
+  const injected = (await ports.sessions.read('s1')).injected[ASSET.asset_id];
+  assert.ok(injected.reportedAt);
+  assert.equal(injected.pendingReport, undefined);
+  await sessionEnded(ports, { sessionId: 's1' });
+  assert.equal(queued.length, 1);
+});
