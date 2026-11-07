@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { candidateOf } from '../lib/distill/candidate.js';
-import { distillBody, distillPrompt } from '../lib/distill/prompt.js';
+import { irPromptOf } from '../lib/distill/ir-prompt.js';
+import { sessionRecordOf } from '../lib/distill/record.js';
+import { distillBodiesOf } from '../lib/distill/request.js';
+import { workTurnOf } from '../lib/distill/work-turn.js';
 import { containsSecret, withoutSecrets } from '../lib/redact.js';
 
 test('redaction removes the complete JSON string and leaves unrelated fields', () => {
@@ -70,24 +72,18 @@ test('incomplete or mismatched JSON credential values cannot leave trailing secr
   }
 });
 
-test('the saved candidate, model prompt and Proxy body exclude JSON credentials', () => {
+test('the saved work turn, model prompt and Proxy body exclude JSON credentials', () => {
   const secret = /fixture(?:Credential|Refresh)123456/;
   for (const credentials of [
     { password: 'fixtureCredential123456', refreshToken: 'fixtureRefresh123456' },
     { password: { value: 'fixtureCredential123456' }, refreshToken: ['fixtureRefresh123456'] },
   ]) {
     const detail = JSON.stringify(credentials);
-    const candidate = candidateOf({
-      prompt: 'Fix upload retry with ' + detail,
-      record: {
-        answer: 'Retry now works with ' + detail,
-        commands: ['npm test -- ' + detail],
-        paths: [],
-        checks: [{ command: 'npm test -- ' + detail, failed: false }],
-      },
-    });
-    const body = distillBody({ platform: 'test', sessionId: 'test-session', candidate, args: { summary: 'Repair upload retry' } });
-    for (const text of [JSON.stringify(candidate), distillPrompt(candidate, detail), JSON.stringify(body)]) {
+    const record = { answer: 'Retry now works with ' + detail, commands: ['npm test -- ' + detail], edits: [], checks: [{ command: 'npm test -- ' + detail, failed: false }] };
+    const turn = workTurnOf({ turn: 1, prompt: 'Fix upload retry with ' + detail, record, answer: record.answer, now: 1 });
+    const session = sessionRecordOf({ turns: [turn], source: 'observed' });
+    const [body] = distillBodiesOf({ platform: 'test', sessionId: 'test-session', trigger: 'idle', session, irs: [{ title: 'Repair upload retry' }] });
+    for (const text of [JSON.stringify(turn), irPromptOf({ record: session.record, kind: 'change', focus: detail }), JSON.stringify(body)]) {
       assert.doesNotMatch(text, secret);
       assert.match(text, /\[redacted\]/);
       assert.match(text, /upload retry/);

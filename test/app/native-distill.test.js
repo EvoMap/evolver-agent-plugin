@@ -11,10 +11,10 @@ import { turnEnded } from '../../lib/app/turn-end.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { declarationFor } from '../fixtures/acp/declaration.mjs';
 import { memoryPorts, PROMPT } from './memory-ports.js';
+import { IR } from './work-turns.js';
 
 const KEY = 'fixture-private-api-key-NOT-A-REAL-CREDENTIAL';
-const GENE = { title: 'Bounded retry validation', summary: 'An isolated native completion extracts the verified retry method.', strategy: ['Bound retries.', 'Validate the final check.'], validation: ['npm test passes'], signals: ['retry'], preconditions: ['A reproducible retry failure'] };
-const DRAFT = { ok: true, status: 'draft', publishable: false, distill_id: 'd'.repeat(16), quality: { ok: true, score: 6, threshold: 5 }, signals: ['retry'], gene: { type: 'Gene', asset_id: `sha256:${'a'.repeat(64)}`, summary: GENE.summary }, capsule: { type: 'Capsule', asset_id: `sha256:${'b'.repeat(64)}`, summary: GENE.summary } };
+const DRAFT = { ok: true, status: 'draft', publishable: false, distill_id: 'd'.repeat(16), quality: { ok: true, score: 6, threshold: 5 }, signals: ['retry'], gene: { type: 'Gene', asset_id: `sha256:${'a'.repeat(64)}`, summary: IR.capability_summary }, capsule: { type: 'Capsule', asset_id: `sha256:${'b'.repeat(64)}`, summary: IR.capability_summary } };
 
 async function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-native-distill-'));
@@ -25,7 +25,7 @@ async function fixture(t) {
   const prepare = declaration.prepare;
   declaration.prepare = (selected, context) => {
     const prepared = prepare(selected, context), entry = prepared.files['fixture.json'];
-    entry.value = { ...entry.value, answer: JSON.stringify(GENE) };
+    entry.value = { ...entry.value, answer: JSON.stringify(IR) };
     return prepared;
   };
   const env = { ...process.env, FIXTURE_ACCOUNT_KEY: KEY };
@@ -39,27 +39,30 @@ async function fixture(t) {
   return { ...made, dir, receipt, env, snapshot };
 }
 
-test('verified candidate flows through real ACP transport and validation into a private Proxy draft', async t => {
+test('a verified session range completes through the ACP fixture and creates a private IR draft', async (t) => {
   const made = await fixture(t);
-  const { at, turn, sessionEpoch } = (await made.ports.candidates.read()).session;
-  const result = await distillSession(made.ports, { sessionId: 'session' });
-  assert.equal(result.status, 'drafted', () => JSON.stringify(result));
-  assert.equal((await made.ports.drafts.read())[0].title, GENE.title);
-  assert.deepEqual((await made.ports.drafts.read())[0].sourceCandidate, { at, turn, sessionEpoch });
-  assert.deepEqual(await made.ports.candidates.read(), {});
-  const posts = made.requests.filter(request => request.path === '/conversation/distill');
+  const { at, changedAt, turns: [source] } = (await made.ports.candidates.read()).session;
+  const outcome = await distillSession(made.ports, { sessionId: 'session' });
+  assert.equal(outcome.status, 'drafted', () => JSON.stringify(outcome));
+  const posts = made.requests.filter(({ path }) => path === '/conversation/distill');
   assert.equal(posts.length, 1);
-  assert.deepEqual(posts[0].body.strategy, GENE.strategy);
-  assert.equal(posts[0].body.publish, false);
-  assert.equal(posts[0].body.persist, true);
-  assert.equal(JSON.stringify(posts).includes(KEY), false);
-  assert.equal(JSON.stringify(posts).includes(made.snapshot.binding), false);
+  const [post] = posts;
+  assert.deepEqual([post.body.ir_version, post.body.ir, post.body.persist, post.body.publish], ['session-gene-ir-v1', IR, true, false]);
+  assert.equal(JSON.stringify(post).includes(KEY), false);
+  assert.equal(JSON.stringify(post).includes(made.snapshot.binding), false);
+  const corpus = JSON.stringify(await made.ports.corpus.read());
+  assert.equal(corpus.includes(KEY), false);
+  assert.equal(corpus.includes(made.snapshot.binding), false);
+  const [draft] = await made.ports.drafts.read();
+  assert.equal(draft.title, IR.title);
+  assert.deepEqual(draft.sourceRange, { at, changedAt, turns: [{ turn: source.turn, at: source.at, sessionEpoch: source.sessionEpoch }] });
+  assert.deepEqual(await made.ports.candidates.read(), {});
   const receipt = JSON.parse(readFileSync(made.receipt, 'utf8'));
   assert.equal(existsSync(receipt.home), false);
-  assert.throws(() => process.kill(receipt.pid, 0));
+  assert.throws(() => process.kill(receipt.pid, 0), { code: 'ESRCH' });
 });
 
-test('unavailable account preflight keeps the candidate without a model request and restoration retries its original binding', async t => {
+test('unavailable account preflight keeps the range without a model request and restoration retries its original binding', async t => {
   const made = await fixture(t);
   made.env.FIXTURE_ACCOUNT_KEY = 'different-fixture-account';
   assert.deepEqual(await distillSession(made.ports, { sessionId: 'session' }), { status: 'blocked', reason: 'route_changed' });

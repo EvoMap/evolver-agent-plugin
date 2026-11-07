@@ -65,7 +65,7 @@ test('the first model call after a new prompt recalls once; each later call of t
   assert.deepEqual(s.requests.find((request) => request.path === '/asset/fetch').body.text, PROMPT);
 });
 
-test('Stop reports the strategy as used with the transcript\'s evidence, and the verified turn becomes the candidate', async () => {
+test('Stop reports the strategy as used with the transcript\'s evidence, and the verified turn joins the session\'s range', async () => {
   const s = conversation();
   const { stopped } = await verifiedTurn(s);
   assert.deepEqual(stopped, { decision: 'stop' });
@@ -73,10 +73,9 @@ test('Stop reports the strategy as used with the transcript\'s evidence, and the
   assert.equal(report.task_id, 'antigravity:s1:1');
   assert.equal(report.outcome, 'success');
   assert.deepEqual(report.evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' });
-  const candidate = (await s.ports.candidates.read()).s1;
-  assert.equal(candidate.prompt, PROMPT);
-  assert.deepEqual(candidate.model, { model: 'gemini-test' });
-  assert.equal(candidate.answer, 'Retries fixed; npm test passes.');
+  const range = (await s.ports.candidates.read()).s1;
+  assert.deepEqual([range.turns[0].prompt, range.turns[0].answer], [PROMPT, 'Retries fixed; npm test passes.']);
+  assert.deepEqual(range.model, { model: 'gemini-test' });
   assert.deepEqual([...s.retained[0].editedBefore.keys()], ['/workspace/project/lib/redis.js']);
 });
 
@@ -124,12 +123,12 @@ test('a turn that got no Stop ends as an error once the next prompt opens a turn
   assert.equal(s.sessions.get('s1').turn, 2);
 });
 
-test('a correction in the next prompt drops the candidate and reports the reuse again under :correction', async () => {
+test('a correction in the next prompt stays with the turn it corrects and reports the reuse again under :correction', async () => {
   const s = conversation();
   await verifiedTurn(s);
   s.prompt('还是报错，不对');
   await s.invoke();
-  assert.deepEqual(await s.ports.candidates.read(), {});
+  assert.equal((await s.ports.candidates.read()).s1.turns[0].correction, '还是报错，不对');
   assert.ok(s.queued.some(({ report }) => report.task_id === 'antigravity:s1:1:correction' && report.outcome === 'failed'));
 });
 
@@ -147,7 +146,7 @@ test('with no SessionStart, the first model call under a new Antigravity process
   assert.equal(s.scheduled.filter((task) => task === 'distill').length, 2, 'a resumed conversation under a new process starts again');
 });
 
-test('a turn that runs again after its Stop opens no second turn, and its later Stop re-judges the candidate', async () => {
+test('a turn that runs again after its Stop opens no second turn, and its later Stop judges that turn\'s work again', async () => {
   const s = conversation();
   await verifiedTurn(s);
   s.command('npm test', FAILED_RUN);
@@ -155,7 +154,8 @@ test('a turn that runs again after its Stop opens no second turn, and its later 
   assert.equal(s.sessions.get('s1').turn, 1);
   s.answer('The background run failed.');
   await s.stop();
-  assert.deepEqual(await s.ports.candidates.read(), {});
+  const [turn] = (await s.ports.candidates.read()).s1.turns;
+  assert.deepEqual([turn.answer, turn.steps.at(-1).failed], ['The background run failed.', true]);
   assert.equal(fetches(s.requests), 1);
 });
 

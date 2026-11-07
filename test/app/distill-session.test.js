@@ -7,447 +7,353 @@ import { runCommand } from '../../lib/app/commands/index.js';
 import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers, postAgentGene, scheduleDueDistillation } from '../../lib/app/distill-session.js';
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
-import { toolFinished } from '../../lib/app/tool-result.js';
 import { TASKS } from '../../lib/app/ports.js';
+import { draftSourcesOf } from '../../lib/distill.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { BLOCKED_ROUTE_TTL_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/candidate.js';
+import { BLOCKED_ROUTE_TTL_MS, EPISODE_QUIET_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/range.js';
 import { memoryPorts } from './memory-ports.js';
+import { DRAFTED, IR, changeTurn, fixTurn, modelAnswering, turnOf } from './work-turns.js';
 
-const GENE = { title: 'Stabilise Redis retries', summary: 'Flaky Redis-backed tests stop failing once retries are unbounded and the client is shared.', strategy: ['Set maxRetriesPerRequest to null', 'Share one client', 'Close it in teardown'] };
-const DRAFTED = {
-  ok: true, status: 'draft', publishable: false, distill_id: 'd'.repeat(16), quality: { ok: true, score: 6, threshold: 5 }, signals: ['redis'],
-  gene: { type: 'Gene', asset_id: 'sha256:' + 'g'.repeat(64), summary: GENE.summary },
-  capsule: { type: 'Capsule', asset_id: 'sha256:' + 'c'.repeat(64), summary: GENE.summary },
+const PROJECT = {
+  root: '/proj',
+  head: 'f'.repeat(40),
+  diff: 'diff --git a/lib/redis.js b/lib/redis.js\n--- a/lib/redis.js\n+++ b/lib/redis.js\n@@ -1 +1 @@\n-export const options = {};\n+export const options = { maxRetriesPerRequest: null };\n',
 };
+const bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
+const distills = (requests) => requests.filter((request) => request.path === '/conversation/distill');
 
-const PROJECT = { root: '/proj', head: 'f'.repeat(40), diff: 'diff --git a/lib/redis.js b/lib/redis.js\n' };
-
-const modelAnswering = (answer, onCall = () => {}) => ({
-  complete: async () => {
-    await onCall();
-    return { answer: JSON.stringify(answer), usage: { inputTokens: 10, outputTokens: 5 } };
-  },
-});
-
-async function withCandidate(options = {}) {
+async function fixedSession(options = {}) {
   const made = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, ...options });
-  await verifiedTurn(made.ports, 's1');
+  await fixTurn(made.ports, 's1');
   return made;
 }
 
-async function verifiedTurn(ports, sessionId, prompt = 'fix the flaky redis retries') {
-  await promptSubmitted(ports, { sessionId, prompt, waitMs: 1_000 });
-  await toolFinished(ports, { sessionId, note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
-  await toolFinished(ports, { sessionId, note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ok' } });
-  await turnEnded(ports, { sessionId, reason: 'answer', answer: 'Fixed the retries.', model: 'model-x', projectDir: '/proj' });
+async function threeTurnSession(options = {}) {
+  const made = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, ...options });
+  for (const index of [1, 2, 3]) await changeTurn(made.ports, 's1', index);
+  return made;
 }
 
-test('an unavailable captured route releases the claim and preserves the candidate until the original route returns', async () => {
-  let available = false;
-  const made = await withCandidate({ model: {
-    capture: () => 'model-x',
-    async complete(model) {
-      assert.equal(model, 'model-x');
-      if (!available) throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
-      return { answer: JSON.stringify(GENE) };
-    },
-  } });
-  const { ports, requests, wakeUps } = made;
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
-  const candidate = (await ports.candidates.read()).s1;
-  assert.deepEqual([candidate.attempts, candidate.claimedBy, candidate.blocked], [0, null, { reason: 'route_changed', at: ports.clock.now() }]);
-  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
-  await armDistillWakeUp(ports);
-  assert.deepEqual(wakeUps.at(-1), { at: candidate.blocked.at + BLOCKED_ROUTE_TTL_MS, tasks: [TASKS.DISTILL] });
-  made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
-  await dropExpiredLeftovers(ports);
-  assert.ok((await ports.candidates.read()).s1);
-  available = true;
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
-  assert.equal((await ports.candidates.read()).s1, undefined);
+async function endedAndDistilled(made) {
+  await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+  return distillDue(made.ports);
+}
+
+const correct = (ports, sessionId = 's1') => promptSubmitted(ports, { sessionId, prompt: 'still failing', waitMs: 0 });
+const correctionsOf = async (ports, sessionId = 's1') => (await ports.candidates.read())[sessionId]?.turns.map(({ correction }) => correction ?? null);
+
+/** Holds the Proxy's answer to the first distillation request until `finish()`, once `started` resolved. */
+function pausedAtProxy(ports) {
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const reply = await request(...args);
+    if (args[1] === '/conversation/distill') {
+      started.resolve();
+      await finish.promise;
+    }
+    return reply;
+  };
+  return { started: started.promise, finish: finish.resolve };
+}
+
+/** A model on the session's captured route, `model-x`, failing as the runtime does while that route is unavailable. */
+const routedModel = (route) => ({
+  capture: () => 'model-x',
+  async complete(model) {
+    route.calls = (route.calls ?? 0) + 1;
+    assert.equal(model, 'model-x');
+    if (!route.available) throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+    return { answer: JSON.stringify(IR) };
+  },
 });
 
-test('a blocked route stays parked when another session wakes the distillation worker', async () => {
-  let available = false;
-  let calls = 0;
-  const { ports, requests, scheduled } = await withCandidate({ model: {
-    capture: () => 'model-x',
-    async complete() {
-      calls++;
-      if (!available) throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
-      return { answer: JSON.stringify(GENE) };
-    },
-  } });
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
-
-  scheduled.length = 0;
-  await scheduleDueDistillation(ports);
-  const scheduledWhileBlocked = [...scheduled];
-  available = true;
-  await verifiedTurn(ports, 's2');
-  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
-  await distillDue(ports);
-
-  assert.equal(calls, 2, 'the worker should only run the newly due session');
-  assert.deepEqual(scheduledWhileBlocked, []);
-  assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.session_id), ['testagent:s2']);
-  assert.equal((await ports.candidates.read()).s1.blocked.reason, 'route_changed');
-});
-
-test('a blocked candidate expires from its first block even after a failed manual retry', async () => {
-  let calls = 0;
-  const { ports, advance, wakeUps } = await withCandidate({ model: {
-    capture: () => 'model-x',
-    async complete() {
-      calls++;
-      throw Object.assign(new Error('unavailable'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
-    },
-  } });
-  advance(IDLE_DISTILL_MS);
-  await runBackgroundTasks(ports, [TASKS.DISTILL]);
-  const deadline = ports.clock.now() + BLOCKED_ROUTE_TTL_MS;
-  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
-  advance(BLOCKED_ROUTE_TTL_MS - 1);
-  ports.settings = { autoDistill: false };
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'blocked');
-  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
-
-  advance(1);
-  assert.equal(await runBackgroundTasks(ports, [TASKS.DISTILL]), true);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-  assert.equal(calls, 2);
-});
-
-test('an expired legacy block is pruned without interrupting a live manual claim', async () => {
-  const { ports, advance } = await withCandidate({ model: {
-    capture: () => 'model-x',
-    complete: () => assert.fail('expiry must not call the model'),
-  } });
-  await verifiedTurn(ports, 's2');
-  const blocked = { reason: 'route_changed' };
-  await ports.candidates.update((pending) => ({
-    ...pending,
-    s1: { ...pending.s1, blocked, claimedBy: ports.owner.self() },
-    s2: { ...pending.s2, blocked },
-  }));
-  advance(BLOCKED_ROUTE_TTL_MS);
-  assert.deepEqual(await distillDue(ports), []);
-  assert.deepEqual(Object.keys(await ports.candidates.read()), ['s1']);
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'busy');
-  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, claimedBy: null } }));
-  assert.deepEqual(await distillSession(ports, { sessionId: 's1' }), { status: 'nothing' });
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a candidate without a captured route requires a new verified turn and never uses current credentials', async () => {
-  const { ports, requests } = await withCandidate({ model: {
-    capture: () => assert.fail('the current route cannot stand in for the original route'),
-    complete: () => assert.fail('a turn without a captured route cannot call a model'),
-  } });
-  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, model: null } }));
-
-  const outcome = await distillSession(ports, { sessionId: 's1' });
-
-  assert.deepEqual(outcome, { status: 'route_not_captured' });
-  assert.match(distillText(outcome).text, /finish a new verified turn/i);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-
-  await verifiedTurn(ports, 's2');
-  await ports.candidates.update((pending) => ({ ...pending, s2: { ...pending.s2, model: null, blocked: { reason: 'route_unresolved' } } }));
-  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
-  assert.deepEqual(await distillDue(ports), [{ status: 'route_not_captured' }], 'a previously blocked unbound candidate can settle');
-  assert.equal((await ports.candidates.read()).s2, undefined);
-  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
-});
-
-test('a session-end distillation the Proxy answers as a draft is kept as a draft and settles the candidate', async () => {
-  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillDue(ports);
+test('a session-end distillation posts each IR in the contract\'s shape, keeps the Proxy\'s draft and the record for calibration', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const [outcome] = await endedAndDistilled(made);
   assert.equal(outcome.status, 'drafted');
-  assert.equal((await ports.candidates.read()).s1, undefined);
-  assert.equal((await ports.drafts.read())[0].title, GENE.title);
-  const { body } = requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual([body.platform, body.trigger, body.session_id, body.persist, body.publish], ['testagent', 'session_end', 'testagent:s1', true, false]);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test', exit: 0, source: 'observed' }] });
-  assert.deepEqual(body.project, PROJECT);
-  assert.deepEqual(body.distill_usage, { inputTokens: 10, outputTokens: 5 });
+  assert.equal((await made.ports.candidates.read()).s1, undefined);
+  assert.equal((await made.ports.drafts.read())[0].title, IR.title);
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual(Object.keys(body), ['platform', 'session_id', 'trigger', 'ir_version', 'ir', 'record', 'user_prompt', 'final_answer', 'execution', 'project', 'project_dir', 'persist', 'publish', 'distill_usage']);
+  assert.deepEqual([body.platform, body.session_id, body.trigger, body.ir_version, body.persist, body.publish, body.project_dir], ['testagent', 'testagent:s1', 'session_end', 'session-gene-ir-v1', true, false, '/proj']);
+  assert.deepEqual(body.ir, IR);
+  assert.deepEqual(body.record.slice(0, 9), [
+    { kind: 'turn', text: 'Turn 1' },
+    { kind: 'prompt', text: 'fix the flaky redis retries' },
+    { kind: 'check', text: 'npm test', exit: 1 },
+    { kind: 'output', text: 'ℹ tests 3' }, { kind: 'output', text: 'ℹ pass 2' }, { kind: 'output', text: 'ℹ fail 1' },
+    { kind: 'output', text: 'MaxRetriesPerRequestError: Reached the max retries per request limit' },
+    { kind: 'edit', text: 'lib/redis.js' },
+    { kind: 'check', text: 'npm test 2>&1 | tail -5' },
+  ]);
+  assert.deepEqual(body.record.slice(9).map(({ kind }) => kind), ['answer', 'diff', 'diff', 'diff', 'diff', 'diff', 'diff']);
+  assert.deepEqual(body.execution.trace, [{ command: 'npm test', exit: 1, source: 'observed' }, { command: 'npm test 2>&1 | tail -5', ok: true, source: 'observed' }]);
+  assert.deepEqual([body.user_prompt, body.final_answer, body.project, body.distill_usage], ['fix the flaky redis retries', 'Fixed the retries.', PROJECT, { inputTokens: 10, outputTokens: 5 }]);
+  const [kept] = await made.ports.corpus.read();
+  assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
 });
 
-test('distillation omits a legacy snapshot with a credential before posting to the Proxy', async () => {
-  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
-  const diff = 'diff --git a/settings.json b/settings.json\n+{"accessToken":"opaque-example-123456789"}\n';
-  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, project: { ...PROJECT, diff } } }));
-
-  const outcome = await distillSession(ports, { sessionId: 's1' });
-  assert.equal(outcome.status, 'drafted');
-  const { body } = requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual(body.project, { diff_omitted: 'secret' });
-  assert.doesNotMatch(JSON.stringify(body), /opaque-example/);
+test('the record holds every work turn in order: a failed check\'s redacted output tail, the correction, and a diff cut to fit a prompt', async () => {
+  const output = [...Array.from({ length: 30 }, (_, index) => `line ${index}`), 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123'].join('\n');
+  const files = Array.from({ length: 40 }, (_, index) => `diff --git a/src/f${index}.js b/src/f${index}.js\n--- a/src/f${index}.js\n+++ b/src/f${index}.js\n@@ -0,0 +1,40 @@\n${'+export const value = 1;\n'.repeat(39)}+++count;\n`);
+  const made = memoryPorts({ model: modelAnswering(IR), distillAnswer: DRAFTED, project: { ...PROJECT, diff: files.join('') } });
+  await turnOf(made.ports, 's1', { steps: [['note', { kind: 'shell', command: 'npm test', exit: 1, output }]] });
+  await turnOf(made.ports, 's1', { prompt: '还是报错', steps: [['edit', '/proj/lib/redis.js'], ['pass', 'npm test']] });
+  await endedAndDistilled(made);
+  const [{ body }] = distills(made.requests);
+  const outputs = body.record.filter(({ kind }) => kind === 'output').map(({ text }) => text);
+  assert.deepEqual([outputs.length, outputs[0], outputs.at(-1)], [20, 'line 11', 'Authorization: [redacted]']);
+  assert.doesNotMatch(JSON.stringify(body), /abcdefghijklmnop/);
+  assert.deepEqual(body.record[body.record.findIndex(({ text }) => text === 'Turn 2') - 1], { kind: 'correction', text: '还是报错' });
+  const diffLines = body.record.filter(({ kind }) => kind === 'diff');
+  assert.match(diffLines[0].text, /^Diff too long to show whole: 40 files, \+1600 -0\.$/);
+  assert.ok(Buffer.byteLength(diffLines.map(({ text }) => text).join('\n')) <= 24 * 1024);
+  assert.equal(body.project.diff, files.join(''));
+  assert.ok(bytesOf(body) <= 256 * 1024);
 });
 
-test('a diff that would push the distillation past the Proxy\'s 256 KiB body limit is left out and marked truncated', async () => {
-  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), project: { ...PROJECT, diff: 'x'.repeat(256 * 1024 - 100) } });
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  await distillDue(ports);
-  const { body } = requests.find((request) => request.path === '/conversation/distill');
-  assert.deepEqual(body.project, { diff_omitted: 'too_large' });
+test('the range\'s diff is taken from the commit its first work turn began on, so a commit made since stays in it', async () => {
+  const made = memoryPorts({ heads: ['a'.repeat(40), 'b'.repeat(40)] });
+  await changeTurn(made.ports, 's1', 1);
+  await changeTurn(made.ports, 's1', 2);
+  assert.deepEqual(made.snapshotBases, ['a'.repeat(40), 'a'.repeat(40)]);
 });
 
-test('a live session\'s candidate is distilled once the session has been quiet long enough, with trigger idle', async () => {
-  const { ports, requests, advance } = await withCandidate({ model: modelAnswering(GENE) });
-  advance(IDLE_DISTILL_MS - 1);
-  assert.deepEqual(await distillDue(ports), []);
-  assert.ok((await ports.candidates.read()).s1);
-  advance(1);
-  assert.deepEqual((await distillDue(ports)).map((outcome) => outcome.status), ['drafted']);
-  assert.equal(requests.find((request) => request.path === '/conversation/distill').body.trigger, 'idle');
-});
-
-test('a session still active keeps its candidate waiting; once it is quiet, a prompt in any session schedules the distillation', async () => {
-  const { ports, scheduled, advance } = await withCandidate({ model: modelAnswering(GENE) });
-  const distillsScheduled = () => scheduled.filter((task) => task === TASKS.DISTILL).length;
-  advance(IDLE_DISTILL_MS - 1);
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'now explain the build', waitMs: 0 });
-  advance(1);
-  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the build', waitMs: 0 });
-  assert.equal(distillsScheduled(), 0);
-  advance(IDLE_DISTILL_MS);
-  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the tests', waitMs: 0 });
-  assert.equal(distillsScheduled(), 1);
-});
-
-test('an explicit distillation cannot duplicate its process\'s running background distillation', async () => {
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  let completions = 0;
-  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE, async () => {
-    completions += 1;
-    started.resolve();
-    await finish.promise;
-  }) });
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const background = distillDue(ports);
-  await started.promise;
-  const explicit = distillSession(ports, { sessionId: 's1' });
-  await new Promise(setImmediate);
-  finish.resolve();
-  const [outcomes, answer] = await Promise.all([background, explicit]);
-  assert.equal(completions, 1);
-  assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
-  assert.equal(outcomes[0].status, 'drafted');
-  assert.equal(answer.status, 'busy');
-  assert.equal((await ports.drafts.read()).length, 1);
-});
-
-test('with no model outside the conversation, a leftover waits a day for an agent\'s Gene, then is dropped', async () => {
-  const { ports } = await withCandidate();
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  await runBackgroundTasks(ports, [TASKS.DISTILL]);
-  assert.ok((await ports.candidates.read()).s1);
-  await ports.clock.sleep(UNDISTILLED_LEFTOVER_TTL_MS + 1);
-  await runBackgroundTasks(ports, [TASKS.DISTILL]);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a person who turned distillation off keeps the leftover from the background, and still distills it on demand', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  ports.settings = { recall: true, autoDistill: false };
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  await runBackgroundTasks(ports, [TASKS.DISTILL]);
-  assert.ok((await ports.candidates.read()).s1);
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
-});
-
-test('a process shutting down stops a leftover\'s model call without counting a try, and gives the claim back', async () => {
-  const stopping = new AbortController();
-  const waitsForever = { complete: (model, prompt, signal) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason))) };
-  const { ports } = await withCandidate({ model: waitsForever });
-  ports.scheduler = { ...ports.scheduler, signal: stopping.signal };
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const running = distillDue(ports);
-  await new Promise((resolve) => setImmediate(resolve));
-  stopping.abort();
-  assert.deepEqual((await running).map((outcome) => outcome.status), ['stopped']);
-  const { s1 } = await ports.candidates.read();
-  assert.deepEqual([s1.attempts, s1.claimedBy ?? null], [0, null]);
-});
-
-test('a transient candidate watch read failure is retried without crashing the model run', async t => {
-  const { ports, requests } = await withCandidate();
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const reply = Promise.withResolvers(), started = Promise.withResolvers();
-  ports.model = { complete: () => { started.resolve(); return reply.promise; } };
-  const setInterval = globalThis.setInterval, read = ports.candidates.read;
-  let check;
-  t.mock.method(globalThis, 'setInterval', callback => { check = callback; return setInterval(() => {}, 60_000); });
-  const running = distillDue(ports);
-  t.after(async () => {
-    ports.candidates.read = read;
-    reply.resolve({ answer: JSON.stringify(GENE) });
-    await running;
-  });
-  await started.promise;
-  ports.candidates.read = async () => { throw Object.assign(new Error('fixture read denial'), { code: 'EBUSY' }); };
-  await assert.doesNotReject(check());
-  assert.equal(requests.some(request => request.path === '/conversation/distill'), false);
-  ports.candidates.read = read;
-  reply.resolve({ answer: JSON.stringify(GENE) });
-  assert.equal((await running)[0].status, 'drafted');
-  assert.equal(requests.filter(request => request.path === '/conversation/distill').length, 1);
-});
-
-test('the model may decline, which settles the candidate without calling the Proxy', async () => {
-  const { ports, requests } = await withCandidate({ model: modelAnswering({ skip: 'routine edit' }) });
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillDue(ports);
-  assert.deepEqual([outcome.status, outcome.reason], ['declined', 'routine edit']);
-  assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a candidate dropped by a correction while the model answers is not posted', async () => {
-  const made = await withCandidate();
-  const { ports, requests } = made;
-  ports.model = modelAnswering(GENE, () => ports.candidates.update(({ s1, ...rest }) => rest));
-  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
-  const [outcome] = await distillDue(ports);
-  assert.equal(outcome.status, 'dropped');
-  assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
-});
-
-test('a correction while a draft request is pending discards its late reply', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const request = ports.proxy.request;
-  ports.proxy.request = async (...args) => {
-    const reply = await request(...args);
-    if (args[1] === '/conversation/distill') {
-      started.resolve();
-      await finish.promise;
-    }
-    return reply;
-  };
-  const running = distillSession(ports, { sessionId: 's1' });
-  await started.promise;
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  finish.resolve();
-  const outcome = await running;
-  assert.equal(outcome.status, 'dropped');
-  assert.equal(distillText(outcome).text, 'A newer turn replaced the one this Gene was written for.');
-  assert.deepEqual(await ports.drafts.read(), []);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a correction while a request is pending still reports a Gene the Proxy stored', async () => {
-  const stored = { status: 'stored', gene: DRAFTED.gene };
-  const { ports, requests } = await withCandidate({ model: modelAnswering(GENE), distillAnswer: stored });
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const request = ports.proxy.request;
-  ports.proxy.request = async (...args) => {
-    const reply = await request(...args);
-    if (args[1] === '/conversation/distill') {
-      started.resolve();
-      await finish.promise;
-    }
-    return reply;
-  };
-
-  const running = runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
-  await started.promise;
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  finish.resolve();
-  const answer = await running;
-  assert.equal(answer.ok, true);
-  assert.deepEqual(JSON.parse(answer.text), stored);
-  assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
-  assert.deepEqual(await ports.drafts.read(), []);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a correction while an agent Gene request is pending discards its late draft', async () => {
-  const { ports } = await withCandidate();
-  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const request = ports.proxy.request;
-  ports.proxy.request = async (...args) => {
-    const reply = await request(...args);
-    if (args[1] === '/conversation/distill') {
-      started.resolve();
-      await finish.promise;
-    }
-    return reply;
-  };
-  const running = postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
-  await started.promise;
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  finish.resolve();
-  assert.equal((await running).status, 'dropped');
-  assert.deepEqual(await ports.drafts.read(), []);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-});
-
-test('a corrected request reaching the draft store late preserves a newer draft with the same ID', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  const earlier = (await ports.candidates.read()).s1;
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const update = ports.drafts.update;
-  let pauseFirst = true;
-  ports.drafts.update = async (mutate) => {
-    if (pauseFirst) {
-      pauseFirst = false;
-      started.resolve();
-      await finish.promise;
-    }
-    return update(mutate);
-  };
-
-  const late = distillSession(ports, { sessionId: 's1' });
-  await started.promise;
-  let newer;
-  try {
-    await verifiedTurn(ports, 's1', 'still failing');
-    ports.model = modelAnswering({ ...GENE, title: 'Newer verified retries' });
-    newer = await distillSession(ports, { sessionId: 's1' });
-    assert.equal(newer.status, 'drafted');
-    assert.equal(newer.draft.id, DRAFTED.distill_id);
-    assert.equal(newer.draft.sourceCandidate.at, earlier.at);
-    assert.equal(newer.draft.sourceCandidate.turn, earlier.turn + 1);
-    assert.deepEqual(await ports.drafts.read(), [newer.draft]);
-  } finally {
-    finish.resolve();
+test('a diff is left out as too large when it would push the request past the Proxy\'s 256 KiB, and as secret when a saved one holds a credential', async () => {
+  const rows = [
+    ['too large', 'x'.repeat(256 * 1024 - 100), 'too_large'],
+    ['a credential the filter now catches', 'diff --git a/settings.json b/settings.json\n+{"accessToken":"opaque-example-123456789"}\n', 'secret'],
+  ];
+  for (const [name, diff, reason] of rows) {
+    const made = await fixedSession({ model: modelAnswering(IR) });
+    await made.ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, project: { ...PROJECT, diff } } }));
+    await endedAndDistilled(made);
+    const [{ body }] = distills(made.requests);
+    assert.deepEqual(body.project, { diff_omitted: reason }, name);
+    assert.doesNotMatch(JSON.stringify([body, await made.ports.corpus.read()]), /opaque-example/, name);
   }
-
-  assert.equal((await late).status, 'dropped');
-  assert.deepEqual(await ports.drafts.read(), [newer.draft]);
 });
 
-test('an older candidate from another session settles without replacing a newer same-ID draft', async () => {
-  const { ports, advance } = await withCandidate({ model: modelAnswering(GENE) });
-  advance(1);
-  await verifiedTurn(ports, 's2');
-  const newer = await distillSession(ports, { sessionId: 's2' });
-  assert.equal(newer.status, 'drafted');
-
-  const outcome = await distillSession(ports, { sessionId: 's1' });
-  assert.equal(outcome.status, 'superseded');
-  assert.match(distillText(outcome).text, /same ID is already saved/);
-  assert.equal((await ports.candidates.read()).s1, undefined);
-  assert.deepEqual(await ports.drafts.read(), [newer.draft]);
+test('a range kept under older rules is redacted and cut again as it is sent and kept for calibration, and its last turn\'s oldest steps give way to the 256 KiB', async () => {
+  const token = ['sk-live-', 'Ab3dEf7Gh9Jk2Lm5Np8Qr1St'].join('');
+  const wholeOutput = ['x'.repeat(300 * 1024), ...Array.from({ length: 30 }, (_, index) => `line ${index}`)].join('\n');
+  const longCheck = (index) => ({ kind: 'check', command: `npm test -- ${'测'.repeat(990)} ${index}`, exit: 1, failed: true, output: 'y'.repeat(2048) });
+  const rows = [
+    ['a whole output', [{ kind: 'check', command: 'npm test', exit: 1, failed: true, output: wholeOutput }], (record) => record.find(({ kind }) => kind === 'output').text, 'line 10'],
+    ['sixty long failed checks', Array.from({ length: 60 }, (_, index) => longCheck(index)), (record) => record.some(({ text }) => text === longCheck(0).command), false],
+  ];
+  for (const [name, steps, keptOf, kept] of rows) {
+    const made = await fixedSession({ model: modelAnswering(IR) });
+    await made.ports.candidates.update((pending) => {
+      const [turn] = pending.s1.turns;
+      return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, prompt: `${turn.prompt} API_TOKEN=${token}`, steps: [...steps, ...turn.steps] }] } };
+    });
+    await endedAndDistilled(made);
+    const [{ body }] = distills(made.requests);
+    assert.ok(bytesOf(body) <= 256 * 1024, name);
+    assert.ok(!JSON.stringify([body, await made.ports.corpus.read()]).includes(token), name);
+    assert.equal(keptOf(body.record), kept, name);
+    assert.equal(body.record.findLast(({ kind }) => kind === 'check').text, 'npm test 2>&1 | tail -5', name);
+  }
 });
 
-test('a correction after the final candidate snapshot removes only the corrected turn draft', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  const candidate = (await ports.candidates.read()).s1;
+test('the gate decides without a model call whether a session\'s work is distilled, and distilled turns never are again', async () => {
+  const rows = [
+    ['two work turns', async (ports) => { await changeTurn(ports, 's1', 1); await changeTurn(ports, 's1', 2); }, ['below_threshold'], 0],
+    ['three work turns', async (ports) => { for (const index of [1, 2, 3]) await changeTurn(ports, 's1', index); }, ['drafted'], 1],
+    ['one fixed error', (ports) => fixTurn(ports, 's1'), ['drafted'], 1],
+    ['one fixed error, checked again over the whole file through tail', (ports) => turnOf(ports, 's1', { steps: [
+      ['note', { kind: 'shell', command: 'python -m pytest testing/test_rewrite.py::TestIssue::test_number', exit: 1, output: 'E   TypeError: int\n1 failed in 0.21s' }],
+      ['edit', '/proj/src/rewrite.py'],
+      ['note', { kind: 'shell', command: 'python -m pytest testing/test_rewrite.py -q 2>&1 | tail -3', exit: 0, output: '115 passed, 1 skipped in 1.99s' }],
+    ] }), ['drafted'], 1],
+    ['an error left unfixed', (ports) => turnOf(ports, 's1', { steps: [['fail', 'npm test'], ['edit', '/proj/a.js'], ['fail', 'npm test']] }), ['below_threshold'], 0],
+    ['only reading and answering', (ports) => turnOf(ports, 's1', { prompt: 'explain the retry policy', steps: [['run', 'cat lib/redis.js']] }), [], 0],
+  ];
+  for (const [name, work, statuses, modelCalls] of rows) {
+    let calls = 0;
+    const made = memoryPorts({ distillAnswer: DRAFTED, model: modelAnswering(IR, () => { calls += 1; }) });
+    await work(made.ports);
+    assert.deepEqual((await endedAndDistilled(made)).map(({ status }) => status), statuses, name);
+    assert.equal(calls, modelCalls, name);
+  }
+  const made = await threeTurnSession({ model: modelAnswering(IR) });
+  made.advance(IDLE_DISTILL_MS);
+  assert.deepEqual((await distillDue(made.ports)).map(({ status }) => status), ['drafted']);
+  await changeTurn(made.ports, 's1', 4);
+  assert.deepEqual(await endedAndDistilled(made), [{ status: 'below_threshold', reason: 'too_little_work', detail: '1 of 3 work turns and no fixed error' }]);
+});
+
+test('a live session is distilled ten minutes after it fixed an error, thirty after other work, and below the threshold waits for more work', async () => {
+  const fixed = await fixedSession({ model: modelAnswering(IR) });
+  fixed.advance(EPISODE_QUIET_MS - 1);
+  assert.deepEqual(await distillDue(fixed.ports), []);
+  fixed.advance(1);
+  assert.deepEqual((await distillDue(fixed.ports)).map(({ status }) => status), ['drafted']);
+  assert.equal(distills(fixed.requests)[0].body.trigger, 'error_episode');
+
+  const worked = await threeTurnSession({ model: modelAnswering(IR) });
+  worked.advance(IDLE_DISTILL_MS - 1);
+  assert.deepEqual(await distillDue(worked.ports), []);
+  worked.advance(1);
+  assert.deepEqual((await distillDue(worked.ports)).map(({ status }) => status), ['drafted']);
+  assert.equal(distills(worked.requests)[0].body.trigger, 'idle');
+
+  const small = memoryPorts({ model: modelAnswering(IR) });
+  await changeTurn(small.ports, 's1');
+  small.advance(IDLE_DISTILL_MS);
+  assert.deepEqual((await distillDue(small.ports)).map(({ status }) => status), ['below_threshold']);
+  small.advance(IDLE_DISTILL_MS);
+  assert.deepEqual(await distillDue(small.ports), []);
+  assert.equal((await small.ports.outcomes.read()).length, 1);
+});
+
+test('/evolver-status names the last distillation\'s outcome, with the Proxy\'s reason and the terms it refused', async () => {
+  const refused = { ok: true, status: 'draft', quality: { ok: false, reason: 'too_project_specific', terms: ['invoiceTotal', 'BILLING_URL'] } };
+  const rows = [
+    ['a Proxy rejection', { model: modelAnswering(IR), distillAnswer: refused }, fixTurn, 'Last distillation: rejected by the Proxy (too_project_specific: invoiceTotal, BILLING_URL), just now.'],
+    ['a model skip', { model: modelAnswering({ skip: 'routine edit' }) }, fixTurn, 'Last distillation: declined by the model (routine edit), just now.'],
+    ['below the threshold', { model: modelAnswering(IR) }, changeTurn, 'Last distillation: below the threshold, no model call (1 of 3 work turns and no fixed error), just now.'],
+  ];
+  for (const [name, options, work, line] of rows) {
+    const made = memoryPorts(options);
+    await work(made.ports, 's1');
+    await endedAndDistilled(made);
+    const { text } = await runCommand(made.ports, { sessionId: 's1', name: 'evolver-status' });
+    assert.ok(text.split('\n').includes(line), `${name}: ${text}`);
+  }
+});
+
+test('the model\'s answer is read as fenced JSON, an array or one object; up to two IRs go out, one request each, and one that breaks the shape stays here', async () => {
+  const second = { ...IR, title: 'Share one Redis client' };
+  const tooLong = { ...IR, scope: { ...IR.scope, signals: [...IR.scope.signals.slice(0, 4), 's'.repeat(65)] } };
+  const rows = [
+    ['fenced', `Here it is:\n\`\`\`json\n${JSON.stringify(IR)}\n\`\`\``, [IR.title], 'drafted'],
+    ['an array of three', JSON.stringify([IR, second, { ...IR, title: 'A third' }]), [IR.title, second.title], 'drafted'],
+    ['a signal over 64 characters', JSON.stringify(tooLong), [], 'rejected'],
+    ['a contract that says not when it applies', JSON.stringify({ ...IR, canonical_contracts: [{ kind: 'command', exemplar: 'npm test', refs: ['R1'] }] }), [], 'rejected'],
+  ];
+  for (const [name, answer, titles, status] of rows) {
+    const made = await fixedSession({ model: modelAnswering(answer) });
+    const [outcome] = await endedAndDistilled(made);
+    assert.deepEqual(distills(made.requests).map(({ body }) => body.ir.title), titles, name);
+    assert.deepEqual(distills(made.requests).map(({ body }) => Boolean(body.distill_usage)), titles.map((_, index) => index === 0), name);
+    assert.equal(outcome.status, status, name);
+  }
+  const made = await fixedSession({ model: modelAnswering(tooLong) });
+  await endedAndDistilled(made);
+  assert.deepEqual((await made.ports.outcomes.read()).at(-1), { status: 'rejected', title: IR.title, by: 'plugin', reason: 'ir_invalid', field: 'ir.scope.signals', session: 'testagent:s1', trigger: 'session_end', at: made.ports.clock.now() });
+});
+
+test('work turns that join the range or are judged again while the model answers stay for the next distillation', async () => {
+  const judgedAgain = (ports) => ports.candidates.update((pending) => {
+    const [turn] = pending.s1.turns;
+    return { ...pending, s1: { ...pending.s1, turns: [{ ...turn, steps: [...turn.steps, { kind: 'command', command: 'npm run build' }] }] } };
+  });
+  const rows = [
+    ['a turn joins', (ports) => changeTurn(ports, 's1', 2), 'drafted', [2]],
+    ['its turn is judged again', judgedAgain, 'dropped', [1]],
+  ];
+  for (const [name, meanwhile, status, left] of rows) {
+    const made = await fixedSession();
+    made.ports.model = modelAnswering(IR, () => meanwhile(made.ports));
+    made.advance(EPISODE_QUIET_MS);
+    assert.deepEqual((await distillDue(made.ports)).map((outcome) => outcome.status), [status], name);
+    assert.deepEqual((await made.ports.candidates.read()).s1.turns.map(({ turn }) => turn), left, name);
+  }
+});
+
+test('a correction of a turn being distilled discards the answer, and the range waits with the correction for the next distillation', async () => {
+  const rows = [
+    ['while the model answers', (made) => { made.ports.model = modelAnswering(IR, () => correct(made.ports)); }, (ports) => distillDue(ports).then(([outcome]) => outcome), 0],
+    ['while the Proxy answers the model\'s IR', (made) => {
+      const paused = pausedAtProxy(made.ports);
+      paused.started.then(() => correct(made.ports)).then(paused.finish);
+    }, (ports) => distillSession(ports, { sessionId: 's1' }), 1],
+    ['while the Proxy answers the agent\'s IR', (made) => {
+      const paused = pausedAtProxy(made.ports);
+      paused.started.then(() => correct(made.ports)).then(paused.finish);
+    }, async (ports) => postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor: ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1) }), 1],
+    ['while a refused IR is logged', (made) => {
+      made.ports.model = modelAnswering([{ ...IR, title: 'No signals', scope: { ...IR.scope, signals: [] } }, IR]);
+      const update = made.ports.outcomes.update;
+      made.ports.outcomes.update = async (...args) => {
+        made.ports.outcomes.update = update;
+        await correct(made.ports);
+        return update(...args);
+      };
+    }, (ports) => distillSession(ports, { sessionId: 's1' }), 0],
+  ];
+  for (const [name, arrange, distill, posts] of rows) {
+    const made = await fixedSession({ model: modelAnswering(IR) });
+    await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+    arrange(made);
+    const outcome = await distill(made.ports);
+    assert.equal(outcome.status, 'dropped', name);
+    assert.deepEqual([distillText(outcome).ok, /work changed/.test(distillText(outcome).text)], [false, true], name);
+    assert.equal(distills(made.requests).length, posts, name);
+    assert.deepEqual(await made.ports.drafts.read(), [], name);
+    const { s1 } = await made.ports.candidates.read();
+    assert.deepEqual([await correctionsOf(made.ports), s1.claimedBy, s1.attempts], [['still failing'], null, 0], name);
+  }
+});
+
+test('a Gene the Proxy stored stands when a correction lands while it answers, no later IR is sent, and the corrected turn waits for the next distillation', async () => {
+  const stored = { status: 'stored', gene: DRAFTED.gene };
+  const { ports, requests } = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A second method' }]), distillAnswer: stored });
+  const paused = pausedAtProxy(ports);
+  const running = runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
+  await paused.started;
+  await correct(ports);
+  paused.finish();
+  const answer = await running;
+  assert.deepEqual([answer.ok, answer.text],
+    [true, `Stored "${IR.title}".\n"A second method" was discarded: the session's work changed while it was distilled.`]);
+  assert.equal(distills(requests).length, 1);
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.deepEqual(await correctionsOf(ports), ['still failing']);
+});
+
+test('a draft from an older range never replaces a newer one with the same ID: superseded while current, dropped once corrected', async () => {
+  for (const [name, corrected, status] of [['still current', false, 'superseded'], ['corrected meanwhile', true, 'dropped']]) {
+    const { ports, advance } = await fixedSession({ model: modelAnswering(IR) });
+    const started = Promise.withResolvers();
+    const finish = Promise.withResolvers();
+    const update = ports.drafts.update;
+    let pauseFirst = true;
+    ports.drafts.update = async (mutate) => {
+      if (pauseFirst) {
+        pauseFirst = false;
+        started.resolve();
+        await finish.promise;
+      }
+      return update(mutate);
+    };
+    const late = distillSession(ports, { sessionId: 's1' });
+    await started.promise;
+    advance(1);
+    await fixTurn(ports, 's2');
+    const newer = await distillSession(ports, { sessionId: 's2' });
+    if (corrected) await correct(ports);
+    finish.resolve();
+    const outcome = await late;
+    assert.equal(outcome.status, status, name);
+    assert.equal(newer.results[0].draft.id, DRAFTED.distill_id, name);
+    assert.deepEqual(await ports.drafts.read(), [newer.results[0].draft], name);
+    assert.equal(Boolean((await ports.candidates.read()).s1), corrected, name);
+    if (!corrected) assert.match(distillText(outcome).text, /same ID is already saved/, name);
+  }
+});
+
+test('a correction after the range\'s last check removes only the corrected turn\'s draft, which is not reported as made', async () => {
+  const { ports } = await fixedSession({ model: modelAnswering(IR) });
+  const range = (await ports.candidates.read()).s1;
+  const turn = range.turns.at(-1).turn;
   const kept = [
-    { id: 'earlier', sessionId: 's1', sourceCandidate: { at: candidate.at - 1, turn: candidate.turn - 1 } },
-    { id: 'other-session', sessionId: 's2', sourceCandidate: { at: candidate.at, turn: candidate.turn } },
+    { id: 'earlier', sessionId: 's1', sourceCandidate: { at: range.at - 1, turn: turn - 1 } },
+    { id: 'other-session', sessionId: 's2', sourceCandidate: { at: range.at, turn } },
     { id: 'legacy', sessionId: 's1' },
   ];
   await ports.drafts.update(() => kept);
@@ -464,11 +370,10 @@ test('a correction after the final candidate snapshot removes only the corrected
     }
     return snapshot;
   };
-
   const running = distillSession(ports, { sessionId: 's1' });
   await captured.promise;
   try {
-    await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+    await correct(ports);
   } finally {
     resume.resolve();
   }
@@ -476,12 +381,12 @@ test('a correction after the final candidate snapshot removes only the corrected
   assert.equal(outcome.status, 'draft_missing');
   assert.equal(distillText(outcome).ok, false);
   assert.match(distillText(outcome).text, /no longer available/);
-  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.deepEqual(await correctionsOf(ports), ['still failing']);
   assert.deepEqual(await ports.drafts.read(), kept);
 });
 
-test('an agent Gene does not report a draft replaced with the same ID during settlement', async () => {
-  const { ports } = await withCandidate();
+test('an agent\'s IR does not report a draft replaced with the same ID during settlement', async () => {
+  const { ports } = await fixedSession();
   const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
   const update = ports.candidates.update;
   let replacement;
@@ -490,111 +395,104 @@ test('an agent Gene does not report a draft replaced with the same ID during set
     if (!replacement && next && !next.s1) {
       const [draft] = await ports.drafts.read();
       replacement = { ...draft, title: 'Draft from another session', sessionId: 's2' };
-      await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+      await correct(ports);
       await ports.drafts.update(() => [replacement]);
     }
     return next;
   };
-
-  const outcome = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
+  const outcome = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor });
   assert.equal(outcome.status, 'draft_missing');
   assert.equal(distillText(outcome).ok, false);
   assert.equal(replacement.id, DRAFTED.distill_id);
   assert.deepEqual(await ports.drafts.read(), [replacement]);
 });
 
-test('a correction removes the saved draft even after its candidate has settled', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  const saved = await distillSession(ports, { sessionId: 's1' });
-  assert.equal(saved.status, 'drafted');
-  assert.equal((await ports.candidates.read()).s1, undefined);
-
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  assert.deepEqual(await ports.drafts.read(), []);
+test('a correction after its turn was distilled removes that turn\'s draft and marks it under the epoch the draft carries', async () => {
+  const rows = [
+    ['a session with an epoch', async () => {}, async () => {}, 1],
+    ['an epoch an older plugin version dropped', async () => {}, (ports) => ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older), 1],
+    ['a session written before epochs existed', (ports) => ports.sessions.update('s1', () => ({ turn: 4 })), async () => {}, 5],
+    ['a later range an older plugin version wrote without an epoch', async () => {}, async (ports) => {
+      await ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older);
+      await ports.candidates.update((pending) => ({ ...pending, s1: { turns: [{ turn: 1, prompt: 'p', steps: [], answer: '' }], at: ports.clock.now() + 1 } }));
+    }, 1],
+  ];
+  for (const [name, before, after, turn] of rows) {
+    const { ports } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
+    await before(ports);
+    await fixTurn(ports, 's1');
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted', name);
+    const [draft] = await ports.drafts.read();
+    const [source] = draftSourcesOf(draft);
+    assert.deepEqual([source.turn, source.sessionEpoch === undefined], [turn, turn === 5], name);
+    await after(ports);
+    await correct(ports);
+    assert.deepEqual(await ports.drafts.read(), [], name);
+    assert.equal(await ports.draftCorrections.has('s1', turn, source.sessionEpoch), true, name);
+  }
 });
 
-test('a correction after an older plugin version dropped the session epoch still removes and blocks that turn\'s draft', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
-  const [draft] = await ports.drafts.read();
-  assert.ok(draft.sourceCandidate.sessionEpoch !== undefined);
-  await ports.sessions.update('s1', ({ sessionEpoch, ...older }) => older);
-
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  assert.deepEqual(await ports.drafts.read(), []);
-  assert.equal(await ports.draftCorrections.has('s1', draft.sourceCandidate.turn, draft.sourceCandidate.sessionEpoch), true);
-});
-
-test('a session written before epochs existed corrects its drafts under no epoch', async () => {
-  const { ports } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(GENE) });
-  await ports.sessions.update('s1', () => ({ turn: 4 }));
-  await verifiedTurn(ports, 's1');
-  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
-  const [draft] = await ports.drafts.read();
-  assert.deepEqual([draft.sourceCandidate.turn, draft.sourceCandidate.sessionEpoch], [5, undefined]);
-
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  assert.deepEqual(await ports.drafts.read(), []);
-  assert.equal(await ports.draftCorrections.has('s1', 5, undefined), true);
-});
-
-test('background distillation checks an idle draft again before returning the batch', async () => {
-  const { ports, advance, requests } = await withCandidate();
+test('background distillation checks a draft again before returning the batch', async () => {
+  const { ports, advance, requests } = await fixedSession();
   advance(1);
-  await verifiedTurn(ports, 's2');
+  await fixTurn(ports, 's2');
   await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
-  advance(IDLE_DISTILL_MS - 1);
+  advance(EPISODE_QUIET_MS - 1);
   let completions = 0;
-  ports.model = modelAnswering(GENE, async () => {
-    if (++completions === 2) await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+  ports.model = modelAnswering(IR, async () => {
+    if (++completions === 2) await correct(ports);
   });
-
   const outcomes = await distillDue(ports);
-  assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.trigger), ['idle', 'session_end']);
+  assert.deepEqual(distills(requests).map(({ body }) => body.trigger), ['error_episode', 'session_end']);
   assert.deepEqual(outcomes.map(({ status }) => status), ['draft_missing', 'drafted']);
-  assert.deepEqual(await ports.drafts.read(), [outcomes[1].draft]);
+  assert.deepEqual(await ports.drafts.read(), [outcomes[1].results[0].draft]);
 });
 
-for (const [count, replace] of [[1, false], [25, false], [25, true]]) test(`a correction crossing a draft write keeps ${count} earlier drafts${replace ? ' and a concurrent same-id replacement' : ''}`, async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-  const kept = Array.from({ length: count }, (_, index) => ({ id: `earlier-${index}`, title: 'Keep this method', createdAt: ports.clock.now() }));
-  await ports.drafts.update(() => kept);
-  const started = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const update = ports.drafts.update;
-  let firstWrite = true;
-  ports.drafts.update = async (mutate) => {
-    const written = await update(mutate);
-    if (firstWrite) {
-      firstWrite = false;
-      started.resolve();
-      await finish.promise;
-    }
-    return written;
-  };
-  const running = distillSession(ports, { sessionId: 's1' });
-  await started.promise;
-  let replacement;
-  if (replace) await update((drafts) => drafts.map((draft) => {
-    if (draft.id !== DRAFTED.distill_id) return draft;
-    replacement = { ...draft, title: 'Concurrent method', sourceCandidate: { ...draft.sourceCandidate, turn: draft.sourceCandidate.turn + 1 } };
-    return replacement;
-  }));
-  await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-  finish.resolve();
-  assert.equal((await running).status, 'dropped');
-  assert.deepEqual(await ports.drafts.read(), replace ? [...kept, replacement] : kept);
+test('a correction crossing a draft write takes back only that draft: earlier drafts and a concurrent replacement stay', async () => {
+  for (const [count, replace] of [[1, false], [25, false], [25, true]]) {
+    const name = `${count} earlier drafts${replace ? ' and a concurrent same-ID replacement' : ''}`;
+    const { ports } = await fixedSession({ model: modelAnswering(IR) });
+    const kept = Array.from({ length: count }, (_, index) => ({ id: `earlier-${index}`, title: 'Keep this method', createdAt: ports.clock.now() }));
+    await ports.drafts.update(() => kept);
+    const started = Promise.withResolvers();
+    const finish = Promise.withResolvers();
+    const update = ports.drafts.update;
+    let firstWrite = true;
+    ports.drafts.update = async (mutate) => {
+      const written = await update(mutate);
+      if (firstWrite) {
+        firstWrite = false;
+        started.resolve();
+        await finish.promise;
+      }
+      return written;
+    };
+    const running = distillSession(ports, { sessionId: 's1' });
+    await started.promise;
+    let replacement;
+    if (replace) await update((drafts) => drafts.map((draft) => {
+      if (draft.id !== DRAFTED.distill_id) return draft;
+      const [source] = draftSourcesOf(draft);
+      replacement = { ...draft, title: 'Concurrent method', sourceRange: { ...draft.sourceRange, turns: [{ ...source, turn: source.turn + 1 }] } };
+      return replacement;
+    }));
+    await correct(ports);
+    finish.resolve();
+    assert.equal((await running).status, 'dropped', name);
+    assert.deepEqual(await ports.drafts.read(), replace ? [...kept, replacement] : kept, name);
+  }
 });
 
-for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other session', 'discarded draft']) {
-  test(`draft compensation never restores a displaced draft and preserves concurrent replacements (${other})`, async () => {
-    const { ports } = await withCandidate({ model: modelAnswering(GENE) });
-    const candidate = (await ports.candidates.read()).s1;
+test('taking a corrected draft back never restores the draft it displaced, and keeps one that replaced it meanwhile', async () => {
+  for (const other of ['legacy draft', 'same range', 'newer turn', 'other session', 'discarded draft']) {
+    const { ports } = await fixedSession({ model: modelAnswering(IR) });
+    const range = (await ports.candidates.read()).s1;
+    const source = { at: range.at, turn: range.turns.at(-1).turn, sessionEpoch: range.sessionEpoch };
     const previous = { id: DRAFTED.distill_id, title: 'Earlier method', createdAt: ports.clock.now(), sessionId: 's1' };
-    if (other === 'same candidate') previous.sourceCandidate = { at: candidate.at, turn: candidate.turn, sessionEpoch: candidate.sessionEpoch };
-    const replacement = { ...previous, title: 'Concurrent method', sourceCandidate: { at: candidate.at, turn: candidate.turn + 1 } };
-    if (other === 'other session') Object.assign(replacement, { sessionId: 's2', sourceCandidate: { at: candidate.at, turn: candidate.turn } });
-    const before = { ...previous, id: 'before', sourceCandidate: { at: candidate.at - 1, turn: candidate.turn - 1 } };
+    if (other === 'same range') previous.sourceCandidate = source;
+    const replacement = { ...previous, title: 'Concurrent method', sourceCandidate: { at: source.at, turn: source.turn + 1 } };
+    if (other === 'other session') Object.assign(replacement, { sessionId: 's2', sourceCandidate: { at: source.at, turn: source.turn } });
+    const before = { ...previous, id: 'before', sourceCandidate: { at: source.at - 1, turn: source.turn - 1 } };
     const after = { ...previous, id: 'after', sessionId: 's2' };
     await ports.drafts.update(() => [before, previous, after]);
     const update = ports.drafts.update;
@@ -603,21 +501,21 @@ for (const other of ['legacy draft', 'same candidate', 'newer turn', 'other sess
       const written = await update(mutate);
       if (firstWrite) {
         firstWrite = false;
-        await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
+        await correct(ports);
         if (other === 'newer turn' || other === 'other session') await update(() => [before, replacement, after]);
         if (other === 'discarded draft') await update(() => [before, after]);
       }
       return written;
     };
-    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped');
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'dropped', other);
     const expected = other === 'newer turn' || other === 'other session' ? [replacement] : [];
-    assert.deepEqual(await ports.drafts.read(), [before, ...expected, after]);
-  });
-}
+    assert.deepEqual(await ports.drafts.read(), [before, ...expected, after], other);
+  }
+});
 
-for (const entry of ['headless model', 'agent Gene']) {
-  test(`a failed correction cleanup is reported for a draft from the ${entry}`, async (t) => {
-    const { ports, requests } = await withCandidate({ model: modelAnswering(GENE) });
+test('a correction whose draft cleanup fails is reported, for a draft from the headless model or the agent, and cleaned up by the next', async (t) => {
+  for (const entry of ['headless model', 'agent']) {
+    const { ports, requests } = await fixedSession({ model: modelAnswering(IR) });
     const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
     const update = ports.drafts.update;
     let writes = 0;
@@ -633,38 +531,37 @@ for (const entry of ['headless model', 'agent Gene']) {
     ports.drafts.update = async (mutate) => {
       if (++writes > 1) throw Object.assign(new Error('fixture cleanup denied'), { code: 'EACCES' });
       const written = await update(mutate);
-      await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), { code: 'EACCES' });
+      await assert.rejects(correct(ports), { code: 'EACCES' });
       if (signal) t.mock.timers.tick(1_000);
       return written;
     };
-
     const outcome = entry === 'headless model'
       ? await distillSession(ports, { sessionId: 's1' })
-      : await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor });
-    if (entry === 'headless model') assert.equal(signal.aborted, true);
-    assert.equal(writes, 3);
-    assert.equal(requests.filter(({ path }) => path === '/conversation/distill').length, 1);
-    assert.equal((await ports.candidates.read()).s1, undefined);
-    assert.deepEqual((await ports.drafts.read()).map(({ id }) => id), [DRAFTED.distill_id]);
-    assert.equal(outcome.status, 'cleanup_failed');
-    assert.equal(distillText(outcome).ok, false);
-    assert.match(distillText(outcome).text, /could not remove it/i);
-
+      : await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor });
+    t.mock.timers.reset();
+    if (entry === 'headless model') assert.equal(signal.aborted, true, entry);
+    assert.equal(writes, 3, entry);
+    assert.equal(distills(requests).length, 1, entry);
+    assert.deepEqual(await correctionsOf(ports), ['still failing'], entry);
+    assert.deepEqual((await ports.drafts.read()).map(({ id }) => id), [DRAFTED.distill_id], entry);
+    assert.equal(outcome.status, 'cleanup_failed', entry);
+    assert.equal(distillText(outcome).ok, false, entry);
+    assert.match(distillText(outcome).text, /could not remove its draft/i, entry);
     ports.drafts.update = update;
-    await promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 });
-    assert.deepEqual(await ports.drafts.read(), []);
-  });
-}
+    await correct(ports);
+    assert.deepEqual(await ports.drafts.read(), [], entry);
+  }
+});
 
-test('a superseded draft stays blocked when distillation cannot undo its write', async () => {
-  const { ports, requests } = await withCandidate({
-    model: modelAnswering(GENE),
+test('a draft distillation could not take back stays unpublishable', async () => {
+  const { ports, requests } = await fixedSession({
+    model: modelAnswering(IR),
     distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } },
   });
   const updateDrafts = ports.drafts.update;
   ports.drafts.update = async (mutate) => {
     const written = await updateDrafts(mutate);
-    await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, turn: pending.s1.turn + 1 } }));
+    await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, at: pending.s1.at + 1 } }));
     ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
     return written;
   };
@@ -678,29 +575,131 @@ test('a superseded draft stays blocked when distillation cannot undo its write',
 });
 
 test('distillation does not advertise a corrected draft that cleanup could not remove', async () => {
-  const { ports } = await withCandidate({ model: modelAnswering(GENE) });
+  const { ports } = await fixedSession({ model: modelAnswering(IR) });
   const updateDrafts = ports.drafts.update;
   let writes = 0;
   ports.drafts.update = async (mutate) => {
     if (++writes === 2) {
       ports.drafts.update = async () => { throw new Error('draft cleanup denied'); };
       try {
-        await assert.rejects(promptSubmitted(ports, { sessionId: 's1', prompt: 'still failing', waitMs: 0 }), /draft cleanup denied/);
+        await assert.rejects(correct(ports), /draft cleanup denied/);
       } finally {
         ports.drafts.update = updateDrafts;
       }
     }
     return updateDrafts(mutate);
   };
-
   const outcome = await distillSession(ports, { sessionId: 's1' });
   assert.equal((await ports.drafts.read()).length, 1);
   assert.equal(outcome.status, 'draft_missing');
   assert.equal(distillText(outcome).ok, false);
 });
 
-test('a failing headless model keeps the candidate, tries again only after a doubling wait, and three failed tries give it up', async () => {
-  const { ports, advance } = await withCandidate({ model: { complete: async () => { throw new Error('Authentication required'); } } });
+test('a session still active keeps its work waiting; once it is quiet, a prompt in any session schedules the distillation', async () => {
+  const { ports, scheduled, advance } = await threeTurnSession({ model: modelAnswering(IR) });
+  const distillsScheduled = () => scheduled.filter((task) => task === TASKS.DISTILL).length;
+  advance(IDLE_DISTILL_MS - 1);
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'now explain the build', waitMs: 0 });
+  advance(1);
+  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the build', waitMs: 0 });
+  assert.equal(distillsScheduled(), 0);
+  advance(IDLE_DISTILL_MS);
+  await promptSubmitted(ports, { sessionId: 's2', prompt: 'explain the tests', waitMs: 0 });
+  assert.equal(distillsScheduled(), 1);
+});
+
+test('an explicit distillation cannot duplicate its process\'s running background distillation', async () => {
+  const started = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  let completions = 0;
+  const made = await fixedSession({ model: modelAnswering(IR, async () => {
+    completions += 1;
+    started.resolve();
+    await finish.promise;
+  }) });
+  await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+  const background = distillDue(made.ports);
+  await started.promise;
+  const explicit = distillSession(made.ports, { sessionId: 's1' });
+  await new Promise(setImmediate);
+  finish.resolve();
+  const [outcomes, answer] = await Promise.all([background, explicit]);
+  assert.equal(completions, 1);
+  assert.equal(distills(made.requests).length, 1);
+  assert.deepEqual([outcomes[0].status, answer.status], ['drafted', 'busy']);
+  assert.equal((await made.ports.drafts.read()).length, 1);
+});
+
+test('with no model outside the conversation, a leftover waits a day for an agent\'s Gene, then is dropped', async () => {
+  const { ports } = await fixedSession();
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.ok((await ports.candidates.read()).s1);
+  await ports.clock.sleep(UNDISTILLED_LEFTOVER_TTL_MS + 1);
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a person who turned distillation off keeps the work from the background, and distills even one verified turn on demand', async () => {
+  const made = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
+  await changeTurn(made.ports, 's1');
+  made.ports.settings = { recall: true, autoDistill: false };
+  await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+  await runBackgroundTasks(made.ports, [TASKS.DISTILL]);
+  assert.ok((await made.ports.candidates.read()).s1);
+  assert.equal((await distillSession(made.ports, { sessionId: 's1' })).status, 'drafted');
+});
+
+test('a transient range watch read failure is retried without crashing the model run', async (t) => {
+  const { ports, requests } = await fixedSession();
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const reply = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  ports.model = { complete: () => { started.resolve(); return reply.promise; } };
+  const { setInterval } = globalThis;
+  const { read } = ports.candidates;
+  let check;
+  t.mock.method(globalThis, 'setInterval', (callback) => { check = callback; return setInterval(() => {}, 60_000); });
+  const running = distillDue(ports);
+  t.after(async () => {
+    ports.candidates.read = read;
+    reply.resolve({ answer: JSON.stringify(IR) });
+    await running;
+  });
+  await started.promise;
+  ports.candidates.read = async () => { throw Object.assign(new Error('fixture read denial'), { code: 'EBUSY' }); };
+  await assert.doesNotReject(check());
+  assert.equal(distills(requests).length, 0);
+  ports.candidates.read = read;
+  reply.resolve({ answer: JSON.stringify(IR) });
+  assert.equal((await running)[0].status, 'drafted');
+  assert.equal(distills(requests).length, 1);
+});
+
+test('a process shutting down stops a leftover\'s model call without counting a try, and gives the claim back', async () => {
+  const stopping = new AbortController();
+  const waitsForever = { complete: (model, prompt, signal) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason))) };
+  const { ports } = await fixedSession({ model: waitsForever });
+  ports.scheduler = { ...ports.scheduler, signal: stopping.signal };
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const running = distillDue(ports);
+  await new Promise((resolve) => setImmediate(resolve));
+  stopping.abort();
+  assert.deepEqual((await running).map((outcome) => outcome.status), ['stopped']);
+  const { s1 } = await ports.candidates.read();
+  assert.deepEqual([s1.attempts, s1.claimedBy ?? null], [0, null]);
+});
+
+test('the model may decline, which settles the session\'s work without calling the Proxy', async () => {
+  const made = await fixedSession({ model: modelAnswering({ skip: 'routine edit' }) });
+  const [outcome] = await endedAndDistilled(made);
+  assert.deepEqual([outcome.status, outcome.reason], ['declined', 'routine edit']);
+  assert.deepEqual(distills(made.requests), []);
+  assert.equal((await made.ports.candidates.read()).s1, undefined);
+});
+
+test('a failing headless model keeps the work, tries again only after a doubling wait, and three failed tries give it up', async () => {
+  const { ports, advance } = await fixedSession({ model: { complete: async () => { throw new Error('Authentication required'); } } });
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
   assert.equal((await distillDue(ports))[0].status, 'model_failed');
   advance(RETRY_BASE_MS - 1);
@@ -714,40 +713,133 @@ test('a failing headless model keeps the candidate, tries again only after a dou
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
-test('the next wake-up is when the earliest candidate no live process holds comes due', () => {
+test('an unavailable captured route parks the range without a try, past the leftover expiry, until that route returns', async () => {
+  const route = { available: false };
+  const made = await fixedSession({ model: routedModel(route) });
+  const { ports, requests, wakeUps } = made;
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
+  const range = (await ports.candidates.read()).s1;
+  assert.deepEqual([range.attempts, range.claimedBy, range.blocked], [0, null, { reason: 'route_changed', at: ports.clock.now() }]);
+  assert.deepEqual(distills(requests), []);
+  await armDistillWakeUp(ports);
+  assert.deepEqual(wakeUps.at(-1), { at: range.blocked.at + BLOCKED_ROUTE_TTL_MS, tasks: [TASKS.DISTILL] });
+  made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
+  await dropExpiredLeftovers(ports);
+  assert.ok((await ports.candidates.read()).s1);
+  route.available = true;
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a blocked route stays parked when another session wakes the distillation worker', async () => {
+  const route = { available: false };
+  const { ports, requests, scheduled } = await fixedSession({ model: routedModel(route) });
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'blocked', reason: 'route_changed' }]);
+  scheduled.length = 0;
+  await scheduleDueDistillation(ports);
+  const scheduledWhileBlocked = [...scheduled];
+  route.available = true;
+  await fixTurn(ports, 's2');
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  await distillDue(ports);
+  assert.equal(route.calls, 2, 'the worker should only run the newly due session');
+  assert.deepEqual(scheduledWhileBlocked, []);
+  assert.deepEqual(distills(requests).map(({ body }) => body.session_id), ['testagent:s2']);
+  assert.equal((await ports.candidates.read()).s1.blocked.reason, 'route_changed');
+});
+
+test('a blocked range expires from its first block even after a failed manual retry', async () => {
+  const route = { available: false };
+  const { ports, advance, wakeUps } = await fixedSession({ model: routedModel(route) });
+  advance(EPISODE_QUIET_MS);
+  await runBackgroundTasks(ports, [TASKS.DISTILL]);
+  const deadline = ports.clock.now() + BLOCKED_ROUTE_TTL_MS;
+  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
+  advance(BLOCKED_ROUTE_TTL_MS - 1);
+  ports.settings = { autoDistill: false };
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'blocked');
+  assert.deepEqual(wakeUps.at(-1), { at: deadline, tasks: [TASKS.DISTILL] });
+  advance(1);
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DISTILL]), true);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  assert.equal(route.calls, 2);
+});
+
+test('an expired legacy block is pruned without interrupting a live manual claim', async () => {
+  const { ports, advance } = await fixedSession({ model: { capture: () => 'model-x', complete: () => assert.fail('expiry must not call the model') } });
+  await fixTurn(ports, 's2');
+  const blocked = { reason: 'route_changed' };
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, blocked, claimedBy: ports.owner.self() }, s2: { ...pending.s2, blocked } }));
+  advance(BLOCKED_ROUTE_TTL_MS);
+  assert.deepEqual(await distillDue(ports), []);
+  assert.deepEqual(Object.keys(await ports.candidates.read()), ['s1']);
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'busy');
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, claimedBy: null } }));
+  assert.deepEqual(await distillSession(ports, { sessionId: 's1' }), { status: 'nothing' });
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('a range without a captured route is settled without a model call, and never on the current route', async () => {
+  const { ports, requests } = await fixedSession({ model: {
+    capture: () => assert.fail('the current route cannot stand in for the original route'),
+    complete: () => assert.fail('a range without a captured route cannot call a model'),
+  } });
+  await ports.candidates.update((pending) => ({ ...pending, s1: { ...pending.s1, model: null } }));
+  const outcome = await distillSession(ports, { sessionId: 's1' });
+  assert.deepEqual(outcome, { status: 'route_not_captured' });
+  assert.match(distillText(outcome).text, /finish a new work turn/i);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+  await fixTurn(ports, 's2');
+  await ports.candidates.update((pending) => ({ ...pending, s2: { ...pending.s2, model: null, blocked: { reason: 'route_unresolved' } } }));
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  assert.deepEqual(await distillDue(ports), [{ status: 'route_not_captured' }], 'a range blocked before without a route can settle');
+  assert.equal((await ports.candidates.read()).s2, undefined);
+  assert.deepEqual(distills(requests), []);
+});
+
+const pass = (command = 'npm test') => ({ kind: 'check', command, exit: 0, failed: false });
+const turnWith = (turn, steps) => ({ turn, prompt: 'p', steps, answer: '', at: 1 });
+const FIXED = [turnWith(1, [{ ...pass(), exit: 1, failed: true }, { kind: 'edit', path: 'a.js' }, pass()])];
+const SMALL = [turnWith(1, [{ kind: 'edit', path: 'a.js' }, pass()])];
+
+test('the next wake-up is when the earliest range no live process holds comes due', () => {
   const NOW = 10 * IDLE_DISTILL_MS;
   const LIVE = 1;
   const DEAD = 2;
   const isGone = (pid) => pid === DEAD;
+  const range = (fields, turns = SMALL) => ({ turns, at: NOW - 5_000, ...fields });
   const rows = [
-    ['quiet once its session has been idle long enough', { s1: { at: NOW - 5_000, activeAt: NOW - 1_000, pid: LIVE } }, NOW - 1_000 + IDLE_DISTILL_MS],
-    ['a retry later than the quiet deadline', { s1: { at: NOW - 1_000, pid: LIVE, retryAt: NOW + IDLE_DISTILL_MS } }, NOW + IDLE_DISTILL_MS],
-    ['claimed by a live process, which settles it', { s1: { at: NOW - 1_000, pid: LIVE, claimedBy: LIVE } }, null],
-    ['over and waiting out its retry', { s1: { at: NOW - 1_000, pid: DEAD, retryAt: NOW + RETRY_BASE_MS } }, NOW + RETRY_BASE_MS],
-    ['the earliest of several', { later: { at: NOW - 1_000, pid: LIVE }, sooner: { at: NOW - 2_000, pid: LIVE } }, NOW - 2_000 + IDLE_DISTILL_MS],
-    ['one due already, as due now', { due: { at: NOW - IDLE_DISTILL_MS, pid: LIVE }, later: { at: NOW - 1_000, pid: LIVE } }, NOW],
-    ['no candidates', {}, null],
+    ['quiet once its session has been idle long enough', { s1: range({ activeAt: NOW - 1_000, pid: LIVE }) }, NOW - 1_000 + IDLE_DISTILL_MS],
+    ['sooner after a fixed error', { s1: range({ activeAt: NOW - 1_000, pid: LIVE }, FIXED) }, NOW - 1_000 + EPISODE_QUIET_MS],
+    ['below the threshold, waiting for more work', { s1: range({ activeAt: NOW - 1_000, pid: LIVE, held: true }) }, null],
+    ['a retry later than the quiet deadline', { s1: range({ activeAt: NOW - 1_000, pid: LIVE, retryAt: NOW + IDLE_DISTILL_MS }) }, NOW + IDLE_DISTILL_MS],
+    ['claimed by a live process, which settles it', { s1: range({ activeAt: NOW - 1_000, pid: LIVE, claimedBy: LIVE }) }, null],
+    ['over and waiting out its retry', { s1: range({ activeAt: NOW - 1_000, pid: DEAD, retryAt: NOW + RETRY_BASE_MS }) }, NOW + RETRY_BASE_MS],
+    ['one due already, as due now', { due: range({ activeAt: NOW - IDLE_DISTILL_MS, pid: LIVE }), later: range({ activeAt: NOW - 1_000, pid: LIVE }) }, NOW],
+    ['none', {}, null],
   ];
   for (const [name, pending, expected] of rows) assert.equal(nextDueAt(pending, { now: NOW, isGone }), expected, name);
 });
 
-test('a wake-up keeps a candidate\'s own time when it is still to come, and waits a minute for one already due', async () => {
+test('a wake-up keeps a range\'s own time when it is still to come, and waits a minute for one already due', async () => {
   const { ports, wakeUps } = memoryPorts({ model: { complete: async () => ({ answer: '' }) } });
   const now = ports.clock.now();
-  await ports.candidates.update(() => ({ soon: { at: now + 10_000 - IDLE_DISTILL_MS, pid: 1 } }));
+  await ports.candidates.update(() => ({ soon: { turns: SMALL, at: now, activeAt: now + 10_000 - IDLE_DISTILL_MS, pid: 1 } }));
   await armDistillWakeUp(ports);
-  await ports.candidates.update(() => ({ due: { at: now - IDLE_DISTILL_MS, pid: 1 } }));
+  await ports.candidates.update(() => ({ due: { turns: SMALL, at: now, activeAt: now - IDLE_DISTILL_MS, pid: 1 } }));
   await armDistillWakeUp(ports);
   assert.deepEqual(wakeUps.map(({ at }) => at), [now + 10_000, now + MIN_WAKE_DELAY_MS]);
 });
 
-test('with no headless model, distilling now hands the agent the prompt, and its Gene becomes a draft', async () => {
-  const { ports } = await withCandidate({ distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } } });
+test('with no headless model, distilling now hands the agent the IR prompt, and its IR becomes a draft', async () => {
+  const { ports } = await fixedSession({ distillAnswer: { ...DRAFTED, publishable: true, publish_receipt: { receiptId: 'proxy-issued-receipt' } } });
   const asked = await distillSession(ports, { sessionId: 's1' });
   assert.equal(asked.status, 'no_model');
-  assert.match(asked.agentGene.prompt, /Turn it into one reusable Gene/);
+  assert.match(asked.agentGene.prompt, /^Evolver distillation, prompt session-gene-ir-v1\.[\s\S]*## Kind: fix[\s\S]*\nR3 check \(exit 1\): npm test\n/);
   assert.ok((await ports.candidates.read()).s1);
-  const posted = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: asked.agentGene.writtenFor });
+  const posted = await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify([IR]), writtenFor: asked.agentGene.writtenFor });
   assert.equal(posted.status, 'drafted');
   const listed = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts' });
   assert.match(listed.text, /Stabilise Redis retries/);
@@ -757,9 +849,9 @@ test('with no headless model, distilling now hands the agent the prompt, and its
 });
 
 test('a draft write failure releases the claim so the same process can retry', async () => {
-  const { ports } = await withCandidate();
+  const { ports } = await fixedSession({ distillAnswer: DRAFTED });
   const asked = await distillSession(ports, { sessionId: 's1' });
-  const submission = { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: asked.agentGene.writtenFor };
+  const submission = { sessionId: 's1', text: JSON.stringify(IR), writtenFor: asked.agentGene.writtenFor };
   const updateDrafts = ports.drafts.update;
   ports.drafts.update = async () => { throw new Error('disk full'); };
 
@@ -771,49 +863,42 @@ test('a draft write failure releases the claim so the same process can retry', a
   assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
-test('a Gene written for a candidate since replaced is not sent', async () => {
-  const { ports, requests } = await withCandidate();
-  assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(GENE), writtenFor: 1 })).status, 'dropped');
-  assert.equal(requests.some((request) => request.path === '/conversation/distill'), false);
-});
-
-test('a Gene from an older turn cannot post against a new candidate with the same timestamp', async () => {
-  const { ports, requests } = await withCandidate();
-  const earlier = (await ports.candidates.read()).s1;
-  const oldRequest = await distillSession(ports, { sessionId: 's1' });
-  await verifiedTurn(ports, 's1', 'still failing');
-  const newer = (await ports.candidates.read()).s1;
-  assert.equal(newer.at, earlier.at);
-  assert.equal(newer.turn, earlier.turn + 1);
-
-  const gene = { sessionId: 's1', text: JSON.stringify(GENE) };
-  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: oldRequest.agentGene.writtenFor })).status, 'dropped');
-  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: earlier.at })).status, 'dropped');
-  assert.equal(requests.some(({ path }) => path === '/conversation/distill'), false);
+test('an IR written for the session\'s work as it was before another turn joined it, or for a range made again at the same time, is not sent', async () => {
+  const { ports, requests } = await fixedSession();
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  const before = (await ports.candidates.read()).s1;
+  await changeTurn(ports, 's1', 2);
+  const gene = { sessionId: 's1', text: JSON.stringify(IR) };
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: asked.agentGene.writtenFor })).status, 'dropped');
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: before.changedAt })).status, 'dropped');
+  assert.deepEqual(distills(requests), []);
   const fresh = await distillSession(ports, { sessionId: 's1' });
-  assert.notEqual(fresh.agentGene.writtenFor, oldRequest.agentGene.writtenFor);
+  assert.notEqual(fresh.agentGene.writtenFor, asked.agentGene.writtenFor);
   assert.equal((await postAgentGene(ports, { ...gene, writtenFor: fresh.agentGene.writtenFor })).status, 'drafted');
+  await fixTurn(ports, 's1');
+  const renewed = (await ports.candidates.read()).s1;
+  assert.deepEqual([renewed.at, renewed.changedAt], [before.at, before.changedAt]);
+  assert.equal((await postAgentGene(ports, { ...gene, writtenFor: asked.agentGene.writtenFor })).status, 'dropped');
 });
 
-test('a terminal Gene selects its session even when another candidate has the same timestamp and turn', async () => {
-  const { ports, requests } = await withCandidate();
-  await verifiedTurn(ports, 's2');
+test('a terminal\'s IR selects its session by reference even when another range has the same times', async () => {
+  const { ports, requests } = await fixedSession();
+  await fixTurn(ports, 's2');
   const { s1, s2 } = await ports.candidates.read();
-  assert.deepEqual([s1.at, s1.turn], [s2.at, s2.turn]);
+  assert.deepEqual([s1.at, s1.changedAt], [s2.at, s2.changedAt]);
   const { agentGene } = await distillSession(ports, { sessionId: 's2' });
-  const gene = { text: JSON.stringify(GENE), writtenFor: agentGene.writtenFor };
-
+  const gene = { text: JSON.stringify(IR), writtenFor: agentGene.writtenFor };
   assert.equal((await postAgentGene(ports, { ...gene, sessionId: 's1' })).status, 'dropped');
   assert.equal((await postAgentGene(ports, { ...gene, sessionId: 'terminal', anySession: true })).status, 'drafted');
-  assert.deepEqual(requests.filter(({ path }) => path === '/conversation/distill').map(({ body }) => body.session_id), ['testagent:s2']);
-  assert.equal((await ports.candidates.read()).s1.turn, s1.turn);
+  assert.deepEqual(distills(requests).map(({ body }) => body.session_id), ['testagent:s2']);
+  assert.equal((await ports.candidates.read()).s1.changedAt, s1.changedAt);
 });
 
 test('every command answers from the plugin; evolve is the one prompt for the agent', async () => {
   const { ports } = memoryPorts();
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-sync', args: '--dry-run "two words"' })).text, 'ran sync --dry-run two words');
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-evolve' })).forAgent, true);
-  assert.match((await runCommand(ports, { sessionId: 's1', name: 'evolver-status' })).text, /No distillation candidate in this session/);
+  assert.match((await runCommand(ports, { sessionId: 's1', name: 'evolver-status' })).text, /No work turn of this session waits to be distilled\.\nNo distillation has run yet\./);
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-nope' })).ok, false);
 });
 

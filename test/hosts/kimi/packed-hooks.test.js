@@ -128,7 +128,7 @@ test('packed observers wait for native terminal evidence before confirming turn 
   );
   assert.deepEqual(await f.hook('PostToolUse', { tool_call_id: 'check-call', tool_name: 'Bash', tool_input: { command: 'node --test' }, tool_output: 'truncated observer text' }), {});
   assert.deepEqual(await f.hook('Stop'), {});
-  assert.deepEqual(f.read('kimi-distill-pending.json'), {});
+  assert.deepEqual(f.read('kimi-distill-ranges.json'), {});
   assert.equal(f.proxy.requests.some(item => item.path === '/asset/reuse-result'), false);
   f.append(
     { type: 'llm.request', agentId: 'main', modelAlias: 'route-a', model: 'fixture-model', provider: 'openai', thinkingEffort: 'off' },
@@ -137,13 +137,14 @@ test('packed observers wait for native terminal evidence before confirming turn 
     { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' },
   );
   await f.hook('Notification');
-  const candidate = await until(() => Object.values(f.read('kimi-distill-pending.json'))[0]);
-  assert.equal(candidate.turn, 1, 'native turn zero is the first internal turn'); assert.equal(candidate.model.alias, 'route-a');
+  const candidate = await until(() => Object.values(f.read('kimi-distill-ranges.json'))[0]);
+  assert.deepEqual(candidate.turns.map(({ turn }) => turn), [1], 'native turn zero is the first internal turn');
+  assert.equal(candidate.model.alias, 'route-a');
   assert.equal(candidate.model.model, 'fixture-model');
   assert.equal(JSON.stringify(candidate).includes('fixture-not-a-real-key'), false);
   await until(() => f.proxy.requests.find(item => item.path === '/asset/reuse-result'));
   await f.hook('Notification'); await f.hook('SessionEnd');
-  assert.equal(Object.keys(f.read('kimi-distill-pending.json')).length, 1, 'manual distillation stays available with automatic completion off');
+  assert.equal(Object.keys(f.read('kimi-distill-ranges.json')).length, 1, 'manual distillation stays available with automatic completion off');
   assert.equal(f.proxy.requests.filter(item => item.path === '/asset/reuse-result').length, 1);
   assert.equal(f.proxy.requests.some(item => item.path === '/conversation/distill' || item.path === '/asset/submit'), false);
 });

@@ -94,16 +94,19 @@ Turning auto-distill off leaves explicit distill available. Direct terminal comm
 
 ## Lifecycle and model selection
 
-The prompt hook recalls strategies, native tool results supply check evidence, and completed verified turns
-become draft candidates. A session-end hook schedules distillation. If the host exits without SessionEnd,
-the next session start recovers the dead owner's pending work. A read-only native turn-status monitor closes
-failed and aborted turns without waiting for another prompt; neither can produce a verified candidate.
+The prompt hook recalls strategies, native tool results supply check evidence, and a turn that edited files, ran
+a check or ran three commands joins the session's work for distillation. Once that work holds three work turns or a
+fixed error, and its last check passed, it is distilled into draft Genes: 10 minutes after the fix, 30 minutes after
+the session went quiet, or when it ends. A session-end hook schedules distillation. If the host exits without
+SessionEnd, the next session start recovers the dead owner's pending work. A read-only native turn-status monitor
+closes failed and aborted turns without waiting for another prompt; their work stays with the session's, and the
+threshold still asks for a passing last check.
 
-Distillation runs `mcode exec` on the verified turn's captured provider/model/variant. The hook supplies only
-a model name; a read-only projection of the native v2 session metadata supplies its route. The adapter reads
-only those model fields, checks them against the hook, and stores the route with the candidate. Later default
-or session-model changes do not replace it. Missing, incompatible or mismatched metadata prevents a completion
-from starting. Candidates from older versions which recorded `native-default` retain their former behavior.
+Distillation runs `mcode exec` on the provider/model/variant captured at the session's latest work turn. The hook
+supplies only a model name; a read-only projection of the native v2 session metadata supplies its route. The adapter
+reads only those model fields, checks them against the hook, and stores the route with the session's work. Later
+default or session-model changes do not replace it. Missing, incompatible or mismatched metadata prevents a
+completion from starting. Work older versions recorded with `native-default` retains its former behavior.
 A private temporary YAML merge preserves native credentials and overrides capabilities; lightweight mode exposes no tools.
 The inherited environment marker and a private scratch-folder marker prevent this plugin from running again
 inside its own distillation. The adapter never writes the source configuration; the temporary copy is removed on
@@ -128,7 +131,7 @@ node <installed-plugin>/bin/command.mjs minimax evolver-drafts
 ```
 
 Set the same `MINIMAX_DATA_DIR` when using a separate native profile. Commands outside a session act on the
-latest candidate. Nothing is published until the person explicitly publishes a draft.
+newest session's work. Nothing is published until the person explicitly publishes a draft.
 
 This package uses native hooks for local installation. MiniMax's public third-party Marketplace intake currently
 excludes Hook JSON and the hooks manifest field; local runtime compatibility does not imply Marketplace eligibility.

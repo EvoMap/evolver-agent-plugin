@@ -71,7 +71,9 @@ test('native driver captures the route and waits for both the terminal and an ea
   assert.equal(f.sessions.get(f.id).native.pending, false);
   const candidate = (await f.ports.candidates.read())[f.id];
   assert.deepEqual(candidate.model, route);
-  assert.deepEqual(candidate.checks, [{ command: 'npm run lint', exit: 0, failed: false }, { command: 'npm test', exit: null, failed: false }]);
+  assert.deepEqual(candidate.turns.map(({ turn, sessionEpoch }) => [turn, sessionEpoch]), [[1, f.sessions.get(f.id).sessionEpoch]]);
+  assert.deepEqual(candidate.turns[0].steps.filter(({ kind }) => kind === 'check').map(({ command, exit, failed }) => ({ command, exit, failed })),
+    [{ command: 'npm run lint', exit: 0, failed: false }, { command: 'npm test', exit: null, failed: false }]);
   assert.ok(f.retained[0].editedBefore.has(join(f.project, 'a.js')));
   assert.equal(f.queued.length, 1);
   assert.equal(f.queued[0].report.task_id.includes(f.env.KIMI_CODE_HOME), false, 'native profile paths stay out of Hub task identifiers');

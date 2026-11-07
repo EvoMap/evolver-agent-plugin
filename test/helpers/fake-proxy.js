@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,16 +49,23 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.49' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.50' } }));
+  const stop = () => {
+    server.close();
+    server.closeAllConnections();
+    endWaiters(home);
+  };
+  const cleanup = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
   return {
     requests,
     env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
     close: () => {
-      server.close();
-      server.closeAllConnections();
-      endWaiters(home);
-      // A detached worker the hooks started can still be writing its state here after the request a test waits on.
-      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      stop();
+      rmSync(home, cleanup);
+    },
+    closeAsync: async () => {
+      stop();
+      await rm(home, cleanup);
     },
   };
 }
@@ -65,7 +73,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
 /** A detached hook worker can still finish a state write after the Proxy received its last request. */
 export async function closeProxyWhenSettled(proxy) {
   for (let attempt = 0; ; attempt++) {
-    try { return proxy.close(); }
+    try { return await proxy.closeAsync(); }
     catch (error) {
       if (attempt === 19 || !['ENOTEMPTY', 'EPERM', 'EBUSY'].includes(error.code)) throw error;
       await new Promise(resolve => setTimeout(resolve, 100));

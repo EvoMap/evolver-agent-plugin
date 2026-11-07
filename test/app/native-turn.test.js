@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { reconcileNativeTurn, recoverNativeTurns } from '../../lib/app/native-turn.js';
+import { reconcileNativeTurn, recoverNativeTurns, turnObservationOf } from '../../lib/app/native-turn.js';
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { TASKS } from '../../lib/app/ports.js';
 import { armDistillWakeUp, distillDue, distillSession, dropExpiredLeftovers } from '../../lib/app/distill-session.js';
-import { BLOCKED_ROUTE_TTL_MS, candidateOf, IDLE_DISTILL_MS, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/candidate.js';
+import { BLOCKED_ROUTE_TTL_MS, IDLE_DISTILL_MS, rangeOf, UNDISTILLED_LEFTOVER_TTL_MS } from '../../lib/distill/range.js';
 import { memoryPorts, PROMPT } from './memory-ports.js';
+import { changeTurn, IR } from './work-turns.js';
 
 const route = { alias: 'route-b', providerId: 'account-b', model: 'upstream-b', protocol: 'openai', endpoint: 'https://api.example/v1', effort: 'off', binding: 'captured-account', configRevision: 'same-config' };
 const modelHint = { alias: 'route-b', effort: 'off' };
@@ -20,6 +21,17 @@ const facts = (terminal = true) => ({ status: 'ok', schemaSupported: true, schem
   bind: { turnId: '0', promptId: 'native-prompt', origin: 'user', mark: 120 },
   terminal: terminal ? { turnId: '0', reason: 'completed', answer: 'Fixed retries.', modelHint: { ...modelHint, model: 'upstream-b', protocol: 'openai' } } : null,
   record: record() });
+
+function legacyCandidate({ commands, paths, checks, answer }, { now, sessionEpoch, finalizationPending = false }) {
+  return { prompt: PROMPT, commands, paths, checks, answer, model: route, turn: 1, pid: 4242, attempts: 0, at: now,
+    ...(sessionEpoch !== undefined && { sessionEpoch }), ...(finalizationPending && { finalizationPending: true }) };
+}
+
+function fixedErrorFacts() {
+  const observed = facts();
+  observed.record.checks.unshift({ command: 'npm test', exit: 1, failed: true });
+  return observed;
+}
 
 async function pending(options = {}) {
   const made = memoryPorts(options);
@@ -72,11 +84,11 @@ test('recovery settles a healthy native session even when the state scan reports
     throw error;
   };
   await assert.rejects(recoverNativeTurns(made.ports), error);
-  assert.equal((await made.ports.candidates.read()).session.turn, 1);
+  assert.deepEqual((await made.ports.candidates.read()).session.turns.map(({ turn }) => turn), [1]);
   assert.equal(made.sessions.get('session').open, false);
 });
 
-test('a background distill command asks for a new verified turn when the captured route cannot be verified', async () => {
+test('a background distill command asks for a new work turn when the captured route cannot be verified', async () => {
   const made = await pending();
   const observed = facts();
   observed.terminal.modelHint.model = 'unmatched-native-model';
@@ -87,7 +99,7 @@ test('a background distill command asks for a new verified turn when the capture
       assert.equal(id, 'distill-job');
       const result = await run({ sessionId: 'session', name: 'evolver-distill' }, new AbortController().signal);
       assert.equal(result.ok, false);
-      assert.equal(result.text, 'The verified turn has no captured model route. Finish a new verified turn so Evolver can capture its model route.');
+      assert.equal(result.text, "The session's work has no captured model route. Finish a new work turn so Evolver can capture its model route.");
       return true;
     },
   };
@@ -102,7 +114,7 @@ test('late background verification only rejudges its original still-last turn', 
   assert.equal((await reconcileNativeTurn(made.ports, at, running)).waiting, true);
   assert.deepEqual(await made.ports.candidates.read(), {});
   await reconcileNativeTurn(made.ports, at, facts());
-  assert.equal((await made.ports.candidates.read()).session.turn, 1);
+  assert.deepEqual((await made.ports.candidates.read()).session.turns.map(({ turn }) => turn), [1]);
   assert.equal(made.queued.length, 1);
   await promptSubmitted(made.ports, { sessionId: 'session', prompt: 'Continue a different task.', waitMs: 500 });
   await reconcileNativeTurn(made.ports, at, facts());
@@ -214,7 +226,7 @@ test('session end preserves a pending native turn and its original prompt for la
   assert.equal(made.sessions.get('session').native.pending, true);
   await reconcileNativeTurn(made.ports, at, facts());
   const candidate = (await made.ports.candidates.read()).session;
-  assert.equal(candidate.prompt, PROMPT);
+  assert.deepEqual(candidate.turns.map(({ prompt }) => prompt), [PROMPT]);
   assert.equal(candidate.closed, true);
   assert.equal(made.queued.length, 1);
 });
@@ -222,7 +234,7 @@ test('session end preserves a pending native turn and its original prompt for la
 test('a native finalization claim covers the candidate-consumed window before the settled marker is written', async () => {
   const made = await pending({ distillAnswer: { status: 'stored' } });
   let completions = 0;
-  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
+  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify(IR) }; };
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), update = made.ports.sessions.update;
   let held = false;
   made.ports.sessions.update = async (id, mutate) => {
@@ -244,11 +256,11 @@ test('a native finalization claim covers the candidate-consumed window before th
   assert.equal(completions, 1);
 });
 
-test('native candidates survive failed finalization writes without being consumed or recreated', async () => {
+test('native work survives failed finalization writes without being consumed or recreated', async () => {
   for (const stage of ['marker', 'activation']) {
     const made = await pending({ distillAnswer: { status: 'stored' }, gone: new Set([4242]) });
     let completions = 0, failed = false;
-    made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
+    made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify(IR) }; };
     const sessionUpdate = made.ports.sessions.update, candidateUpdate = made.ports.candidates.update;
     if (stage === 'marker') {
       made.ports.sessions.update = (id, mutate) => sessionUpdate(id, stored => {
@@ -261,14 +273,14 @@ test('native candidates survive failed finalization writes without being consume
     } else {
       made.ports.candidates.update = mutate => candidateUpdate(pending => {
         const next = mutate(pending);
-        if (!failed && pending.session?.finalizationPending === true && next?.session && next.session.finalizationPending !== true) {
+        if (!failed && pending.session?.turns[0]?.finalizationPending === true && next?.session && next.session.turns[0]?.finalizationPending !== true) {
           failed = true; throw Object.assign(new Error('candidate activation failed'), { code: 'EACCES' });
         }
         return next;
       });
     }
     await assert.rejects(reconcileNativeTurn(made.ports, at, facts()), { code: 'EACCES' });
-    assert.equal((await made.ports.candidates.read()).session.finalizationPending, true);
+    assert.equal((await made.ports.candidates.read()).session.turns[0].finalizationPending, true);
     assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'busy');
     assert.deepEqual(await distillDue(made.ports), []);
     made.advance(UNDISTILLED_LEFTOVER_TTL_MS + 1);
@@ -277,7 +289,7 @@ test('native candidates survive failed finalization writes without being consume
     assert.equal(completions, 0);
     made.ports.sessions.update = sessionUpdate; made.ports.candidates.update = candidateUpdate;
     await recoverNativeTurns(made.ports);
-    assert.notEqual((await made.ports.candidates.read()).session.finalizationPending, true);
+    assert.notEqual((await made.ports.candidates.read()).session.turns[0].finalizationPending, true);
     assert.ok(made.scheduled.includes(TASKS.DISTILL), 'recovered activation schedules the due candidate without another host event');
     assert.equal((await distillSession(made.ports, { sessionId: 'session' })).status, 'stored');
     await reconcileNativeTurn(made.ports, at, facts());
@@ -289,7 +301,7 @@ test('native candidates survive failed finalization writes without being consume
 test('a later prompt cannot strand an older pending candidate when activation needs recovery', async () => {
   const made = await pending({ distillAnswer: { status: 'stored' } });
   let completions = 0, held = false, failed = false;
-  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
+  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify(IR) }; };
   const entered = Promise.withResolvers(), release = Promise.withResolvers();
   const sessionUpdate = made.ports.sessions.update, candidateUpdate = made.ports.candidates.update;
   made.ports.sessions.update = async (id, mutate) => {
@@ -301,7 +313,7 @@ test('a later prompt cannot strand an older pending candidate when activation ne
   };
   made.ports.candidates.update = mutate => candidateUpdate(pending => {
     const next = mutate(pending);
-    if (!failed && pending.session?.finalizationPending === true && next?.session && next.session.finalizationPending !== true) {
+    if (!failed && pending.session?.turns[0]?.finalizationPending === true && next?.session && next.session.turns[0]?.finalizationPending !== true) {
       failed = true; throw Object.assign(new Error('activation replacement failed'), { code: 'EACCES' });
     }
     return next;
@@ -324,14 +336,14 @@ test('a later prompt cannot strand an older pending candidate when activation ne
 
 test('session end crossing first finalization closes the eventual candidate while its owner is still alive', async () => {
   const made = await pending({ distillAnswer: { status: 'stored' } });
-  made.ports.model.complete = async () => ({ answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) });
+  made.ports.model.complete = async () => ({ answer: JSON.stringify(IR) });
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), enqueue = made.ports.reports.enqueue;
   let held = false;
   made.ports.reports.enqueue = async entries => {
     if (!held) { held = true; entered.resolve(); await release.promise; }
     return enqueue(entries);
   };
-  const first = reconcileNativeTurn(made.ports, at, facts());
+  const first = reconcileNativeTurn(made.ports, at, fixedErrorFacts());
   await entered.promise;
   await sessionEnded(made.ports, at);
   release.resolve(); await first;
@@ -348,7 +360,7 @@ test('native claims refuse a live holder without TTL takeover and recover a dead
   assert.deepEqual(await made.ports.candidates.read(), {});
   gone.add(9999);
   await reconcileNativeTurn(made.ports, at, facts());
-  assert.equal((await made.ports.candidates.read()).session.turn, 1);
+  assert.deepEqual((await made.ports.candidates.read()).session.turns.map(({ turn }) => turn), [1]);
   assert.equal(made.sessions.get('session').native.finalizingPid, null);
 });
 
@@ -384,7 +396,7 @@ test('a legacy route-blocked native candidate with an unknown check still schedu
   const at = ports.clock.now();
   const verified = record();
   verified.checks.push({ command: 'npm run lint', failed: null });
-  const candidate = candidateOf({ prompt: PROMPT, record: verified, model: route, turn: 1, now: at });
+  const candidate = legacyCandidate(verified, { now: at });
   await ports.candidates.update(() => ({ session: { ...candidate, blocked: { reason: 'route_changed', at } } }));
   ports.model.complete = () => assert.fail('expiry must not request a model');
 
@@ -399,8 +411,8 @@ test('a legacy route-blocked native candidate with an unknown check still schedu
 test('a pending background check blocks native distillation until dead-owner recovery sees its result', async () => {
   const made = await pending({ distillAnswer: { status: 'stored' }, gone: new Set([4242]) });
   let completions = 0;
-  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify({ summary: 'Reusable retry method.', strategy: ['Validate retries.'] }) }; };
-  const observed = facts();
+  made.ports.model.complete = async () => { completions++; return { answer: JSON.stringify(IR) }; };
+  const observed = fixedErrorFacts();
   observed.record.checks.unshift({ command: 'npm run lint', failed: null });
   observed.pendingVerification = true;
   made.ports.native.read = async () => observed;
@@ -425,13 +437,62 @@ test('a pending background check blocks native distillation until dead-owner rec
   assert.equal(made.requests.filter(({ path }) => path === '/conversation/distill').length, 1);
 });
 
+test('a superseding native prompt clears an earlier check barrier without letting a late observation restore it', async () => {
+  const { ports } = memoryPorts({ model: { capture: () => route } });
+  await changeTurn(ports, at.sessionId, 1, { model: route });
+  ports.native = { reference: (payload) => payload, read: async () => ({ status: 'unreadable' }) };
+  const observation = turnObservationOf(ports);
+  const open = async () => {
+    const attach = await observation.capturePrompt(at, payload, { nativeFacts: { ...facts(false), mark: { offset: 100, fileId: 'wire' } } });
+    const { turn, sessionEpoch } = await promptSubmitted(ports, { sessionId: at.sessionId, prompt: PROMPT, waitMs: 500 });
+    await attach({ turn, sessionEpoch });
+    return { turn, sessionEpoch };
+  };
+  const range = async () => rangeOf(await ports.candidates.read(), at.sessionId);
+  const older = await open();
+  const running = { ...facts(false), pendingVerification: true };
+  await reconcileNativeTurn(ports, { ...at, ...older }, running);
+  await reconcileNativeTurn(ports, { ...at, ...older }, facts(false));
+  assert.deepEqual((await range()).pendingNativeCheck, older, 'a result without a terminal does not release the barrier');
+
+  const update = ports.candidates.update;
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  let held = false;
+  ports.candidates.update = async (mutate) => {
+    if (!held) { held = true; entered.resolve(); await release.promise; }
+    return update(mutate);
+  };
+  const late = reconcileNativeTurn(ports, { ...at, ...older }, running);
+  await entered.promise;
+  const newer = await open();
+  assert.equal((await range()).pendingNativeCheck, undefined);
+  release.resolve();
+  await late;
+  assert.equal((await range()).pendingNativeCheck, undefined);
+
+  await update((pending) => ({ ...pending, [at.sessionId]: { ...pending[at.sessionId], pendingNativeCheck: older } }));
+  await recoverNativeTurns(ports);
+  assert.equal((await range()).pendingNativeCheck, undefined, 'recovery removes a stale barrier left by a killed worker');
+
+  await reconcileNativeTurn(ports, { ...at, ...newer }, running);
+  assert.deepEqual((await range()).pendingNativeCheck, newer);
+  const unknown = facts();
+  unknown.record.checks[0].failed = null;
+  await reconcileNativeTurn(ports, { ...at, ...newer }, unknown);
+  assert.equal((await range()).pendingNativeCheck, undefined, 'the terminal has no running background check');
+  assert.deepEqual((await range()).turns.map(({ turn }) => turn), [1], 'unknown foreground work stays out of the range');
+  await reconcileNativeTurn(ports, { ...at, ...newer }, facts());
+  assert.equal((await range()).pendingNativeCheck, undefined);
+  assert.deepEqual((await range()).turns.map(({ turn }) => turn), [1, newer.turn]);
+});
+
 for (const [stage, turn] of [['provisional', 1], ['provisional', 2], ['activated', 1]]) {
   test(`recovery cannot distill a previously ${stage} candidate with a pending check (current turn ${turn})`, async () => {
     const made = await pending({ gone: new Set([4242]) });
     const observed = facts();
     observed.record.checks.unshift({ command: 'npm run lint', failed: null });
     observed.pendingVerification = true;
-    const candidate = candidateOf({ prompt: PROMPT, record: observed.record, model: route, turn: 1, pid: 4242,
+    const candidate = legacyCandidate(observed.record, {
       sessionEpoch: made.sessions.get('session').sessionEpoch,
       now: made.ports.clock.now(), finalizationPending: stage === 'provisional' });
     await made.ports.candidates.update(() => ({ session: candidate }));
@@ -449,11 +510,14 @@ for (const [stage, turn] of [['provisional', 1], ['provisional', 2], ['activated
 
     if (turn === 1) {
       observed.record.checks[0].failed = false;
+      observed.pendingVerification = false;
       made.ports.native.read = async () => observed;
-      await recoverNativeTurns(made.ports);
+      assert.equal((await recoverNativeTurns(made.ports))[0].waiting, false);
       const ready = (await made.ports.candidates.read()).session;
-      assert.deepEqual(ready.checks, observed.record.checks.map(check => ({ ...check, exit: null })));
-      assert.equal(ready.finalizationPending, undefined);
+      assert.equal(ready.turns.length, 1);
+      const work = ready.turns[0];
+      assert.deepEqual(work.steps.filter(({ kind }) => kind === 'check'), observed.record.checks.map(check => ({ kind: 'check', ...check, exit: null })));
+      assert.equal(work.finalizationPending, undefined);
     }
   });
 }

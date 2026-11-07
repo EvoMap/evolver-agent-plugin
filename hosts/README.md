@@ -69,7 +69,7 @@ process ownership and normal cleanup. macOS packed acceptance and real-account a
 MiniMax Code's local adapter uses the hook defaults for `session_id`, `turn_id`, prompt and additional context.
 Native `details.execution.exitCode` is verification evidence; missing or unfinished shell results count as no check.
 State lives in `PLUGIN_DATA`. Its native shell-form hooks use `owner: 'parent'`; on Windows a bounded CIM snapshot
-skips shells and identifies the actual runtime process, so the next session can recover a dead owner's candidate.
+skips shells and identifies the actual runtime process, so the next session can recover a dead owner's work.
 There is no fabricated native end event: a read-only session/turn-status projection closes only confirmed native
 `failed`/`aborted` turns; the next prompt remains the conservative fallback when metadata is unavailable.
 Distillation uses the captured native session provider/model/variant, a private per-run YAML merge and `--mode lightweight`; a scratch

@@ -4,7 +4,6 @@ import { test } from 'node:test';
 
 import kimi from '../../../hosts/kimi/profile.js';
 import { decodeNativeFacts } from '../../../hosts/kimi/transcript.js';
-import { skipReason } from '../../../lib/distill/candidate.js';
 
 const meta = { type: 'metadata', protocol_version: '1.5' };
 const prompt = { type: 'turn.prompt', agentId: 'main', turnId: 0, promptId: 'p', origin: { kind: 'user' } };
@@ -23,12 +22,11 @@ test('pre-edit paths require the bound main native turn and successful results a
   assert.deepEqual(facts.record.edits, [join(cwd, 'file.js')]);
 });
 
-test('a later uncompleted Bash check prevents a candidate even when an earlier check passed', () => {
+test('a later uncompleted Bash check is pending even when an earlier check passed', () => {
   const records = [meta, prompt, call('pass', 'Bash', { command: 'npm test' }), result('pass', { output: '# pass 1\n# fail 0', durationMs: 1 }), call('pending', 'Bash', { command: 'npm test' })];
-  const record = decodeNativeFacts(records, [], {}, { turnId: '0' }).record;
-  record.answer = 'Done.'; record.edits = ['file.js'];
-  assert.deepEqual(record.checks.map(check => check.failed), [false, null]);
-  assert.equal(skipReason('answer', record), 'unverified');
+  const facts = decodeNativeFacts(records, [], {}, { turnId: '0' });
+  assert.deepEqual(facts.record.checks.map(check => check.failed), [false, null]);
+  assert.equal(facts.pendingVerification, true);
 });
 
 test('a background task record must match both the native call and its returned task ID', () => {

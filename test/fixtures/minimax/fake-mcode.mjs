@@ -7,6 +7,6 @@ if (!config || !existsSync(join(process.cwd(), '.evolver-headless')) || !readFil
 appendFileSync(process.env.FAKE_MINIMAX_LOG, JSON.stringify({ args, cwd: process.cwd(), marker: process.env.EVOLVER_HEADLESS, privateConfig: config }) + '\n');
 let prompt = '';
 for await (const chunk of process.stdin) prompt += chunk;
-if (!prompt.includes('strategy')) process.exit(4);
-const gene = { title: 'Repair retry checks', summary: 'A queue client passes its retry check after its fixed retry limit is removed.', strategy: ['Run the failing check.', 'Remove the retry limit.', 'Run the same check again.'] };
-console.log(JSON.stringify({ schemaVersion: 1, type: 'exec.result', status: 'succeeded', output: JSON.stringify(gene), usage: { inputTokens: 40, outputTokens: 20 } }));
+if (!prompt.includes('session-gene-ir-v1')) process.exit(4);
+const ir = readFileSync(new URL('../session-ir.json', import.meta.url), 'utf8');
+console.log(JSON.stringify({ schemaVersion: 1, type: 'exec.result', status: 'succeeded', output: ir, usage: { inputTokens: 40, outputTokens: 20 } }));

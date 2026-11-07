@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
-import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
+import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
 
 const dirs = [];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -32,6 +32,20 @@ test('every file carries the agent name, so two agents in one directory never me
   const seen = [];
   await antigravity.sessions.updateEach((session, sessionId) => { seen.push([sessionId, session.turn]); });
   assert.deepEqual(seen, [['s1', 5]]);
+});
+
+test('ranges stay out of the pending file an earlier version claims from, and its leftovers move over once', async () => {
+  const { dir, stores: cursor } = stores();
+  writeFileSync(join(dir, 'cursor-distill-pending.json'), JSON.stringify({ old: { prompt: 'p', at: 1 } }));
+  await cursor.candidates.update((ranges) => ({ ...ranges, s1: { turns: [], at: 2 } }));
+  assert.deepEqual([Object.keys(readState(join(dir, 'cursor-distill-ranges.json'), {})).sort(), readState(join(dir, 'cursor-distill-pending.json'), {})],
+    [['old', 's1'], {}]);
+});
+
+test('range references distinguish a reused turn number from a different session epoch', () => {
+  const range = { at: 10, changedAt: 11, turns: [{ turn: 1, sessionEpoch: 12 }] };
+  const replacement = { ...range, turns: [{ turn: 1, sessionEpoch: 13 }] };
+  assert.notEqual(rangeReferenceOf('s1', range), rangeReferenceOf('s1', replacement));
 });
 
 test('one corrupt session file is preserved and reported without stopping the update of the others', async () => {
@@ -417,6 +431,15 @@ test('a draft correction no saved draft refers to is pruned once it is as old as
   assert.equal(await cursor.draftCorrections.has('s1', 3, 10), false);
   assert.equal(await cursor.draftCorrections.has('s2', 1, 10), false);
   assert.equal(readdirSync(join(dir, 'cursor-distill-corrections')).length, 1);
+});
+
+test('a saved range draft retains correction markers for each of its source turns', async () => {
+  const { stores: cursor } = stores();
+  const turns = [{ turn: 1, sessionEpoch: 10 }, { turn: 2, sessionEpoch: 10 }];
+  await cursor.drafts.update(() => [{ id: 'draft', sessionId: 's1', sourceRange: { turns } }]);
+  for (const { turn, sessionEpoch } of turns) await cursor.draftCorrections.mark('s1', turn, sessionEpoch);
+  cursor.prune(Date.now() + 31 * 24 * 60 * 60 * 1000);
+  for (const { turn, sessionEpoch } of turns) assert.equal(await cursor.draftCorrections.has('s1', turn, sessionEpoch), true);
 });
 
 test('a publish gate in another process waits for the source session correction', async (t) => {
