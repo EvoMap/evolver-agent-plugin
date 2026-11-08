@@ -34,6 +34,30 @@ test('a matched native terminal cannot prove a silent Bash check passed and only
   assert.deepEqual(facts.terminal, { turnId: '0', reason: 'completed', answer: 'Fixed the retry; tests pass.', modelHint: { alias: 'custom/model-b', effort: null, model: 'upstream-b', protocol: 'openai' } });
 });
 
+test('a bound turn reads a terminal after the next prompt with only its own evidence', () => {
+  const first = [meta, profile, prompt(0),
+    { type: 'llm.request', agentId: 'main', modelAlias: 'first', model: 'first-model', provider: 'openai' },
+    event({ type: 'tool.call', uuid: 'old-check', turnId: 0, toolCallId: 'check', name: 'Bash', args: { command: 'npm test' } }),
+    event({ type: 'tool.result', parentUuid: 'old-check', toolCallId: 'check', result: { output: '# pass 1\n# fail 0', durationMs: 1 } }),
+    event({ type: 'content.part', uuid: 'old-answer', turnId: 0, stepUuid: 'old-final', part: { type: 'text', text: 'First answer' } }),
+    event({ type: 'step.end', uuid: 'old-final', turnId: 0, finishReason: 'end_turn', providerFinishReason: 'completed' }),
+  ];
+  const second = [prompt(1),
+    { type: 'llm.request', agentId: 'main', modelAlias: 'second', model: 'second-model', provider: 'openai' },
+    event({ type: 'content.part', uuid: 'new-answer', turnId: 1, stepUuid: 'new-final', part: { type: 'text', text: 'Second answer' } }),
+    event({ type: 'step.end', uuid: 'new-final', turnId: 1, finishReason: 'end_turn', providerFinishReason: 'completed' }),
+  ];
+  const ended = { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' };
+  const records = [...first, ...second, ended];
+  const facts = decodeNativeFacts(records, [], {}, { turnId: '0' });
+  assert.equal(facts.bind.promptId, 'prompt-0');
+  assert.deepEqual(facts.record.checks, [{ command: 'npm test', exit: null, failed: false }]);
+  assert.deepEqual(facts.terminal, { turnId: '0', reason: 'completed', answer: 'First answer',
+    modelHint: { alias: 'first', effort: null, model: 'first-model', protocol: 'openai' } });
+  assert.equal(decodeNativeFacts(records, [], { turn_id: 0 }).terminal, null, 'a hook payload alone cannot extend the read');
+  assert.equal(decodeNativeFacts([...first, { ...ended, reason: 'failed' }, ...second, ended], [], {}, { turnId: '0' }).status, 'partial');
+});
+
 test('a background Bash is settled by its task metadata, never by successful TaskOutput retrieval', () => {
   const records = [meta, profile, prompt(0),
     event({ type: 'tool.call', uuid: 'bg-uuid', turnId: '0', toolCallId: 'bg-call', name: 'Bash', args: { command: 'npm test', run_in_background: true } }),

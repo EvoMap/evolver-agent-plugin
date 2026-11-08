@@ -97,7 +97,8 @@ export function decodeNativeFacts(records = [], tasks = [], payload = {}, contex
   const modelHint = binding && text(binding.modelAlias) ? { alias: binding.modelAlias, effort: text(binding.thinkingEffort) || null } : context.modelHint ?? null;
   const empty = { status: schemaSupported ? 'ok' : 'unsupported', schemaSupported, schemaVersion: schemaSupported ? schema : null, bind: null, terminal: null, modelHint, record: null, notes: [], toolTurnId: null };
   if (!schemaSupported) return empty;
-  const wanted = nativeTurnIdOf(context.turnId) ?? nativeTurnIdOf(payload.turn_id);
+  const boundTurn = nativeTurnIdOf(context.turnId);
+  const wanted = boundTurn ?? nativeTurnIdOf(payload.turn_id);
   const prompts = records.filter(promptOf).filter(record => wanted !== null ? nativeTurnIdOf(record.turnId) === wanted : context.after ? record.$offset >= context.after.offset : true);
   const unique = new Map(prompts.map(record => [`${nativeTurnIdOf(record.turnId)}:${record.promptId}`, record]));
   if (unique.size !== 1 || (payload.hook_event_name === 'UserPromptSubmit' && wanted === null && !context.after)) return empty;
@@ -108,7 +109,16 @@ export function decodeNativeFacts(records = [], tasks = [], payload = {}, contex
   const boundModelHint = turnBinding && text(turnBinding.modelAlias) ? { alias: turnBinding.modelAlias, effort: text(turnBinding.thinkingEffort) || null } : context.modelHint ?? null;
   const next = records.findIndex((record, index) => index > start && promptOf(record) && nativeTurnIdOf(record.turnId) !== turnId);
   const turn = records.slice(start, next === -1 ? undefined : next);
-  const ended = turn.filter(main).findLast(item => item.type === 'turn.ended' && nativeTurnIdOf(item.turnId) === turnId);
+  const isTerminal = item => item.type === 'turn.ended' && main(item) && nativeTurnIdOf(item.turnId) === turnId;
+  let ended = turn.findLast(isTerminal);
+  // A bound turn can finish late. Keep the untagged model requests within its original prompt boundary.
+  if (boundTurn !== null && next !== -1) {
+    for (const item of records.slice(next)) {
+      if (!isTerminal(item)) continue;
+      if ((ended && ended.reason !== item.reason) || (item.reason === 'completed' && item.error)) return { ...empty, status: 'partial' };
+      ended ??= item;
+    }
+  }
   if (conflictingIdentity(turn) || (ended?.reason === 'completed' && ended.error)) return { ...empty, status: 'partial' };
   const notes = notesOf(turn, tasks, turnId, payload.cwd ?? context.projectDir);
   const pendingVerification = notes.some(note => note.running && isVerificationCommand(note.command));
