@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { headlessZCode } from '../../../hosts/zcode/model.js';
+import { executableOf } from '../../../lib/runtime/process/which.js';
 
 const selection = {
   providerId: 'fixture-responses',
@@ -44,7 +48,7 @@ const builtin = JSON.stringify({ schemaVersion: 1, config: {
 } });
 const prepare = (source) => headlessZCode.configFile.prepare([JSON.stringify(source), builtin], { selection });
 
-test('ZCode isolates a Desktop Responses route with only the selected provider and model rule', () => {
+test('ZCode isolates a personal Responses route with only the selected provider and model rule', () => {
   const { content, files } = prepare(config());
   const isolated = JSON.parse(content).config;
   assert.deepEqual(isolated.defaultModelSelection, selection);
@@ -82,4 +86,20 @@ test('ZCode rejects model overrides that could change the selected Responses rou
     edit(document.config);
     assert.throws(() => prepare(document), unsupported, name);
   }
+});
+
+test('standalone ZCode requires an explicit regular CLI bundle', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-zcode-cli-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'zcode.cjs');
+  const command = headlessZCode.command;
+  const resolve = (env) => executableOf({ ...command, dirs: command.dirs(env) }, { env });
+  assert.equal(resolve({ ZCODE_CLI_PATH: 'zcode.cjs' }), null);
+  assert.equal(resolve({ ZCODE_CLI_PATH: file }), null);
+  mkdirSync(file);
+  assert.equal(resolve({ ZCODE_CLI_PATH: file }), null);
+  rmdirSync(file);
+  writeFileSync(file, '');
+  assert.equal(resolve({ PATH: dir }), null);
+  assert.deepEqual(resolve({ ZCODE_CLI_PATH: file }), { file, viaNode: true });
 });

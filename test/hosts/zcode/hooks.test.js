@@ -52,8 +52,9 @@ async function fixture(t) {
   } }));
   pack('zcode', plugin);
   const hooks = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8')).hooks;
+  const cli = join(home, 'standalone CLI', 'zcode.cjs');
   const env = { ...proxy.env, LOCALAPPDATA: home, ZCODE_PLUGIN_DATA: state, ZCODE_DATA_BASE_DIR: home, ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: providerFile,
-    ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: builtinFile, EVOLVER_AUTO_DISTILL: 'off' };
+    ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: builtinFile, ZCODE_CLI_PATH: cli, EVOLVER_AUTO_DISTILL: 'off' };
   const entry = async (name, args, input) => {
     const child = spawn(process.execPath, [join(plugin, 'bin', name), ...args], { env, cwd: home, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
@@ -94,7 +95,7 @@ async function fixture(t) {
 }
 
 function appServer(f) {
-  const file = join(f.home, 'Programs', 'ZCode', 'resources', 'glm', 'zcode.cjs');
+  const file = f.env.ZCODE_CLI_PATH;
   const record = join(f.home, 'fixture-request.json');
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `
@@ -110,6 +111,7 @@ function appServer(f) {
       assert.equal(params.workspace.workspacePath, cwd);
       assert.equal(process.env.EVOLVER_HEADLESS, '1');
       assert.equal(process.env.ZCODE_PLUGIN_DATA, undefined);
+      assert.equal(process.env.ZCODE_CLI_PATH, undefined);
       assert.ok(fs.existsSync(path.join(cwd, '.evolver-headless')));
       assert.equal(fs.readFileSync(path.join(cwd, '.env'), 'utf8'), '');
       const config = JSON.parse(fs.readFileSync(path.join(cwd, '.zcode/cli/config.json')));
@@ -195,6 +197,7 @@ test('only matching native turn and tool IDs count towards a verified turn', asy
   assert.ok(reports(f).every(request => request.body.outcome === 'success' && request.body.evidence.check.passed));
 
   const marker = appServer(f);
+  assert.equal(existsSync(join(f.home, 'Programs', 'ZCode')), false);
   const originalConfig = readFileSync(f.providerFile, 'utf8');
   writeFileSync(f.providerFile, originalConfig.replace('fixture-private-value', 'fixture-rotated-value'));
   assert.match(await f.entry('command.mjs', ['zcode', 'evolver-distill']), /blocked \(route_changed\)/);

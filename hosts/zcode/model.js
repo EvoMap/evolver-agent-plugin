@@ -2,7 +2,7 @@
 // Copyright (c) 2026 EvoMap
 
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 const nativeHomeOf = (env) => (process.platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir();
 export const homeOf = (env) => env.ZCODE_DATA_BASE_DIR?.trim() || nativeHomeOf(env);
@@ -146,13 +146,14 @@ function completionOf({ stdout }, { selection }) {
     && { usage: { inputTokens, outputTokens } }) };
 }
 
+function cliDirs(env) {
+  const file = env.ZCODE_CLI_PATH?.trim() || '';
+  return isAbsolute(file) && basename(file) === 'zcode.cjs' ? [dirname(file)] : [];
+}
+
 export const headlessZCode = Object.freeze({
   kind: 'cli',
-  // shortcut: use the version-tested Desktop-bundled CLI on Windows until standalone install layouts are verified.
-  command: { names: ['zcode.cjs'], nodeScript: true, dirs: (env) => {
-    const local = env.LOCALAPPDATA || join(homeOf(env), 'AppData', 'Local');
-    return isAbsolute(local) ? [join(local, 'Programs', 'ZCode', 'resources', 'glm')] : [];
-  } },
+  command: { names: ['zcode.cjs'], nodeScript: true, regularFile: true, dirs: cliDirs },
   // ZCode refreshes the live provider registry on a one-second poll.
   configFile: { source: (env) => {
     const builtin = env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE?.trim();
