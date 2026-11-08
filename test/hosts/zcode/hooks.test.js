@@ -94,8 +94,7 @@ async function fixture(t) {
   return { proxy, hook, read, session, status, selection, route, home, env, providerFile, entry };
 }
 
-function appServer(f) {
-  const file = f.env.ZCODE_CLI_PATH;
+function appServer(f, file = f.env.ZCODE_CLI_PATH) {
   const record = join(f.home, 'fixture-request.json');
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `
@@ -233,6 +232,26 @@ test('cancelled background completion removes its temporary profile and process 
   assert.equal(existsSync(cwd), false);
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
   if (process.platform === 'win32') assert.throws(() => process.kill(child, 0), { code: 'ESRCH' });
+});
+
+test('Desktop runs its bundled CLI when no explicit CLI path is configured', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.env.LOCALAPPDATA, 'Programs', 'ZCode', 'resources', 'glm', 'zcode.cjs');
+  const marker = appServer(f, file);
+  const runner = modelRunnerOf(profile.model, f.env);
+  const model = { configDigest: null, selection: f.selection };
+  await assert.rejects(runner.complete(model, 'blocked'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
+  assert.equal(existsSync(marker), false);
+
+  delete f.env.ZCODE_CLI_PATH;
+  const desktop = modelRunnerOf(profile.model, f.env);
+  await delay(2_000);
+  model.configDigest = desktop.configStamp().split(':').at(-1);
+  const { answer } = await desktop.complete(model, 'verify fixture');
+  assert.deepEqual(JSON.parse(answer), IR);
+  const request = JSON.parse(readFileSync(marker, 'utf8'));
+  assert.deepEqual(request.selection, f.selection);
+  assert.equal(existsSync(request.cwd), false);
 });
 
 test('native cancellation after a test pass closes the turn without reuse reports or candidates', async t => {

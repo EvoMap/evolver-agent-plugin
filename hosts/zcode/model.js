@@ -151,9 +151,15 @@ function cliDirs(env) {
   return isAbsolute(file) && basename(file) === 'zcode.cjs' ? [dirname(file)] : [];
 }
 
+function runtimeDirs(env) {
+  if (env.ZCODE_CLI_PATH?.trim()) return cliDirs(env);
+  const local = env.LOCALAPPDATA || (process.platform === 'win32' ? join(nativeHomeOf(env), 'AppData', 'Local') : '');
+  return isAbsolute(local) ? [join(local, 'Programs', 'ZCode', 'resources', 'glm')] : [];
+}
+
 export const headlessZCode = Object.freeze({
   kind: 'cli',
-  command: { names: ['zcode.cjs'], nodeScript: true, regularFile: true, dirs: cliDirs },
+  command: { names: ['zcode.cjs'], nodeScript: true, regularFile: true, dirs: runtimeDirs },
   // ZCode refreshes the live provider registry on a one-second poll.
   configFile: { source: (env) => {
     const builtin = env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE?.trim();

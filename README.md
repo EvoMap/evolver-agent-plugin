@@ -55,7 +55,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
 | MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
-| ZCode CLI | Supported locally on Windows | `hosts/zcode`, native hooks; installs `dist/zcode` |
+| ZCode CLI / Desktop | Supported locally on Windows | `hosts/zcode`, native hooks; installs `dist/zcode` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -154,6 +154,8 @@ injections, undelivered reports), so nothing is lost on the way over.
 - **ZCode CLI on Windows:** build `dist/zcode` with `npm run pack` and add that folder to the CLI's `plugins.dirs`.
   Enable plugins and hooks, then start a new session. The [ZCode adapter guide](hosts/zcode/dist/README.md)
   covers native verification and private distillation with a standalone CLI bundle.
+- **ZCode Desktop on Windows:** add the packed `dist/zcode` folder as a local marketplace in Settings → Plugins.
+  Install and enable `evolver-plugin` from that marketplace, then start a new session.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
