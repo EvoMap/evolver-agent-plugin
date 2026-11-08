@@ -176,6 +176,43 @@ test('removing a conflicting Kimi turn keeps a runtime block only for the same b
   }
 });
 
+test('removing a Kimi turn without a captured route lets the remaining bound work distill safely', async () => {
+  const oldPrompt = 'Unbound Kimi fixture work';
+  const oldDiff = 'REMOVED_UNBOUND_FIXTURE_CHANGE';
+  const calls = [];
+  const made = memoryPorts({
+    distillAnswer: DRAFTED,
+    project: { root: '/proj', head: 'a'.repeat(40), diff: `diff --git a/lib/redis.js b/lib/redis.js\n+${oldDiff}\n` },
+    model: { complete: async (selected, prompt) => { calls.push({ selected, prompt }); return { answer: JSON.stringify(IR) }; } },
+  });
+  const { ports } = made;
+  const { turn, sessionEpoch } = await promptSubmitted(ports, { sessionId, prompt: oldPrompt, waitMs: 0 });
+  await changeTurn(ports, sessionId, 2, { model: route });
+  const { base, turns: [bound] } = rangeOf(await ports.candidates.read(), sessionId);
+  const deferred = { ...bound, turn, sessionEpoch, prompt: oldPrompt, head: base };
+  await ports.candidates.update((pending) => withWorkTurn(pending, sessionId, deferred, {
+    now: ports.clock.now(), model: null, native: true, beforeNewerTurn: true,
+  }));
+  assert.deepEqual(await distillSession(ports, { sessionId }), { status: 'blocked', reason: 'route_not_captured' });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(posts(made), []);
+
+  await ports.candidates.update((pending) => withoutWorkTurn(pending, sessionId, deferred.turn, {
+    sessionEpoch: deferred.sessionEpoch, now: ports.clock.now(),
+  }));
+  await changeTurn(ports, sessionId, 3, { model: route });
+
+  assert.equal((await distillSession(ports, { sessionId })).status, 'drafted');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].selected, route);
+  assert.match(calls[0].prompt, /Turn 2/);
+  assert.match(calls[0].prompt, /Turn 3/);
+  assert.equal(posts(made).length, 1);
+  const sent = calls[0].prompt + JSON.stringify(posts(made)[0].body);
+  assert.equal(sent.includes(oldPrompt), false);
+  assert.equal(sent.includes(oldDiff), false);
+});
+
 test('a correction during the first Proxy reply drops the draft and stops the second IR', async () => {
   const irs = [IR, { ...IR, title: 'Second verified method' }];
   const made = memoryPorts({ distillAnswer: DRAFTED, model: { complete: async () => ({ answer: JSON.stringify(irs) }) } });
