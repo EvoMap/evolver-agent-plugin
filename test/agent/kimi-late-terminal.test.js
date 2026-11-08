@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -19,9 +19,14 @@ const nextRoute = { ...route, providerId: 'fixture-account-next', binding: 'fixt
 const nextPrompt = 'Now update the documentation.';
 const terminal = { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' };
 const nativePrompt = (turnId) => ({ type: 'turn.prompt', agentId: 'main', turnId, promptId: 'prompt-' + turnId, origin: { kind: 'user' } });
+const observedPrompt = (turnId, time, prompt = PROMPT) => ({ ...nativePrompt(turnId), time, input: [
+  { type: 'text', text: 'Injected strategy', meta: { source: 'user prompt submit hook' } },
+  { type: 'text', text: prompt },
+] });
 const loop = (event) => ({ type: 'context.append_loop_event', agentId: 'main', event });
+const wireHeader = [{ type: 'metadata', protocol_version: '1.5' }, { type: 'profile.bind', agentId: 'main', modelAlias: 'selected', thinkingEffort: 'off' }];
 
-function fixture(t) {
+function fixture(t, { wireReady = true } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'evolver-kimi-late-terminal-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const project = join(home, 'project');
@@ -31,7 +36,7 @@ function fixture(t) {
   writeFileSync(join(home, 'workspaces.json'), JSON.stringify({ version: 1, workspaces: { workspace: { root: project } } }));
   const wire = join(agent, 'wire.jsonl');
   const add = (...records) => appendFileSync(wire, records.map(record => JSON.stringify(record)).join('\n') + '\n');
-  add({ type: 'metadata', protocol_version: '1.5' }, { type: 'profile.bind', agentId: 'main', modelAlias: 'selected', thinkingEffort: 'off' });
+  if (wireReady) add(...wireHeader);
   const made = memoryPorts();
   const env = { KIMI_CODE_HOME: home };
   made.ports.model = { capture: () => route };
@@ -41,7 +46,7 @@ function fixture(t) {
   const id = profile.payload.sessionId(payload, { env, nativeScope: made.ports.native.scope });
   const call = (event, extra = {}) => driver.handle(event, { ...payload, hook_event_name: event, ...extra }, { onError: error => assert.fail(error) });
   const prompt = (text) => call('UserPromptSubmit', { prompt: [{ type: 'text', text }] });
-  return { ...made, add, call, home, id, project, prompt };
+  return { ...made, add, call, home, id, project, prompt, wire };
 }
 
 function addVerifiedWork(f, turnId) {
@@ -67,6 +72,71 @@ async function firstTurn(f) {
   assert.equal(f.queued.length, 0);
   return f.sessions.get(f.id).sessionEpoch;
 }
+
+test('a native user TurnStarted recovers a verified turn when its wire was missing at prompt submit', async t => {
+  const f = fixture(t, { wireReady: false });
+  f.ports.model.capture = hint => hint ? route : null;
+  assert.match((await f.prompt(PROMPT)).message, /Evolution Memory/);
+  f.add(...wireHeader, observedPrompt(0, f.ports.clock.now() + 1));
+  f.ports.model.capture = () => assert.fail('must not bind later credentials to the original prompt');
+  await f.call('TurnStarted', { turn_id: 0, origin_kind: 'user', prompt: PROMPT });
+  addVerifiedWork(f, 0);
+  f.add(terminal);
+  await f.call('Notification', { turn_id: 0 });
+  await recoverNativeTurns(f.ports);
+  assert.deepEqual(f.queued.map(({ report }) => [report.outcome, report.evidence.check?.passed]), [['success', true]]);
+  const candidate = (await f.ports.candidates.read())[f.id];
+  assert.deepEqual(candidate.turns.map(({ turn }) => turn), [1]);
+  assert.ok(!candidate.model?.binding, 'a verified turn cannot invent a model binding');
+});
+
+test('a missing wire mark cannot admit stale or unrelated user starts', async t => {
+  const f = fixture(t, { wireReady: false });
+  const oldTime = f.ports.clock.now(), prompt = PROMPT + ' ' + 'x'.repeat(2000);
+  f.advance(1);
+  await f.prompt(prompt + ' expected');
+  const native = () => f.sessions.get(f.id).native;
+  const started = (turn_id, text, extra = {}) => f.call('TurnStarted', { turn_id, origin_kind: 'user', prompt: text, ...extra });
+  f.add(...wireHeader, observedPrompt(0, oldTime, prompt + ' expected'));
+  await started(0, prompt + ' expected');
+  assert.equal(native().turnId, null, 'old same-text turn');
+  f.add(observedPrompt(1, f.ports.clock.now() + 1, prompt + ' different'));
+  await started(1, prompt + ' different');
+  assert.equal(native().turnId, null, 'a different suffix past the stored prompt limit');
+  f.add(observedPrompt(2, f.ports.clock.now() + 2, prompt + ' expected'));
+  await f.call('Notification', { turn_id: 2, origin_kind: 'user', prompt: prompt + ' expected' });
+  await started(2, prompt + ' expected', { prompt_id: 'different-id' });
+  const owner = f.ports.owner.current;
+  f.ports.owner.current = () => 17;
+  await started(2, prompt + ' expected');
+  assert.equal(native().turnId, null, 'an observer, a mismatched id or another owner');
+  f.ports.owner.current = owner;
+  await started(2, prompt + ' expected');
+  assert.equal(native().turnId, '2');
+});
+
+test('a partial initial wire keeps the submit-time model and refuses a replaced file', async t => {
+  const f = fixture(t);
+  appendFileSync(f.wire, '{"type":"padding');
+  f.ports.model.capture = hint => hint?.alias === route.alias ? route : null;
+  await f.prompt(PROMPT);
+  f.ports.model.capture = () => assert.fail('cannot recapture a route after submit');
+  const start = () => f.call('TurnStarted', { turn_id: 0, origin_kind: 'user', prompt: PROMPT });
+  const prompt = observedPrompt(0, f.ports.clock.now() + 1);
+  renameSync(f.wire, f.wire + '.old');
+  f.add(...wireHeader, prompt);
+  await start();
+  assert.equal(f.sessions.get(f.id).native.turnId, null);
+  renameSync(f.wire, f.wire + '.foreign');
+  renameSync(f.wire + '.old', f.wire);
+  appendFileSync(f.wire, '"}\n');
+  f.add(prompt);
+  await start();
+  addVerifiedWork(f, 0);
+  f.add(terminal);
+  await f.call('Notification', { turn_id: 0 });
+  assert.deepEqual((await f.ports.candidates.read())[f.id].model, route);
+});
 
 for (const timing of ['before the next prompt', 'while the next prompt is captured', 'after the next prompt opens', 'after the next native turn starts']) {
   test('a verified Kimi turn reports and keeps work when its terminal arrives ' + timing, async t => {
