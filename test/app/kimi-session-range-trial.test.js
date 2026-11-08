@@ -6,7 +6,7 @@ import { distillDue, distillSession, dropExpiredLeftovers } from '../../lib/app/
 import { reconcileNativeTurn } from '../../lib/app/native-turn.js';
 import { promptSubmitted } from '../../lib/app/prompt.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
-import { rangeOf, withCorrection, withoutWorkTurn } from '../../lib/distill/range.js';
+import { rangeOf, withCorrection, withoutWorkTurn, withWorkTurn } from '../../lib/distill/range.js';
 import { ModelUnavailable } from '../../lib/runtime/native-config.js';
 import { memoryPorts, PROMPT } from './memory-ports.js';
 import { changeTurn, DRAFTED, IR } from './work-turns.js';
@@ -114,6 +114,66 @@ test('a Kimi range never sends an earlier binding’s work to a different accoun
   await distillSession(ports, { sessionId });
   assert.equal(calls, 0);
   assert.equal(posts(made).length, 0);
+});
+
+test('removing a conflicting Kimi turn lets the remaining account distill without the old diff', async () => {
+  const earlierPrompt = 'Earlier account fixture work';
+  const earlierDiff = 'REMOVED_ACCOUNT_FIXTURE_CHANGE';
+  const newerRoute = { ...route, providerId: 'account-b', binding: 'binding-b' };
+  const calls = [];
+  const made = memoryPorts({
+    distillAnswer: DRAFTED,
+    project: { root: '/proj', head: 'a'.repeat(40), diff: `diff --git a/lib/redis.js b/lib/redis.js\n+${earlierDiff}\n` },
+    model: { complete: async (selected, prompt) => { calls.push({ selected, prompt }); return { answer: JSON.stringify(IR) }; } },
+  });
+  const { ports } = made;
+  await changeTurn(ports, sessionId, 1, { model: route, prompt: earlierPrompt });
+  await changeTurn(ports, sessionId, 2, { model: newerRoute });
+  assert.deepEqual(await distillSession(ports, { sessionId }), { status: 'blocked', reason: 'route_changed' });
+  assert.equal(calls.length, 0);
+  assert.equal(posts(made).length, 0);
+
+  await ports.candidates.update((pending) => withoutWorkTurn(pending, sessionId, 1, { now: ports.clock.now() }));
+  await changeTurn(ports, sessionId, 3, { model: newerRoute });
+
+  assert.equal((await distillSession(ports, { sessionId })).status, 'drafted');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].selected, newerRoute);
+  assert.match(calls[0].prompt, /Turn 2/);
+  assert.match(calls[0].prompt, /Turn 3/);
+  assert.equal(posts(made).length, 1);
+  const sent = calls[0].prompt + JSON.stringify(posts(made)[0].body);
+  assert.equal(sent.includes(earlierPrompt), false);
+  assert.equal(sent.includes(earlierDiff), false);
+});
+
+test('removing a conflicting Kimi turn keeps a runtime block only for the same binding', async () => {
+  const newerRoute = { ...route, providerId: 'account-b', binding: 'binding-b' };
+  for (const failedRoute of [route, newerRoute]) {
+    let calls = 0;
+    const made = memoryPorts({ model: { complete: async () => { calls++; throw new ModelUnavailable('route_changed'); } } });
+    const { ports } = made;
+    await changeTurn(ports, sessionId, 1, { model: failedRoute });
+    assert.deepEqual(await distillSession(ports, { sessionId }), { status: 'blocked', reason: 'route_changed' });
+    const blockedRange = rangeOf(await ports.candidates.read(), sessionId);
+    made.advance(500);
+    if (failedRoute === route) {
+      await changeTurn(ports, sessionId, 2, { model: newerRoute });
+    } else {
+      const deferred = { ...blockedRange.turns[0], turn: 0 };
+      await ports.candidates.update((pending) => withWorkTurn(pending, sessionId, deferred, {
+        now: ports.clock.now(), model: route, native: true, beforeNewerTurn: true,
+      }));
+    }
+    assert.deepEqual(await distillSession(ports, { sessionId }), { status: 'blocked', reason: 'route_changed' });
+    assert.equal(calls, 1);
+
+    const removed = failedRoute === route ? 1 : 0;
+    await ports.candidates.update((pending) => withoutWorkTurn(pending, sessionId, removed, { now: ports.clock.now() }));
+    const recovered = rangeOf(await ports.candidates.read(), sessionId);
+    assert.equal(recovered.routeConflict, undefined);
+    assert.deepEqual(recovered.blocked, failedRoute === newerRoute ? blockedRange.blocked : undefined);
+  }
 });
 
 test('a correction during the first Proxy reply drops the draft and stops the second IR', async () => {

@@ -89,6 +89,16 @@ function conflictingIdentity(records) {
   return false;
 }
 
+function admissionOf(prompt, payload) {
+  if (payload.hook_event_name !== 'TurnStarted' || payload.origin_kind !== 'user'
+      || nativeTurnIdOf(payload.turn_id) !== nativeTurnIdOf(prompt.turnId)
+      || (payload.prompt_id !== undefined && payload.prompt_id !== prompt.promptId)
+      || !Number.isSafeInteger(prompt.time) || !Array.isArray(prompt.input)) return null;
+  const parts = prompt.input.filter(part => part?.type === 'text' && part.meta?.source !== 'user prompt submit hook').map(part => text(part.text));
+  if (!parts.length || !text(payload.prompt).trim() || parts.join('').trim() !== text(payload.prompt).trim()) return null;
+  return { prompt: parts.join('\n').trim(), time: prompt.time };
+}
+
 /** Decode only the main agent's supported native wire; native turn zero is a real identity. */
 export function decodeNativeFacts(records = [], tasks = [], payload = {}, context = {}) {
   const schema = records.find(record => record.type === 'metadata')?.protocol_version ?? context.schemaVersion;
@@ -133,5 +143,7 @@ export function decodeNativeFacts(records = [], tasks = [], payload = {}, contex
   const hookCalls = records.filter(main).filter(item => item.type === 'context.append_loop_event' && item.event?.type === 'tool.call' && item.event.toolCallId === payload.tool_call_id);
   const hookTurns = [...new Set(hookCalls.map(item => nativeTurnIdOf(item.event.turnId)).filter(id => id !== null))];
   const toolTurnId = hookTurns.length === 1 ? hookTurns[0] : payload.hook_event_name === 'PreToolUse' && nativeTurnIdOf(context.turnId) !== null ? turnId : null;
-  return { ...empty, modelHint: boundModelHint, bind: { turnId, promptId: prompt.promptId, origin: 'user', mark: prompt.$offset ?? null }, terminal, record, notes, pendingVerification, toolTurnId };
+  const admission = prompts.length === 1 && next === -1 ? admissionOf(prompt, payload) : null;
+  return { ...empty, modelHint: boundModelHint, bind: { turnId, promptId: prompt.promptId, origin: 'user', mark: prompt.$offset ?? null },
+    ...(admission && { admission }), terminal, record, notes, pendingVerification, toolTurnId };
 }

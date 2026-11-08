@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange, withWorkTurn } from '../lib/distill/range.js';
+import { claimedOwn, hasDueRange, isCurrentRange, rangeRouteProblem, settledRange, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
   const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
@@ -27,6 +27,32 @@ test('a delayed turn outside the retained window leaves the verified range intac
   assert.equal(withWorkTurn({ s: range }, 's', delayed, {
     now: 22, native: true, sessionEpoch: 1, model: { binding: 'old' }, beforeNewerTurn: true,
   }), undefined);
+});
+
+test('settling an old blocked claim does not park a range whose conflicting turn was removed', () => {
+  const turn = (number, modelBinding) => ({ turn: number, at: number, sessionEpoch: 1, modelBinding, steps: [] });
+  const pending = { s: { at: 1, sessionEpoch: 1, native: true, closed: true, model: { binding: 'new' },
+    turns: [turn(1, 'old'), turn(2, 'new')], routeConflict: 'route_changed', blocked: { reason: 'route_changed', at: 2 } } };
+  const context = { pid: 42, isGone: () => false, now: 3 };
+  const { next, claimed } = claimedOwn(pending, 's', context);
+  const recovered = withoutWorkTurn(next, 's', 1, { now: 4 });
+  const settled = settledRange(recovered, 's', claimed.range, { blocked: 'route_changed', now: 5 });
+  assert.equal(hasDueRange(settled, { ...context, now: 5 }), true);
+});
+
+test('rolling out the conflicting turn does not unblock a Kimi range', () => {
+  const turn = (number, modelBinding) => ({ turn: number, at: number, sessionEpoch: 1, modelBinding, steps: [] });
+  const model = { binding: 'new' };
+  const pending = { s: { at: 1, sessionEpoch: 1, native: true, model,
+    turns: [turn(1, 'old'), ...Array.from({ length: 19 }, (_, index) => turn(index + 2, 'new'))],
+    routeConflict: 'route_changed', blocked: { reason: 'route_changed', at: 2 } } };
+  const stillMixed = withoutWorkTurn(pending, 's', 2);
+  assert.equal(rangeRouteProblem(stillMixed.s), 'route_changed');
+
+  const rolled = withWorkTurn(pending, 's', turn(21, 'new'), { now: 21, model, sessionEpoch: 1, native: true });
+  assert.equal(rolled.s.turns[0].turn, 2);
+  assert.equal(rangeRouteProblem(rolled.s), 'route_changed');
+  assert.equal(rangeRouteProblem(withoutWorkTurn(rolled, 's', 2).s), 'route_changed');
 });
 
 const RESULT = {
