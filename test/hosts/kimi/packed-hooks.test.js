@@ -34,7 +34,7 @@ async function until(check) {
   }
 }
 
-async function fixture(t) {
+async function fixture(t, clientType = 'kimi_code_cli') {
   const proxy = await fakeProxy();
   let teardown = async () => {};
   const plugin = mkdtempSync(join(tmpdir(), "evolver Kimi user's gói "));
@@ -58,7 +58,7 @@ async function fixture(t) {
   const system = Object.fromEntries(['SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'].filter(key => process.env[key]).map(key => [key, process.env[key]]));
   const env = { ...system, HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, KIMI_CODE_HOME: home, EVOMAP_PROXY_PORT: proxy.env.EVOMAP_PROXY_PORT, EVOLVER_AUTO_DISTILL: 'off', PATH: [dirname(process.execPath), process.env.PATH].join(delimiter) };
   const manifest = JSON.parse(readFileSync(join(plugin, 'kimi.plugin.json'), 'utf8'));
-  const base = { session_id: 'session-fixture', cwd: project, client_type: 'kimi_code_cli', is_steer: false };
+  const base = { session_id: 'session-fixture', cwd: project, client_type: clientType, is_steer: false };
   const hook = async (event, extra = {}, overrideEnv = {}) => {
     const handler = manifest.hooks.find(item => item.event === event); assert.ok(handler);
     const started = Date.now();
@@ -84,9 +84,7 @@ test('packed CLI prompt hooks return Kimi message context, ignore unsupported cl
   const f = await fixture(t);
   assert.deepEqual(await f.hook('SessionStart'), {});
   const ignored = f.proxy.requests.length;
-  for (const client_type of ['kimi_code_vscode', 'kimi_code_desktop']) {
-    assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], client_type }), {});
-  }
+  assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], client_type: 'kimi_code_vscode' }), {});
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], is_steer: true }), {});
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] }, { EVOLVER_HEADLESS: '1' }), {});
   assert.equal(f.proxy.requests.length, ignored);
@@ -112,8 +110,11 @@ test('packed CLI prompt hooks return Kimi message context, ignore unsupported cl
   assert.equal(f.proxy.requests.some(item => item.path === '/asset/submit'), false);
 });
 
-test('packed observers wait for native terminal evidence before confirming turn zero or queuing reuse', async t => {
-  const f = await fixture(t);
+for (const [client, clientType] of [
+  ['CLI', 'kimi_code_cli'],
+  ['Desktop', 'kimi_code_desktop'],
+]) test(`packed ${client} observers wait for native terminal evidence before confirming turn zero or queuing reuse`, async t => {
+  const f = await fixture(t, clientType);
   await f.hook('SessionStart');
   assert.match((await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] })).message, /maxRetriesPerRequest/);
   f.append({ type: 'turn.prompt', agentId: 'main', turnId: 0, promptId: 'prompt-zero', origin: { kind: 'user' }, input: [{ type: 'text', text: PROMPT }] });

@@ -348,8 +348,8 @@ scripts/               pack.mjs, publish-tag.sh
 
 ## Indexed native sessions and isolated ACP completion
 
-Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 on Windows.
-The profile declares the native workspace/session
+Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 and Desktop 1.2.1 on Windows.
+Both local clients use the same Kimi profile and managed plugin. The profile declares the native workspace/session
 layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked, replaced, malformed or partial
 records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
 using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer

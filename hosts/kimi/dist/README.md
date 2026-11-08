@@ -1,7 +1,8 @@
 # Evolver for Kimi Code
 
-This package integrates Kimi Code CLI 2.4.1 on Windows. Node.js 22.13+ must be
-available as `node` on the hook process PATH.
+The same package integrates Kimi Code CLI 2.4.1 and Desktop 1.2.1 on Windows.
+Desktop uses the installed Kimi Code CLI for isolated ACP draft creation.
+Node.js 22.13+ must be available as `node` on the hook process PATH.
 
 The integration covers the main agent in local sessions with a resolved
 API/BYOK provider. The adapter can also resolve the managed Kimi Code account on `kimi.com`. The
@@ -48,6 +49,8 @@ Marketplace eligibility or support by an external Evolver CLI installer.
 ## Terminal commands
 
 Run from the project directory, using the installed package's absolute entry path.
+In Desktop you can run these commands in its terminal. Use `evolver-distill` to
+create a draft while the Desktop session remains open.
 
 ```text
 node <Kimi-home>/plugins/managed/evolver-plugin/bin/command.mjs kimi evolver-status
@@ -89,4 +92,7 @@ model, Proxy or Hub service. The Windows native packed main-CLI flow passed with
 loopback dummy provider/Proxy: recalled context reached the real model request,
 native edits/checks produced one candidate/reuse report, the owner matched Kimi and
 workers exited. Loopback results do not establish real provider entitlement.
-macOS and other clients require separate native acceptance.
+Previous Windows Desktop packed acceptance used the native app with a loopback
+provider and Proxy. It verified Recipe injection, a passing Bash check, and one
+private draft through the installed CLI's isolated ACP completion. Real Desktop
+provider inference, macOS and other clients require separate acceptance.
