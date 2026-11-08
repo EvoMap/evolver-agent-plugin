@@ -38,6 +38,7 @@ installer preserves other plugin registrations, native config, credentials and
 Evolver state. Removal unregisters this package while retaining its managed bytes,
 matching native local-plugin removal; it does not delete preferences or drafts.
 The default install/update preserves a bundled `dist/kimi` release and its version.
+It refuses to replace a newer managed package with an older bundle or source build.
 An explicit `--version X.Y.Z` packs the checkout at that version instead.
 Packing source requires `npm ci` in that checkout; installing an existing release
 bundle does not download dependencies or change the native account configuration.
