@@ -120,7 +120,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
       has: async (id, turn, epoch) => draftCorrections.has(JSON.stringify([id, turn, epoch])),
     },
     reports: { enqueue: async (entries) => queued.push(...entries) },
-    outbox: { drain: async () => true },
+    outbox: { some: async () => false, drain: async () => true },
     retention: {
       remember: async (entry) => retained.push(entry),
       takeDue: async () => ({ due: [], commit: async () => {} }),
@@ -144,7 +144,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     scheduler: { schedule: (tasks) => scheduled.push(...tasks), wakeAt: (at, tasks) => wakeUps.push({ at, tasks }) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
-    ledger: { record: async () => true },
+    ledger: { load: async () => {}, record: async () => true },
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
     signIn: { latest: async () => null, joinOrStart: async () => null, forget: async () => {} },
   };
