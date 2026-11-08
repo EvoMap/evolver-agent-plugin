@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -149,6 +149,31 @@ test('an untracked file whose name is not UTF-8 keeps the rest of the diff', asy
   const { diff } = await projectSnapshotOf().snapshot(dir);
   assert.match(diff, /\+export const a = 2;/);
   assert.match(diff, /"b\/n\\377\.txt"/);
+});
+
+test('a scratch index keeps a same-size tracked edit with the index timestamp', async (t) => {
+  const dir = repo(t);
+  const tracked = join(dir, 'a.js');
+  const index = join(dir, '.git', 'index');
+  const time = new Date('2020-01-01T00:00:00Z');
+  git(dir, 'config', 'core.checkStat', 'minimal');
+  git(dir, 'config', 'core.trustctime', 'false');
+  utimesSync(tracked, time, time);
+  git(dir, 'add', 'a.js');
+  utimesSync(index, time, time);
+  const indexBefore = readFileSync(index);
+  const indexTime = statSync(index).mtimeMs;
+
+  writeFileSync(tracked, 'export const a = 2;\n');
+  utimesSync(tracked, time, time);
+  writeFileSync(join(dir, 'new.txt'), 'untracked\n');
+  assert.match(git(dir, '--no-optional-locks', 'diff', 'HEAD'), /\+export const a = 2;/);
+
+  const { diff } = await projectSnapshotOf().snapshot(dir);
+  assert.match(diff, /\+export const a = 2;/);
+  assert.match(diff, /\+untracked/);
+  assert.deepEqual(readFileSync(index), indexBefore);
+  assert.equal(statSync(index).mtimeMs, indexTime);
 });
 
 test('a folder outside any git repository, or one before its first commit, has no snapshot', async (t) => {
