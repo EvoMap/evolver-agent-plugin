@@ -22,13 +22,14 @@ function realPathOf(file) {
  */
 export function executableOf(declaration, { env = process.env, platform = process.platform, exists = existsSync, realPath = realPathOf } = {}) {
   const isWindows = platform === 'win32';
+  const paths = isWindows ? path.win32 : path.posix;
   const viaNode = isWindows && Boolean(declaration.nodeScriptOnWindows);
-  const pathDirs = viaNode ? [] : String(env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const pathDirs = viaNode ? [] : String(env.PATH ?? '').split(paths.delimiter).filter(Boolean);
   const extensions = !isWindows || viaNode ? [''] : ['.exe', ...(declaration.windowsShims ? ['.cmd'] : [])];
   for (const name of declaration.names) {
     for (const dir of [...pathDirs, ...(declaration.dirs ?? [])]) {
       for (const extension of extensions) {
-        const file = path.join(dir, `${name}${extension}`);
+        const file = paths.join(dir, `${name}${extension}`);
         if (exists(file) && (!declaration.accepts || declaration.accepts(name, realPath(file)))) return { file, viaNode };
       }
     }

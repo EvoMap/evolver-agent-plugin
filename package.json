@@ -2,7 +2,7 @@
   "name": "@evomap/evolver-agent-plugin",
   "version": "1.0.0",
   "private": true,
-  "description": "Evolver as one agent plugin with no tools: strategy recall, evidence-backed reuse reports and distillation of verified turns, from each host's hooks, plugin API or MCP.",
+  "description": "Evolver as one agent plugin with no tools: strategy recall, evidence-backed reuse reports and session-level distillation of verified work, from each host's hooks, plugin API or MCP.",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
@@ -10,12 +10,14 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test --test-timeout=120000 \"test/**/*.test.js\"",
+    "test:minimax": "node --test --test-concurrency=4 --test-timeout=120000 \"test/*.test.js\" \"test/app/*.test.js\" \"test/runtime/*.test.js\" \"test/hosts/minimax/*.test.js\" test/channels/hook.test.js test/channels/script.test.js test/channels/mcp.test.js",
     "validate": "node scripts/pack.mjs claude-code dist/claude-code && claude plugin validate dist/claude-code",
     "dev:sync": "bash scripts/sync-dev-mod.sh",
     "pack": "node scripts/pack.mjs all dist"
   },
   "devDependencies": {
-    "@evomap/evolver-core": "2.0.38"
+    "@evomap/evolver-core": "2.0.38",
+    "smol-toml": "1.9.1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

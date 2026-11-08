@@ -48,7 +48,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
   const url = `http://127.0.0.1:${server.address().port}`;
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.49' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.50' } }));
   return {
     requests,
     env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
@@ -56,7 +56,19 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       server.close();
       server.closeAllConnections();
       endWaiters(home);
-      rmSync(home, { recursive: true, force: true });
+      // A detached worker the hooks started can still be writing its state here after the request a test waits on.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
+}
+
+/** A detached hook worker can still finish a state write after the Proxy received its last request. */
+export async function closeProxyWhenSettled(proxy) {
+  for (let attempt = 0; ; attempt++) {
+    try { return proxy.close(); }
+    catch (error) {
+      if (attempt === 19 || !['ENOTEMPTY', 'EPERM', 'EBUSY'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 }

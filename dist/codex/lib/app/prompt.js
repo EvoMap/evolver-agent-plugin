@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { withSessionActivity, withoutCandidate } from '../distill/candidate.js';
+import { withoutDraftsForTurn } from '../distill.js';
+import { rangeOf, withCorrection, withSessionActivity } from '../distill/range.js';
+import { correctionTextOf } from '../distill/work-turn.js';
 import { promptTextOf, recallStrategy, taskTextOf } from '../recall.js';
 import { correctionReportsOf, followUpLabelOf } from '../session/follow-ups.js';
-import { correctedSession, joinedWaiting, listedIdsOf, openedTurn, sessionOf, withInjection, withShown, withWaiting } from '../session/state.js';
+import { joinedWaiting, listedIdsOf, openedTurn, sessionOf, withInjection, withShown, withTurnHead, withWaiting, withWithheld } from '../session/state.js';
 import { scheduleDueDistillation } from './distill-session.js';
+import { recallRequestOf } from './recall-request.js';
 import { TASKS } from './ports.js';
 
 export const CLOSING = 'Apply them where they fit.';
@@ -13,24 +16,62 @@ export const CLOSING = 'Apply them where they fit.';
 const RECIPE_MARGIN_MS = 300;
 const LATE_RECIPE_WAIT_MS = 6_000;
 
+// An older plugin version ending the session drops its epoch; the range holding the corrected turn, or its newest
+// draft, keeps it.
+async function sourceEpochOf({ candidates, drafts }, sessionId, turn) {
+  const saved = await drafts.read();
+  const ofSession = (Array.isArray(saved) ? saved : []).filter((draft) => draft?.sessionId === sessionId);
+  const range = rangeOf(await candidates.read(), sessionId);
+  const ofRange = range?.turns.some((read) => read.turn === turn) ? [{ at: range.at, turn, sessionEpoch: range.sessionEpoch }] : [];
+  const sources = [...ofRange, ...ofSession.map((draft) => draft.sourceCandidate)];
+  return sources.filter((source) => source?.turn === turn && source.sessionEpoch !== undefined).sort((left, right) => right.at - left.at)[0]?.sessionEpoch;
+}
+
+async function markedCorrection(ports, sessionId, { turn, sessionEpoch }) {
+  if (turn === 0) return { turn };
+  const epoch = sessionEpoch ?? await sourceEpochOf(ports, sessionId, turn);
+  await ports.draftCorrections.mark(sessionId, turn, epoch);
+  return { turn, sessionEpoch: epoch };
+}
+
+// The lock only orders the mark against a publication's last check. One held past its wait must not cost the person
+// their turn and its recall, so the correction is then recorded without it and the hook reports the skipped lock.
+async function recordedCorrection(ports, sessionId, session) {
+  const mark = () => markedCorrection(ports, sessionId, session);
+  try {
+    return await ports.draftCorrections.withSession(sessionId, mark);
+  } catch (error) {
+    if (error?.code !== 'ELOCKED') throw error;
+    return { ...(await mark()), skipped: error };
+  }
+}
+
 /**
- * The next prompt is the only verdict on a turn available without asking anyone: a correction drops the
- * session's candidate first, then the last turn's reuses are reported again under `:correction`. The session is
- * marked corrected before the drop, so a re-judge of that turn writing meanwhile sees the mark and takes its write back.
- * Any other prompt is the session's activity, which a candidate waits out before it is distilled.
+ * The next prompt is the only verdict on a turn available without asking anyone: a correction stays with the last
+ * turn in the session's range, for distillation to read, takes back the drafts distilled from that turn before it,
+ * and the last turn's reuses are reported again under `:correction`. The turn is marked corrected first, so a draft's
+ * confirmation or publication sees the mark, and the range changes before drafts are removed, so a draft written
+ * after the removal still sees the turn it read changed. Every prompt is the session's activity, which a range waits
+ * out before it is distilled. Answers the error of a correction lock it had to go without, if any.
  */
 async function labelFollowUp(ports, sessionId, prompt) {
-  const { sessions, candidates, reports, clock } = ports;
+  const { sessions, candidates, drafts, reports, clock } = ports;
   const label = followUpLabelOf(prompt);
+  const session = sessionOf(await sessions.read(sessionId));
+  let skipped;
   if (label === 'correction') {
-    await sessions.update(sessionId, (stored) => correctedSession(sessionOf(stored)));
-    await candidates.update((pending) => withoutCandidate(pending, sessionId));
-  } else {
-    await candidates.update((pending) => withSessionActivity(pending, sessionId, clock.now()));
+    const correction = await recordedCorrection(ports, sessionId, session);
+    skipped = correction.skipped;
+    await candidates.update((pending) => withCorrection(pending, sessionId, session.turn, correctionTextOf(promptTextOf(prompt)), clock.now()));
+    if (correction.turn > 0) await drafts.update((list) => withoutDraftsForTurn(list, sessionId, correction.turn, correction.sessionEpoch));
   }
-  const queued = correctionReportsOf(sessionOf(await sessions.read(sessionId)).labelable, label, sessionId);
+  await candidates.update((pending) => withSessionActivity(pending, sessionId, clock.now()));
+  // Read again: a turn end that overlapped the waits above may have left newer reuses to label.
+  const { labelable } = sessionOf(await sessions.read(sessionId));
+  const queued = correctionReportsOf(labelable, label, sessionId);
   if (queued.length > 0) await reports.enqueue(queued);
   await scheduleDueDistillation(ports, queued.length > 0 ? [TASKS.DRAIN] : []);
+  return skipped;
 }
 
 /** A recall's match when it brings a strategy (`{ ids, text, stepTexts? }`, a Recipe's steps or one asset), else null. */
@@ -65,15 +106,21 @@ async function waitForToolResult({ sessions }, sessionId, { turn, match }) {
   if (strategy) await sessions.update(sessionId, (stored) => withWaiting(sessionOf(stored), strategy, turn));
 }
 
-async function recalled(ports, sessionId, { turn, prompt, waitMs, keepLate, holdForToolResult }) {
+/** Remembers a trial Gene the Proxy withheld from `turn`, which that turn's end reports as a control. */
+export const rememberWithheld = ({ sessions }, sessionId, turn) => (withheld) =>
+  sessions.update(sessionId, (stored) => withWithheld(sessionOf(stored), withheld, turn));
+
+async function recalled(ports, sessionId, { turn, prompt, projectDir, waitMs, keepLate, holdForToolResult }) {
   const session = sessionOf(await ports.sessions.read(sessionId));
   const listedIds = listedIdsOf(session);
   const context = session.task ? { task: session.task, trigger: 'turn_start' } : null;
-  const proxyFetch = (method, path, body) => ports.proxy.request(method, path, body);
-  const recipeCutoff = ports.clock.sleep(waitMs > 0 ? Math.max(0, waitMs - RECIPE_MARGIN_MS) : LATE_RECIPE_WAIT_MS);
-  const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { context, listedIds, closingOf: () => CLOSING, recipeCutoff });
+  const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy);
+  const recipeCutoff = ports.clock.sleep(waitMs > 0 ? Math.max(0, waitMs - RECIPE_MARGIN_MS) : LATE_RECIPE_WAIT_MS, signal);
+  const onWithheld = rememberWithheld(ports, sessionId, turn);
+  const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { context, projectDir, listedIds, onWithheld, closingOf: () => CLOSING, recipeCutoff });
   const TIMED_OUT = Symbol('timed out');
-  const match = waitMs > 0 ? await Promise.race([recall, ports.clock.sleep(waitMs).then(() => TIMED_OUT)]) : TIMED_OUT;
+  const match = waitMs > 0 ? await Promise.race([recall, ports.clock.sleep(waitMs, signal).then(() => TIMED_OUT)]) : TIMED_OUT;
+  if (match !== TIMED_OUT || !keepLate) cancel();
   if (match !== TIMED_OUT && holdForToolResult) {
     await waitForToolResult(ports, sessionId, { turn, match });
     return { injection: '' };
@@ -84,8 +131,20 @@ async function recalled(ports, sessionId, { turn, prompt, waitMs, keepLate, hold
     text: landed.text,
     show: () => shown(ports, sessionId, { turn, ids: landed.ids }),
     join: async () => (await booked(ports, sessionId, { turn, match: landed, onlyWhileOpen: true })) !== '',
-  } : null)).catch(() => null);
+  } : null)).catch(() => null).finally(cancel);
   return { injection: '', late };
+}
+
+// The commit a turn begins on is where a range of work turns starting with it takes its diff from, so work it commits
+// still shows. Read alongside the recall, it costs the prompt no wait of its own.
+async function rememberTurnHead({ project, sessions }, sessionId, { turn, projectDir }) {
+  let head = null;
+  try {
+    head = await project?.head?.(projectDir);
+  } catch {
+    return;
+  }
+  if (head) await sessions.update(sessionId, (stored) => withTurnHead(sessionOf(stored), head, turn));
 }
 
 /**
@@ -96,16 +155,19 @@ async function recalled(ports, sessionId, { turn, prompt, waitMs, keepLate, hold
  * only while the turn is still open, once a model step does. With `holdForToolResult`, for a host whose prompt hook
  * cannot add context, a strategy that lands in time waits for the turn's first tool result instead (see
  * `takeWaitingStrategy`). A plugin command's turn keeps the last real turn's reuses for the next prompt to label, is
- * recalled for nothing and never becomes a distillation candidate.
+ * recalled for nothing and never joins the session's range of work turns. `skipped` is the error of a correction lock
+ * the prompt went without.
  */
-export async function promptSubmitted(ports, { sessionId, prompt, turnId = null, turnStart = null, hostTurn = null, isCommand = false, waitMs, keepLate = false, holdForToolResult = false }) {
-  if (!isCommand) await labelFollowUp(ports, sessionId, prompt);
+export async function promptSubmitted(ports, { sessionId, prompt, projectDir = null, turnId = null, turnStart = null, hostTurn = null, isCommand = false, waitMs, keepLate = false, holdForToolResult = false }) {
+  const skipped = isCommand ? undefined : await labelFollowUp(ports, sessionId, prompt);
   await ports.notes.clear(sessionId);
   const opened = await ports.sessions.update(sessionId, (stored) =>
-    openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, task: taskTextOf(prompt), pid: ports.owner.current(), isCommand }));
+    openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, task: taskTextOf(prompt), pid: ports.owner.current(), isCommand, now: ports.clock.now() }));
   const wantsRecall = !isCommand && ports.settings?.recall !== false;
-  const { injection, late } = wantsRecall ? await recalled(ports, sessionId, { turn: opened.turn, prompt, waitMs, keepLate, holdForToolResult }) : { injection: '' };
-  return { turn: opened.turn, injection, ...(late && { late }) };
+  const recall = wantsRecall ? recalled(ports, sessionId, { turn: opened.turn, prompt, projectDir, waitMs, keepLate, holdForToolResult }) : { injection: '' };
+  const headRead = isCommand || !projectDir ? null : rememberTurnHead(ports, sessionId, { turn: opened.turn, projectDir });
+  const [{ injection, late }] = await Promise.all([recall, headRead]);
+  return { turn: opened.turn, injection, ...(late && { late }), ...(skipped && { skipped }) };
 }
 
 /**

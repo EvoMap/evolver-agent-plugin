@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 
-import { candidateOf } from '../../../lib/distill/candidate.js';
 import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
 import { GENE, PROMPT, projectDirectory, requestsTo, startProxy, until } from './host.js';
 
@@ -113,11 +112,11 @@ test('/evolver-search and /evolver-distill need an open session', async (t) => {
   assert.equal(lastAlert(api).title, '/evolver-search failed');
 });
 
-test("/evolver-distill distills the open session's candidate now, through a helper session", async (t) => {
+test("/evolver-distill distills the open session's work now, through a helper session", async (t) => {
   const proxy = await startProxy(t);
   const stores = fileStoresOf({ dir: proxy.stateDir, agent: 'opencode' });
-  const record = { checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: ['a.js'], answer: 'Done.' };
-  await stores.candidates.update(() => ({ ses_open: candidateOf({ prompt: PROMPT, record, model: { providerID: 'anthropic', modelID: 'claude-sonnet' }, turn: 1, pid: process.pid, now: 1 }) }));
+  const turn = { turn: 1, prompt: PROMPT, steps: [{ kind: 'edit', path: 'a.js' }, { kind: 'check', command: 'npm test', exit: 0, failed: false }], answer: 'Done.', at: 1 };
+  await stores.candidates.update(() => ({ ses_open: { turns: [turn], model: { providerID: 'anthropic', modelID: 'claude-sonnet' }, pid: process.pid, attempts: 0, at: 1, changedAt: 1 } }));
 
   const api = fakeApi(inSession('ses_open'));
   (await loadTui(api))['evolver-distill'].run();

@@ -2,8 +2,9 @@
 
 Evolver for Codex, powered by [Evolver](https://github.com/EvoMap/evolver) (`@evomap/evolver`) and
 [EvoMap](https://evomap.ai): before each prompt it recalls one proven strategy, reports at the turn's end how the
-turn that used it went (with the checks it ran as evidence), and distills the session's verified work into a draft
-Gene once the session has been quiet for 30 minutes or ends.
+turn that used it went (with the checks it ran as evidence), and distills the session's verified work into draft
+Genes once it holds three work turns or a fixed error: 10 minutes after the fix, 30 minutes after the session went
+quiet, or when it ends.
 
 The plugin runs entirely from Codex hooks. It registers **no tools and no skill**, so nothing of Evolver enters the
 model's context but the recalled steps, which end with `Apply them where they fit.`
@@ -29,7 +30,7 @@ codex plugin add evolver-plugin@evomap
 Then open `/hooks` in Codex, trust the Evolver hooks, and start a new thread.
 
 What the standalone plugin left in `~/.evolver/state` carries over: turn counters, undelivered reports,
-distillation candidates and the engine it installed. Its strategies still open are reported as aborted at the
+work waiting to be distilled and the engine it installed. Its strategies still open are reported as aborted at the
 first session start.
 
 ### Trusting the hooks
@@ -57,13 +58,13 @@ in a git repository and open the claim link it prints while signed in to [evomap
 
 | Codex hook | What the plugin does |
 | --- | --- |
-| `SessionStart` (`startup`, `resume`, `clear`, `fork`) | Reports whether an earlier session's edits in this project were kept, reports a killed session's open strategies as aborted, sets Evolver up and distills leftover candidates, all in a detached background process. Adds no context, except a one-off notice when it installed, upgraded or could not start Evolver. |
-| `UserPromptSubmit` | Answers the `evolver-*` commands itself. Otherwise recalls by the prompt text and adds the best strategy as `additionalContext`; reads the prompt as a correction or approval of the previous turn's reuse, and a correction drops that turn's candidate. |
+| `SessionStart` (`startup`, `resume`, `clear`, `fork`) | Reports whether an earlier session's edits in this project were kept, reports a killed session's open strategies as aborted, sets Evolver up and distills the work sessions left, all in a detached background process. Adds no context, except a one-off notice when it installed, upgraded or could not start Evolver. |
+| `UserPromptSubmit` | Answers the `evolver-*` commands itself. Otherwise recalls by the prompt text and adds the best strategy as `additionalContext`; reads the prompt as a correction or approval of the previous turn's reuse, and a correction stays with that turn's work for distillation to read. |
 | `PreToolUse` (`Bash`, `apply_patch`) | Hashes the files a patch is about to change, for the next session's retention report. |
 | `PostToolUse` (`Bash`, `apply_patch`) | Notes the turn's commands, its checks (test, build, lint, type check) with pass or fail, and the files its applied patches edited. |
-| `Stop` | Reports every strategy recalled into the turn, and makes the turn the session's distillation candidate when it ended on a passing check after editing files or running three commands. |
+| `Stop` | Reports every strategy recalled into the turn, and adds a turn that edited files, ran a check or ran three commands to the session's work for distillation. |
 | `Interrupt` | Reports the turn's strategies as aborted. |
-| `SessionEnd` | Closes a turn still open, reports what is left as aborted, and distills the session's candidate in the background. Keeps the session's turn counter, so a resumed thread never repeats a task id. |
+| `SessionEnd` | Closes a turn still open, reports what is left as aborted, and distills the session's work in the background when it passes the threshold. Keeps the session's turn counter, so a resumed thread never repeats a task id. |
 
 Codex hands a `Bash` hook the command's bare output, not its exit code, so a check fails on failure output, a
 timeout or an `Exit code:` header that says so. A patch counts as an edit once Codex says it applied.
@@ -75,7 +76,7 @@ Codex ignores the events it does not know, and the plugin falls back:
 - Without `Interrupt` (before 0.150), an interrupted turn is closed by the next prompt, as one that ended on an
   error.
 - Without `SessionEnd` (before 0.145), a session counts as over once its Codex process is gone: the next session
-  start reports its open strategies as aborted and distills its candidate.
+  start reports its open strategies as aborted and distills its work.
 
 The session's owner is the nearest ancestor process named `codex*`: the CLI, or the app's app-server. Codex Desktop
 runs sessions in one long-lived app-server, so there a killed session only counts as gone once the app-server exits.
@@ -89,10 +90,10 @@ exception: it is meant for the agent, so the prompt goes on to the model with th
 
 | Typed in Codex | What it does |
 | --- | --- |
-| `evolver-status` | The Proxy, engine setup, Hub sign-in, this session's distillation candidate and the drafts waiting. |
+| `evolver-status` | The Proxy, engine setup, Hub sign-in, this session's work waiting to be distilled, the last distillation's outcome and the drafts waiting. |
 | `evolver-login` | Signs you in to the EvoMap Hub: answers a link and a code to approve, then, typed again, the registered node. |
 | `evolver-search <text>` | Finds the EvoMap strategy that best fits the text. |
-| `evolver-distill [focus]` | Distills this session's latest verified turn into a draft now. |
+| `evolver-distill [focus]` | Distills this session's work into drafts now, even below the three-turn threshold. |
 | `evolver-drafts [publish\|discard <number>]` | Lists the distilled drafts; publishes one to the EvoMap Hub for review, or discards it. |
 | `evolver-evolve [focus]` | Gives the agent the evolution-checkpoint instruction for this turn. |
 | `evolver-sync`, `evolver-review`, `evolver-run`, `evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.46` when it is not installed). |
@@ -100,7 +101,7 @@ exception: it is meant for the agent, so the prompt goes on to the model with th
 Only a prompt that is exactly a command counts; `evolver-status` followed by more text is an ordinary prompt. The
 prompt box waits while a command runs: up to two minutes for `evolver-distill`, ten for the engine commands.
 
-The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest candidate:
+The same commands run in a terminal, where no session is current, so `evolver-distill` takes the newest session's work:
 
 ```bash
 node ~/.codex/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs codex evolver-status
@@ -108,17 +109,18 @@ node ~/.codex/plugins/cache/evomap/evolver-plugin/<version>/bin/command.mjs code
 
 ## Background distillation
 
-Once the session has been quiet for 30 minutes, or when it ends, a detached process runs Codex itself headless on the session's model —
+Once the session's work holds three work turns or a fixed error, and its last check passed (10 minutes after the fix,
+30 minutes after the session went quiet, or when it ends), a detached process runs Codex itself headless on the session's model —
 `codex exec --ephemeral --json --sandbox read-only --disable hooks --disable plugins --disable shell_tool …`
-in an empty folder, with the prompt on stdin — to write a Gene from a digest of the candidate turn (task,
-commands, paths, checks, final answer; keys and tokens stripped), and sends it to the Proxy's
-`POST /conversation/distill`. Unless the Proxy verifies it, the answer is a draft, kept until you publish or discard
+in an empty folder, with the prompt on stdin — to write up to two `session-gene-ir-v1` IRs from the numbered record
+of that work (prompts, commands, checks with a failed one's output, edits, answers, corrections and the diff; keys and
+tokens stripped), and sends each to the Proxy's `POST /conversation/distill`. Unless the Proxy verifies it, the answer is a draft, kept until you publish or discard
 it with `evolver-drafts`.
 
 It runs on your own `config.toml`, so on the model provider your session used. The MCP servers in that config would
 run outside the read-only sandbox, so they are listed first (`codex mcp list --json`) and each is turned off by name;
 when they cannot be listed, the model is not run. Codex Desktop's own CLI is found inside the app when `codex` is not
-on the `PATH`. A candidate is tried three times, then given up.
+on the `PATH`. A distillation is tried three times, then given up.
 
 ## Reuse reports
 

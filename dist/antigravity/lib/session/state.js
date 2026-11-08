@@ -8,8 +8,8 @@ import { unreportedAssets, withInjected, withReported } from '../injected-ledger
 
 export const EMPTY_SESSION = Object.freeze({
   turn: 0, turnId: null, open: false, turnStart: null, prompt: '', isCommand: false, strategy: '',
-  labelable: [], injected: {}, pid: null, startedUnder: null, settling: null, turnIds: [], correctedTurn: 0, shown: [],
-  waiting: null, task: '', stuckQueries: [],
+  labelable: [], injected: {}, pid: null, startedUnder: null, settling: null, turnIds: [], shown: [],
+  waiting: null, task: '', stuckQueries: [], turnHead: null, withheld: [], pendingControls: [],
 });
 
 const MAX_STUCK_RECALLS_PER_TURN = 2;
@@ -28,10 +28,12 @@ export const sessionOf = (stored) => ({ ...EMPTY_SESSION, ...stored });
  * that numbers its own turns (`hostTurn`) keeps the count at least there, so a session resumed after its state was
  * gone never repeats a task id. The session's `task` is its first typed prompt, kept for the Hub to judge each later
  * recall's fit against; a resumed session keeps the task it had.
+ * A fresh session file gets an epoch so retained drafts cannot share a correction key with reused turn numbers.
  */
-export function openedTurn(session, { turnId = null, turnStart = null, hostTurn = null, prompt = null, task = '', pid = null, isCommand = false }) {
+export function openedTurn(session, { turnId = null, turnStart = null, hostTurn = null, prompt = null, task = '', pid = null, isCommand = false, now }) {
   return {
     ...session,
+    sessionEpoch: session.turn === 0 ? now : session.sessionEpoch,
     turn: Math.max(session.turn + 1, Number.isInteger(hostTurn) ? hostTurn : 0),
     turnId,
     turnIds: turnId ? [...session.turnIds.filter((known) => known !== turnId), turnId].slice(-MAX_TURN_IDS) : session.turnIds,
@@ -46,7 +48,24 @@ export function openedTurn(session, { turnId = null, turnStart = null, hostTurn 
     waiting: null,
     task: session.task || (isCommand ? '' : task),
     stuckQueries: [],
+    turnHead: null,
+    withheld: [],
   };
+}
+
+/** The session with the git HEAD its open `turn` began on (`{ root, head }`); undefined once that turn is not open. */
+export function withTurnHead(session, head, turn) {
+  if (!(session.open && session.turn === turn) || !head) return undefined;
+  return { ...session, turnHead: head };
+}
+
+/**
+ * The session with a trial Gene the Proxy withheld from `turn` (`{ asset_id, withheld_id }`), for that turn's end to
+ * report as a control; the first withholding of an asset in a turn is the one reported.
+ */
+export function withWithheld(session, withheld, turn) {
+  if (!(session.open && session.turn === turn) || session.withheld.some((known) => known.asset_id === withheld.asset_id)) return undefined;
+  return { ...session, withheld: [...session.withheld, withheld] };
 }
 
 /**
@@ -75,11 +94,6 @@ export function closedTurn(session, turnId, now) {
 export const isSettling = (session, now) => Number.isFinite(session.settling) && now - session.settling < SETTLING_STALE_MS;
 
 export const settledSession = (session) => ({ ...session, settling: null });
-
-/** The session once the person corrected its last turn, so no later judgement of that turn makes it a candidate again. */
-export const correctedSession = (session) => ({ ...session, correctedTurn: session.turn });
-
-export const isCorrected = (session, turn) => session.correctedTurn >= turn;
 
 /**
  * The session with `assetIds` noted as shown to the agent before any turn booked them, so no later recall of the
@@ -162,5 +176,5 @@ export const isEarlierTurn = (session, turnId) => Boolean(turnId) && turnId !== 
 
 /** What an ended session keeps: its turn counter, owner and ledger, so a resume neither repeats a task id nor re-injects. */
 export function endedSession(session) {
-  return { ...EMPTY_SESSION, turn: session.turn, pid: session.pid, injected: session.injected, turnIds: session.turnIds, shown: session.shown, task: session.task };
+  return { ...EMPTY_SESSION, turn: session.turn, sessionEpoch: session.sessionEpoch, pid: session.pid, injected: session.injected, turnIds: session.turnIds, shown: session.shown, task: session.task, pendingControls: session.pendingControls };
 }

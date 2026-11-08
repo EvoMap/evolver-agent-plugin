@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { execFile } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runProcess } from './runtime/process/spawn.js';
 
 const HIT_EVENT = 'value.reuse_hit';
 const OUTCOME_EVENT = 'value.reuse_outcome';
@@ -16,11 +17,9 @@ const byPath = new Map();
 
 const NPM_ROOT_TIMEOUT_MS = 5_000;
 
-function globalNpmRoot() {
-  return new Promise((resolve) => {
-    execFile('npm', ['root', '-g'], { timeout: NPM_ROOT_TIMEOUT_MS, encoding: 'utf8', shell: process.platform === 'win32' },
-      (error, stdout) => resolve(error ? null : stdout.trim() || null));
-  });
+async function globalNpmRoot() {
+  const result = await runProcess('npm', ['root', '-g'], { timeoutMs: NPM_ROOT_TIMEOUT_MS, shim: true });
+  return result.error || result.code !== 0 ? null : result.stdout.trim() || null;
 }
 
 // A plugin installed from a marketplace has no node_modules of its own. The
@@ -76,6 +75,13 @@ export async function recordReuseLocally({ assetId, outcome, sessionId }, { engi
   const ingestor = await loadIngestor(enginePrefix);
   if (!ingestor) return false;
 
+  // Check the target before ingest, where a failure cannot follow an append.
+  try {
+    if (!(await stat(ingestor.path)).isFile()) return false;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return false;
+  }
+
   const cycleId = cycleIdOf(sessionId);
   const success = outcome === 'success';
   try {
@@ -87,8 +93,10 @@ export async function recordReuseLocally({ assetId, outcome, sessionId }, { engi
       },
       payload: success ? { assetId, cycleId } : { assetId, cycleId, outcome },
     });
-    return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // Core acquires the lock before appending. Other errors can follow a write.
+    if (error?.code === 'LOCK_TIMEOUT') return false;
+    throw error;
   }
+  return true;
 }

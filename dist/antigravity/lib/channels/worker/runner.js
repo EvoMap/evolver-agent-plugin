@@ -4,6 +4,7 @@
 import { runBackgroundTasks } from '../../app/background.js';
 import { profileNamed } from '../../agent/registry.js';
 import { EPHEMERAL, environmentFor } from '../../runtime/environment.js';
+import { exitProcess } from '../../runtime/process/exit.js';
 
 const WAKE_AT = /^--at=(\d+)$/;
 
@@ -14,13 +15,16 @@ const wakeAtOf = (args) => {
 
 /**
  * The detached worker a hook process starts for slow work: runs the tasks in `args` for `agent`, and with
- * `--at=<ms>`, as a wake-up, only once that time has come; true when none threw.
+ * `--at=<ms>`, as a wake-up, only once that time has come; exits 0 when none threw, else 1.
  */
-export async function runWorker(agent, args, { env = process.env } = {}) {
+export async function runWorkerProcess(agent, args, { env = process.env } = {}) {
   const profile = await profileNamed(agent).catch(() => null);
-  if (!profile) return false;
-  const { runTasks, waitForWakeUp } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: runBackgroundTasks });
-  const at = wakeAtOf(args);
-  if (at !== null) await waitForWakeUp(at);
-  return runTasks(args.filter((arg) => !WAKE_AT.test(arg)));
+  let ok = false;
+  if (profile) {
+    const { runTasks, waitForWakeUp } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: runBackgroundTasks });
+    const at = wakeAtOf(args);
+    if (at !== null) await waitForWakeUp(at);
+    ok = await runTasks(args.filter((arg) => !WAKE_AT.test(arg)));
+  }
+  exitProcess(ok ? 0 : 1, { drainWindowsHandles: profile?.drainWindowsHandles });
 }

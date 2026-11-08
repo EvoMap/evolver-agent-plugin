@@ -3,7 +3,7 @@
 
 import { UNKNOWN } from './applied.js';
 import { checkEvidenceOf } from './checks.js';
-import { REJECTED, RETRY, SENT, isSettled, withAttempt } from './report-outbox.js';
+import { NOT_RECORDED, RECORDED, REJECTED, RETRY, SENT, UNCERTAIN, isSettled, withAttempt } from './report-outbox.js';
 import { outcomeOfReason } from './turn-outcomes.js';
 
 export const OBSERVED = 'observed';
@@ -96,14 +96,19 @@ export function retentionReportOf(reuse, retentionClass) {
   });
 }
 
+const MAX_LOCAL_FAILURES = 3;
 const REJECTED_BY_HUB = /^hub (?:400|422)\b/;
 
+// A trial control whose withholding is unknown or expired, or was answered already, would get the same answer again.
+const NOT_WITHHELD = 'not_withheld';
+const TAKEN_REASONS = new Set(['duplicate_report', 'duplicate']);
+
 function isRejection(data) {
-  return data?.terminal === true || REJECTED_BY_HUB.test(String(data?.reason ?? ''));
+  return data?.terminal === true || REJECTED_BY_HUB.test(String(data?.reason ?? '')) || data?.reason === NOT_WITHHELD;
 }
 
 function isTaken(data) {
-  return data?.recorded !== false || data?.reason === 'duplicate_report';
+  return data?.recorded !== false || TAKEN_REASONS.has(data?.reason);
 }
 
 export function deliveryOf(result) {
@@ -112,34 +117,50 @@ export function deliveryOf(result) {
   return { verdict: isTaken(result.data) ? SENT : RETRY };
 }
 
-async function postToHub(proxyFetch, report) {
+const REUSE_RESULT_PATH = '/asset/reuse-result';
+
+async function postToHub(proxyFetch, { report, path = REUSE_RESULT_PATH }) {
   try {
-    return deliveryOf(await proxyFetch('POST', '/asset/reuse-result', report));
+    return deliveryOf(await proxyFetch('POST', path, report));
   } catch {
     return { verdict: RETRY };
   }
 }
 
-function isLocalRecordDue({ report, localAt }, delivery) {
-  return !localAt && delivery.verdict !== REJECTED && report.evidence.tier !== 'none';
+function isLocalRecordDue({ report, path, localAt, localUncertainAt, localFailures = 0, rejectedAt }) {
+  return !path && !localAt && !localUncertainAt && !rejectedAt && localFailures < MAX_LOCAL_FAILURES && report.evidence.tier !== 'none';
 }
 
 async function recordedLocally(recordLocally, { report, sessionId }) {
-  return recordLocally({ assetId: report.asset_id, outcome: report.outcome, sessionId }).catch(() => false);
+  try {
+    const recorded = await recordLocally({ assetId: report.asset_id, outcome: report.outcome, sessionId });
+    return { local: recorded ? RECORDED : NOT_RECORDED };
+  } catch {
+    return { local: UNCERTAIN };
+  }
 }
 
 async function attemptOf(ledgers, entry) {
-  const delivery = await postToHub(ledgers.proxyFetch, entry.report);
-  const isLocal = isLocalRecordDue(entry, delivery) && (await recordedLocally(ledgers.recordLocally, entry));
-  if (delivery.verdict === REJECTED) await ledgers.onRejected({ taskId: entry.report.task_id, assetId: entry.report.asset_id, ...delivery });
-  return { ...delivery, isLocal };
+  const delivery = await postToHub(ledgers.proxyFetch, entry);
+  if (delivery.verdict === REJECTED) {
+    await ledgers.onRejected({ taskId: entry.report.task_id, assetId: entry.report.asset_id, ...delivery });
+  } else if (isLocalRecordDue(entry)) {
+    return { ...delivery, ...await recordedLocally(ledgers.recordLocally, entry) };
+  }
+  return delivery;
 }
 
+// Hub deliveries go first, so retrying an earlier report's local record never holds a new report back.
 export async function deliverPending(ledgers, outbox, now, afterAttempt = () => {}) {
+  const entries = Object.entries(outbox);
+  const attempts = [
+    ...entries.filter(([, entry]) => !isSettled(entry)).map(([key, entry]) => [key, () => attemptOf(ledgers, entry)]),
+    ...entries.filter(([, entry]) => entry.sentAt && isLocalRecordDue(entry))
+      .map(([key, entry]) => [key, () => recordedLocally(ledgers.recordLocally, entry)]),
+  ];
   let delivered = outbox;
-  for (const [key, entry] of Object.entries(outbox)) {
-    if (isSettled(entry)) continue;
-    delivered = withAttempt(delivered, key, await attemptOf(ledgers, entry), now);
+  for (const [key, attempt] of attempts) {
+    delivered = withAttempt(delivered, key, await attempt(), now);
     afterAttempt();
   }
   return delivered;

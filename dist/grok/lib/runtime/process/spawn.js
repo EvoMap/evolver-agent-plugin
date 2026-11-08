@@ -14,6 +14,17 @@ import { headlessEnv } from '../headless.js';
 const KILL_GRACE_MS = 5_000;
 const OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 const IS_WINDOWS = process.platform === 'win32';
+const WINDOWS_ROOT = process.env.SystemRoot || process.env.WINDIR || '';
+const SYSTEM32 = IS_WINDOWS && path.isAbsolute(WINDOWS_ROOT) ? path.join(WINDOWS_ROOT, 'System32') : null;
+
+function windowsSystemDirectory() {
+  // A stripped host environment still has the Windows loader mapped from the system directory.
+  const loader = process.report.getReport().sharedObjects.find((file) =>
+    path.isAbsolute(file) && /[\\/](?:system32|syswow64)[\\/]ntdll\.dll$/i.test(file));
+  return loader ? path.dirname(loader) : null;
+}
+
+const TASKKILL_DIR = IS_WINDOWS ? SYSTEM32 ?? windowsSystemDirectory() : null;
 
 // npm shims (`evolver`, `npx`, `npm`) only run through cmd.exe, which reads the line once while the shim re-reads its
 // arguments, so each argument is quoted for the C runtime and its cmd metacharacters are caret-escaped twice.
@@ -24,8 +35,14 @@ export function cmdArgument(arg) {
   return quoted.replace(CMD_METACHARACTERS, '^$1').replace(CMD_METACHARACTERS, '^$1');
 }
 
+const cmdLine = (command, args) => [String(command).replace(CMD_METACHARACTERS, '^$1'), ...args.map(cmdArgument)].join(' ');
+
 function taskkill(pid) {
-  execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => {});
+  if (!TASKKILL_DIR) return;
+  const root = path.dirname(TASKKILL_DIR);
+  // taskkill itself needs the system root, even when launched by its absolute path.
+  const env = SYSTEM32 ? process.env : { ...process.env, SystemRoot: root, WINDIR: root };
+  execFile(path.join(TASKKILL_DIR, 'taskkill.exe'), ['/pid', String(pid), '/T', '/F'], { env, windowsHide: true }, () => {});
 }
 
 function signalGroup(pid, name) {
@@ -52,6 +69,10 @@ export function runProcess(command, args = [], { input, env = process.env, cwd =
   return new Promise((resolve) => {
     const viaShell = IS_WINDOWS && shim;
     const isBinary = encoding === 'buffer';
+    if ((viaShell && !SYSTEM32) || (IS_WINDOWS && !TASKKILL_DIR && (timeoutMs || signal))) {
+      const error = Object.assign(new Error('Windows system directory is unavailable; no command was started'), { code: 'ENOENT' });
+      return resolve({ code: null, stdout: isBinary ? Buffer.alloc(0) : '', stderr: '', error });
+    }
     const stdoutChunks = [];
     let stdoutSize = 0;
     let stderr = '';
@@ -63,8 +84,8 @@ export function runProcess(command, args = [], { input, env = process.env, cwd =
       signal?.removeEventListener('abort', stop);
       resolve({ stdout: isBinary ? Buffer.concat(stdoutChunks) : stdoutChunks.join(''), stderr, ...result });
     };
-    const child = spawn(command, viaShell ? args.map(cmdArgument) : args, {
-      cwd, env: headless ? headlessEnv(env) : env, shell: viaShell, detached: !IS_WINDOWS, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    const child = spawn(viaShell ? cmdLine(command, args) : command, viaShell ? [] : args, {
+      cwd, env: headless ? headlessEnv(env) : env, shell: viaShell ? path.join(SYSTEM32, 'cmd.exe') : false, detached: !IS_WINDOWS, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stop = () => child.pid && endTree(child.pid);
     const timer = timeoutMs ? setTimeout(() => { stop(); finish({ code: null, error: Object.assign(new Error(`timed out after ${timeoutMs} ms`), { code: 'ETIMEDOUT' }) }); }, timeoutMs) : null;
@@ -94,8 +115,9 @@ export function startDetached(command, args, { env = process.env, cwd = os.homed
   return child.pid;
 }
 
-function isOnWindowsPath(name) {
-  return new Promise((resolve) => execFile('where', [name], { windowsHide: true }, (error) => resolve(!error)));
+function isOnWindowsPath(name, env = process.env) {
+  if (!SYSTEM32) return Promise.resolve(false);
+  return new Promise((resolve) => execFile(path.join(SYSTEM32, 'where.exe'), [name], { env, windowsHide: true }, (error) => resolve(!error)));
 }
 
 function spawnedOrMissing(child) {
@@ -112,12 +134,12 @@ function spawnedOrMissing(child) {
  */
 export async function startLogged(command, args, { logFile, env = process.env, cwd = os.homedir(), shim = false }) {
   const viaShell = IS_WINDOWS && shim;
-  if (viaShell && !(await isOnWindowsPath(command))) return { missing: true };
+  if (viaShell && !(await isOnWindowsPath(command, env))) return { missing: true };
   fs.mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o700 });
   const log = fs.openSync(logFile, 'w', 0o600);
   try {
-    const child = spawn(command, viaShell ? args.map(cmdArgument) : args, {
-      cwd, env, shell: viaShell, detached: true, windowsHide: true, stdio: ['ignore', log, log],
+    const child = spawn(viaShell ? cmdLine(command, args) : command, viaShell ? [] : args, {
+      cwd, env, shell: viaShell ? path.join(SYSTEM32, 'cmd.exe') : false, detached: true, windowsHide: true, stdio: ['ignore', log, log],
     });
     const started = spawnedOrMissing(child);
     child.on('error', () => {});

@@ -1,79 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  distillPromptOf, distillRequestOf, draftNamed, draftOf, draftsListText, isDistillableTurn, lessonOf, skipReasonOf,
-  submitRequestOf, withDraft, withoutDraft,
-} from '../lib/distill.js';
+import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
+import { isCurrentRange, settledRange } from '../lib/distill/range.js';
 
-const LESSON = {
-  reusable: true,
-  title: 'Retry uploads with capped backoff',
-  summary: 'Uploads that time out under load succeed once retried with jittered, capped exponential backoff.',
-  strategy: ['Measure the failure rate', 'Retry with jittered exponential backoff', 'Cap the retries and alert'],
-  signals: ['timeout'],
-};
-
-test('only an answered person turn that edited and ended on a passing check is distillable', () => {
-  const turn = { reason: 'answer', agentId: undefined, isPersonTurn: true, changedLines: 3, checks: [{ command: 'npm test', failed: false }] };
-  assert.equal(isDistillableTurn(turn), true);
-  assert.equal(isDistillableTurn({ ...turn, reason: 'aborted' }), false);
-  assert.equal(isDistillableTurn({ ...turn, agentId: 'a1' }), false);
-  assert.equal(isDistillableTurn({ ...turn, isPersonTurn: false }), false);
-  assert.equal(isDistillableTurn({ ...turn, changedLines: 0 }), false);
-  assert.equal(isDistillableTurn({ ...turn, checks: [] }), false);
-  assert.equal(isDistillableTurn({ ...turn, checks: [{ command: 'npm test', failed: false }, { command: 'tsc', failed: true }] }), false);
-});
-
-test('the prompt asks for JSON only and carries a redacted focus', () => {
-  assert.doesNotMatch(distillPromptOf(), /Focus on/);
-  const prompt = distillPromptOf('the retry with token=abcdef123456');
-  assert.match(prompt, /Answer with one JSON object and nothing else/);
-  assert.match(prompt, /Focus on: the retry with \[redacted\]$/);
-});
-
-test('a complete lesson is read out of surrounding text', () => {
-  assert.deepEqual(lessonOf(`Here it is:\n${JSON.stringify(LESSON)}\n`), {
-    title: LESSON.title, summary: LESSON.summary, strategy: LESSON.strategy, signals: LESSON.signals,
-  });
-});
-
-test('incomplete, unreusable, unparseable or secret-bearing lessons are dropped', () => {
-  assert.equal(lessonOf('{"reusable": false}'), null);
-  assert.equal(lessonOf('not json'), null);
-  assert.equal(lessonOf(JSON.stringify({ ...LESSON, strategy: LESSON.strategy.slice(0, 2) })), null);
-  assert.equal(lessonOf(JSON.stringify({ ...LESSON, summary: 'too short' })), null);
-  assert.equal(lessonOf(JSON.stringify({ ...LESSON, title: '' })), null);
-  assert.equal(lessonOf(JSON.stringify({ ...LESSON, strategy: [...LESSON.strategy, 'export API_KEY=sk-ant-0123456789abcdefghij'] })), null);
-});
-
-test('the request keeps each check once, as its last run, only project-relative artifacts, and the caller\'s host', () => {
-  const { method, path, body } = distillRequestOf({
-    lesson: lessonOf(JSON.stringify(LESSON)),
-    checks: [{ command: 'npm test', failed: true }, { command: 'tsc', failed: false }, { command: 'npm test', failed: false }],
-    paths: ['/repo/src/upload.js', '/repo/src/upload.js', '/etc/hosts', 'src/retry.js'],
-    projectDir: '/repo',
-    sessionId: 'codex:s1',
-    platform: 'codex',
-  });
-  assert.equal(method, 'POST');
-  assert.equal(path, '/conversation/distill');
-  assert.deepEqual(body.execution.trace, [{ command: 'tsc', ok: true }, { command: 'npm test', ok: true }]);
-  assert.deepEqual(body.validation, ['tsc', 'npm test']);
-  assert.deepEqual(body.artifacts, ['src/upload.js', 'src/retry.js']);
-  assert.equal(body.persist, false);
-  assert.equal(body.publish, false);
-  assert.equal(body.session_id, 'codex:s1');
-  assert.equal(body.platform, 'codex', 'the host is the caller\'s, never assumed');
-});
-
-test('the last unknown run replaces an earlier pass without inventing a successful trace row', () => {
-  const { body } = distillRequestOf({ lesson: LESSON,
-    checks: [{ command: 'npm test', failed: false }, { command: 'npm test', failed: null }, { command: 'tsc', failed: false }], paths: [],
-    sessionId: 's1', platform: 'codex',
-  });
-  assert.deepEqual(body.execution.trace, [{ command: 'tsc', ok: true }]);
-  assert.deepEqual(body.validation, ['tsc']);
+test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
+  const read = { at: 1_000, sessionEpoch: 1, turns: [turn(1)] };
+  const rows = [
+    ['after its turns were distilled', { ...read, turns: [turn(2)] }],
+    ['after the session started over', { ...read, sessionEpoch: 2 }],
+  ];
+  for (const [name, current] of rows) {
+    assert.equal(isCurrentRange({ s: current }, 's', read), false, name);
+    assert.equal(settledRange({ s: current }, 's', read, { consume: true, now: 2_000 }), undefined, name);
+    assert.equal(isCurrentRange({ s: current }, 's', current), true, name);
+  }
 });
 
 const RESULT = {

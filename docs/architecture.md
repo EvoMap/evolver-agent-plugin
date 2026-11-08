@@ -13,23 +13,30 @@ them is in `hosts/README.md`):
 
 | Command | Purpose |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's distillation candidate and waiting drafts; where the Proxy reports it, its background publishing: whether its verifier is available and why not, how many Genes await verification or were published, and the last attempt's result. |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's work turns waiting to be distilled, the last distillation's outcome (its status, the Proxy's reason and the terms it refused, how long ago) and waiting drafts; where the Proxy reports it, its background publishing: whether its verifier is available and why not, how many Genes await verification or were published, and the last attempt's result. |
 | `/evolver-login` | Sign in to the EvoMap Hub: set Evolver up when its Proxy does not answer, start `evolver login` in the background and answer its link and code; once approved, the node the Proxy registered. |
 | `/evolver-search <task or error text>` | Find the best matching strategy or Recipe. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
-| `/evolver-distill [focus]` | Distill the session's last verified turn into a draft now, optionally steered by the focus text. |
+| `/evolver-distill [focus]` | Distill the session's work since its last distillation into drafts now, optionally steered by the focus text. It waives the three-turn threshold, never the passing last check. |
 | `/evolver-drafts [publish\|discard <number>]` | List drafts; publish one to the Hub for review through `POST /asset/submit`, or drop it. |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers: recall, reflect, record the lesson. |
-| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.49` when it is not installed), ten minutes at most. |
+| `/evolver-sync`, `/evolver-review`, `/evolver-run`, `/evolver-solidify` | Run the `evolver` CLI in the project (`npx -y @evomap/evolver@2.0.50` when it is not installed), ten minutes at most. |
 
 ## Configuration
 
-Every host honours these environment variables:
+Hosts whose native environment preserves them honour these environment variables. MiniMax strips inherited
+Evolver flags from hooks; its persistent preferences are described below.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOME` / `USERPROFILE` | (unset) | User directory for Proxy settings and plugin state. A non-empty `HOME` wins. |
 | `EVOMAP_PROXY_PORT` | `19820` | Fallback Proxy port when `~/.evolver/settings.json` names no URL. |
 | `EVOLVER_RECALL` | (on) | `off` turns recall off. |
+| `EVOLVER_AUTO_DISTILL` | (on) | `off` leaves distillation to an explicit command. |
+
+MiniMax stores boolean `recall` and `autoDistill` preferences in `<PLUGIN_DATA>/minimax-settings.json`.
+`evolver-config recall off` and `evolver-config auto-distill off` update them without opening a model turn.
+Status reports the effective values and any invalid preferences; invalid/unreadable files pause both automatic
+activities instead of silently enabling them. Explicit environment values win where the host preserves them.
 
 Claude Code's options, editable from the `/config` menu, set the same things for its relay process:
 
@@ -37,12 +44,12 @@ Claude Code's options, editable from the `/config` menu, set the same things for
 |---|---|---|
 | `proxy_port` | `$EVOMAP_PROXY_PORT`, then `19820` | Fallback Proxy port. |
 | `recall_enabled` | `true` | Recall one strategy per prompt. |
-| `auto_distill` | `true` | Distill the session's last verified turn once the session has been quiet for 30 minutes or ends, with one completion on your plan. `/evolver-distill` works either way. |
+| `auto_distill` | `true` | Distill the session's verified work once it holds three work turns or a fixed error, 10 minutes after the fix, 30 minutes after the session went quiet or when it ends, with one completion on your plan. `/evolver-distill` works either way. |
 | `node_path` | `node` | The Node.js 22.13+ that runs the relay. |
 
 ## Troubleshooting
 
-State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
+State lives in `~/.evolver/state/` (WorkBuddy and MiniMax: their plugin data folders), every file named `<host>-<kind>`. The Hub sign-in is one for every host, as Evolver's identity home is: `~/.evolver/login/`.
 
 - **Recall injects nothing.** Hub text recall usually takes 3–11 s and sometimes fails with a Hub 504, which the
   Proxy relays as HTTP 400. The Hub judges each recalled asset's fit to the session's task and returns only those
@@ -54,11 +61,12 @@ State lives in `~/.evolver/state/` (WorkBuddy: its plugin data folder), every fi
   kept its state in Claude Code's plugin store, which `evolver-plugin` does not read.
 - **A reuse report seems lost.** Reports wait in `<host>-reports-outbox.json` until the Proxy accepts them, retried
   at every turn end and session start for 8 days.
-- **No draft after a verified turn.** A turn is a candidate only when it answered, its last test, build, lint or
-  type-check passed, and it edited files or ran three commands; the candidate waits in `<host>-distill-pending.json`
-  until its session has been quiet for 30 minutes (no prompt, no turn end) or ends, and is then distilled in the
-  background without another event (a hook host's waiting worker is named in `<host>-distill-waiter.json`).
-  `/evolver-status` says whether one is waiting.
+- **No draft after verified work.** A session's work turns wait in `<host>-distill-pending.json` until there are
+  three of them or one fixed an error, and the last one's last check passed; one turn of routine work is below that
+  threshold. `/evolver-status` says how many work turns wait and what the last distillation did: below the threshold
+  (and why), declined by the model, rejected by the Proxy (with its reason and the terms it refused), drafted, or
+  failed. The last 20 outcomes are kept in `<host>-distill-outcomes.json`. A due distillation runs in the background
+  without another event (a hook host's waiting worker is named in `<host>-distill-waiter.json`).
 - **Claude Code: installed, but no recall or turn summary.** Check `claude plugin list` shows it enabled and that
   Claude Code is 2.1.286 or newer. Hooks modules of installed plugins are behind a Claude Code rollout flag
   (`tengu_plugin_hooks_modules`); a `--plugin-dir` working copy always loads them. The relay needs `node` on the
@@ -108,29 +116,66 @@ left in it (adopted once, so a resumed session keeps counting turns and nothing 
 | Event | Use case | What it does |
 |---|---|---|
 | Session start | `sessionStarted` | Queues retention reports for an earlier session's edits and aborted reports for a killed session's injections (its owner process is gone); schedules engine setup, delivery and leftover distillation; answers the one-off engine notice, the only text besides a strategy that reaches the model. |
-| Prompt | `promptSubmitted` | A correction drops the session's candidate, then the last turn's reuses are reported again under `:correction`. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
+| Prompt | `promptSubmitted` | A correction stays with the last turn in the session's range of work, as its `correction` line, then the last turn's reuses are reported again under `:correction`. The commit the turn begins on is read alongside the recall, for a range that starts with it to take its diff from. The turn counter moves on and survives the session's end, so a resumed session never repeats a task id. One strategy, or a Recipe expanded into one, is recalled within what is left of the hook's budget and ends with `Apply them where they fit.` |
 | Tool result | `toolFinished`, `beforeEdit`, `takeWaitingStrategy`, `recallWhenStuck` | Notes each call: shell commands with their exit code (a run still going is settled by a later note, or counts as not run), edited paths, each file's hash before its first edit. Where the strategy waits for a tool result, the turn's first one takes it and books it, only while that turn is open; a turn with no tool call never gets it, and it is neither reported nor kept out of later recalls. Where a tool result's context reaches the model (`toolResultContext`, or a `tool-result` host), a failed test, build, lint or type-check recalls again, once per distinct failure and twice a turn at most, with a query built from its output and the turn's edits; a strategy that lands within the tool result's budget is added to that result and booked. |
-| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when the last check has a known result; tier `none` with `reported_by: agent` when the agent only reported its checks), with the `source` of its checks (`observed` by the host; any other is `reported`, the agent's). A report carries no command, prompt or code. A turn that answered, whose last check passed and that edited files or ran three commands, becomes the session's candidate, with each check's exit code where the host gives one and, in a git work tree, the tree's root, HEAD and diff against HEAD (untracked files included, up to 256 KiB, taken within 1 s). The diff is replayed as it is, so one that holds a secret or touches a file keys are kept in (`.env`, a private key, a keystore, a credentials file) is left out whole, never redacted in place, with the root and HEAD, so nothing can replay the tree; `diff_omitted` then says why (`secret`, `too_large`, `not_utf8` for bytes that are not UTF-8, `submodule` for a change inside a submodule, which a fresh worktree does not check out, or `unavailable` when git could not give one). The snapshot is the whole work tree, not only the turn's edited files, since its checks ran on all of it and the Proxy reruns them on the same files; it goes only to the loopback Proxy (`proxySettingsFrom` ignores any other URL), which keeps it on this machine to rebuild that tree. It schedules distillation when a candidate is due, and arms it for when the next one comes due. |
-| Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the candidate is closed for background distillation. |
+| Turn end | `turnEnded` | Ends as `answer`, `aborted`, `refusal` or `error`. Every injection of the turn is reported (`applied: used`, tier `L1` when the last check has a known result; tier `none` with `reported_by: agent` when the agent only reported its checks), with the `source` of its checks (`observed` by the host; any other is `reported`, the agent's). A report carries no command, prompt or code. A trial Gene the Proxy withheld from the turn is reported to `POST /asset/trial-control` under the `withheld_id` of that withholding, once per Gene, with whether the turn's last check passed (a withholding without an id is no control). A work turn (it edited files, ran a check, or ran three commands; reading and answering are none) joins the session's range of work turns since its last distillation, with its commands, checks (exit code where the host gives one, the end of a failed one's output) and edits in the order they ran and, in a git work tree, the tree's root, the commit the range began on and the diff from it to the work tree (untracked files included, up to 256 KiB, taken within 1 s), so work committed meanwhile is in it. The diff is replayed as it is, so one that holds a secret or touches a file keys are kept in (`.env`, a private key, a keystore, a credentials file) is left out whole, never redacted in place, with the root and HEAD, so nothing can replay the tree; `diff_omitted` then says why (`secret`, `too_large`, `not_utf8` for bytes that are not UTF-8, `submodule` for a change inside a submodule, which a fresh worktree does not check out, or `unavailable` when git could not give one). The snapshot is the whole work tree, not only the turn's edited files, since its checks ran on all of it and the Proxy reruns them on the same files; it goes only to the loopback Proxy (`proxySettingsFrom` ignores any other URL), which keeps it on this machine to rebuild that tree. It schedules distillation when a range is due, and arms it for when the next one comes due. |
+| Session end | `sessionEnded` | Only writes: a turn still open ends, what is unreported goes out as aborted, the session's range is closed for background distillation. |
 
 **State** lives in one directory per host, every file named `<host>-<kind>`. Writes go through an exclusive lock with
 dead-owner takeover; hooks only append reports to a queue, and one process at a time owns the outbox.
 
-**Distillation** happens outside the conversation once the session has been quiet for 30 minutes after its candidate (a prompt that is no correction, or a turn end, starts the wait again; a session found quiet at a prompt stays due) or has ended; every prompt and turn end, besides a session's start and end, starts the background worker when a candidate is due, and arms a wake-up for when the next one comes due (its quiet wait or retry delay over), which every background run arms again, so a session left open needs no further event. A hook host keeps one detached waiter per host and state folder, `bin/worker.mjs <host> --at=<ms> distill` recorded in `<host>-distill-waiter.json` and replaced only for an earlier time; a resident plugin or server keeps one timer. The host's model gets a digest of
-the candidate turn, may answer `{"skip": …}`, and the Gene goes to `POST /conversation/distill` with
-`trigger: idle` or `session_end`, `execution.trace` as `{ command, exit, source }` per check (`ok`, what its output said, in place of `exit` when the host gives no exit code, which is never made up), and `project` (`{ root,
-head, diff }`, or only `{ diff_omitted }`) for a git work tree; a diff that would push the body past the Proxy's 256 KiB is
-left out as `too_large`. Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing
-and answers the Gene and Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes
-or discards it with `evolver-drafts`. Explicit publication of `publishable: false` drafts first calls
-`POST /asset/reverify` with `{ assets, persist: false }`, a 120-second budget and the command's cancellation signal.
-The Proxy's trusted verifier must authorize it; missing verification keeps the draft local. A successful response's
-complete bundle and receipt replace the local draft before `POST /asset/submit`, preserving them for retry.
-The plugin never configures the verifier or manufactures receipts; the Proxy validates the authorization.
-A correction while the model answers stops the post; a failed candidate is tried
-again in the background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and one no model here can take waits a day for an
-agent's Gene before it is dropped. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off
-inside it. An agent with no model outside the conversation writes the Gene itself when asked.
+**Distillation** happens outside the conversation, on a session's range: its work turns since its last distillation
+(at most the latest 20). It comes due when the session ends or its owner is gone (`trigger: session_end`), 10
+minutes after the range fixed an error and that check has not failed again (`error_episode`), or once the session has
+been quiet 30 minutes (`idle`); any prompt or turn end starts a quiet wait again, and a range found due at a prompt
+stays due. Every prompt and turn end, besides a session's start and end, starts the background worker when a range is
+due, and arms a wake-up for when the next one comes due (its quiet wait or retry delay over), which every background
+run arms again, so a session left open needs no further event. A hook host keeps one detached waiter per host and
+state folder, `bin/worker.mjs <host> --at=<ms> distill` recorded in `<host>-distill-waiter.json` and replaced only for
+an earlier time; a resident plugin or server keeps one timer.
+
+A due range first meets the gate, with no model call: at least three work turns or one closed error episode (a check,
+compared without its output trimming or redirects, failed, files were edited, and the same check passed), at least
+one check with a known result, and the last work turn's last check passed. Below it, the outcome `below_threshold`
+is logged and nothing else happens: a session still open keeps its range and waits for more work, an ended one drops
+it. A range that passes is kept, as it would be sent, in `<host>-distill-corpus.json` (the last 200, on this machine
+only) for `scripts/distill-calibrate.mjs`, and the host's model gets the `session-gene-ir-v1` prompt: the IR's fields
+and rules, a supplement for the record's default kind (`fix` with an error episode, `investigate` with no edits,
+`configure` when only configuration, manifest or CI files changed, else `change`), and the record as numbered lines
+`R1…Rn` (each turn's prompt, commands, checks with their exit codes and a failed one's redacted output tail of 20
+lines and 2 KiB at most, edits relative to the project, answer and correction, then the range's diff, as a file list,
+line counts and first hunks when it is over 24 KiB). It answers 0 to 2 IRs, one per unrelated task, or `{"skip": …}`.
+Each IR that keeps the IR's shape (fields, counts, `scope.signals` of at most 64 characters, references inside the
+record) goes to `POST /conversation/distill` as its own request: `ir_version`, `ir`, the same `record`,
+`user_prompt`, `final_answer`, `execution.trace` as `{ command, exit, source }` per check (`ok`, what its output
+said, in place of `exit` when the host gives no exit code, which is never made up), `project` (`{ root, head, diff }`
+with the range's starting commit as `head`, or only `{ diff_omitted }`), `project_dir` and the trigger. The record is
+fitted to the Proxy's 256 KiB before the model reads it (the diff is left out as `too_large` first, then the diff
+lines, then the oldest turns), so the lines an IR cites are the lines sent. The Proxy's answer is `stored`, a draft,
+or refused with a typed `quality.reason` and the `terms` it found; every outcome, the model's skip and a failure are
+logged with their reason in `<host>-distill-outcomes.json` (the last 20), and the turns read are done with, so they
+are never distilled again; turns that joined while the model answered start the next range.
+
+Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing and answers the Gene and
+Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes or discards it with
+`evolver-drafts`. Explicit publication of `publishable: false` drafts first calls `POST /asset/reverify` with
+`{ assets, persist: false }`, a 120-second budget and the command's cancellation signal. The Proxy's trusted verifier
+must authorize it; missing verification keeps the draft local. A successful response's complete bundle and receipt
+replace the local draft before `POST /asset/submit`, preserving them for retry. The plugin never configures the
+verifier or manufactures receipts; the Proxy validates the authorization. A failed distillation is tried again in the
+background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and a range
+no model here can take waits a day for an agent's IRs before it is dropped. A model runner that captures the session's
+route and reports it unavailable (`MODEL_UNAVAILABLE`) parks the range without costing a try, out of background
+retries, until the route works again or seven days after it was first found blocked. IRs an agent wrote for a range
+that changed since (another turn, a correction) are not sent. A correction of a turn a distillation is reading
+discards its answer (a Gene the Proxy stored stands) and leaves the range, with the correction, for the next one; a
+draft distilled from that turn before the correction is removed, and, marked in `<host>-distill-corrections/`, can
+never be published. A headless run carries `EVOLVER_HEADLESS=1`, which turns this plugin's hooks off inside it.
+MiniMax strips that variable, so a private marker in the runtime's empty scratch folder suppresses re-entry too. Its
+work turns capture provider/model/variant from a read-only projection of native v2 session metadata and check the
+hook's model name; an unknown schema or mismatch never selects another provider. The prepared CLI configuration is
+private to the run and removed after completion, error or cancellation. An agent with no model outside the
+conversation writes the IRs itself when asked, once its session's work passes the gate.
 
 **MCP.** An agent without hooks (Kiro, openclaw, any MCP client) runs `bin/mcp.mjs <host>`, an stdio server with seven
 tools: `evolver_recall` (a turn starts), `evolver_report` (it ends, with the checks the agent ran), `evolver_distill`
@@ -173,7 +218,7 @@ hosts read at fixed paths. Claude Code's, WorkBuddy's, Codex's, Grok's and Qoder
 `git-subdir` source, since a marketplace itself is read from `main`; the marketplace entries name no version, so each host reads the
 stamped one from the packed manifest; Antigravity, OpenCode and DeepSeek Harness install from a clone of it.
 
-**Engine.** When no Proxy of `2.0.49` or newer answers, a session start installs or upgrades `@evomap/evolver` under
+**Engine.** When no Proxy of `2.0.50` or newer answers, a session start installs or upgrades `@evomap/evolver` under
 `<state>/<host>-engine/` in the background and starts its Proxy, without the self-update service.
 
 ## Layout
@@ -203,8 +248,9 @@ scripts/               pack.mjs, publish-tag.sh
   recall, `<system-reminder>` blocks, markup and links are stripped from the prompt, so a session notification
   recalls nothing. Lengths are in estimated tokens, not characters (a Han character about one, Latin text about four
   characters to one), so a Chinese strategy is not cut four times shorter than an English one: each line keeps 100
-  tokens, and a strategy longer than 1000 keeps its first line, its `Safety boundary:` lines and as many others as
-  fit, then names how many lines of which asset it left out. A Recipe, likewise, is
+  tokens, and a strategy longer than 1000 keeps its first line, its `Safety boundary:` and `If <signal>: <response>`
+  lines and as many others as fit, giving up a compiled Gene's `Exact …` contract lines first and its `Do not use
+  when` line next, then names how many lines of which asset it left out. A Recipe, likewise, is
   taken only from an answer the Hub judged (below).
 - **Recipes.** A Recipe is an ordered chain of strategies. Each prompt is searched for Recipes
   (`POST /recipe/search`, with the same `context` as the text recall) alongside the text recall, both at once, and a
@@ -227,7 +273,9 @@ scripts/               pack.mjs, publish-tag.sh
   whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (4000 characters, cleaned as
   a prompt is, and cut further so the context stays within the Proxy's 4096-byte limit), `trigger` is `turn_start`
   or `check_failed`, and `language` the touched files' languages. The Hub judges each recalled asset's fit to the
-  task with it, never recalls by it. A prompt's opening is often its boilerplate, and an error line alone names no
+  task with it, never recalls by it. The text recall also carries `project_dir`, the session's project directory,
+  for the Proxy to recognise the project by, so its local project notes and project-bound Genes can be recalled. A
+  prompt's opening is often its boilerplate, and an error line alone names no
   task: an offline replay of 53 SWE runs fired on 15 failed
   checks, and judged with the task and the failure together the Gene distilled for the task ranked first in all 14
   pools that held it.
@@ -262,11 +310,12 @@ scripts/               pack.mjs, publish-tag.sh
   differently is still the same check. The outcome follows the last check; with none it follows how the turn ended.
   A finished check with no native exit code is unknown (`failed: null`) unless its output contains failure
   evidence or a supported Node/TAP summary with a positive pass count and zero failed tests. An unknown last
-  result keeps the report at tier `none`, creates no candidate and claims no saving; it never falls back to an
-  earlier passing check. For Codex runs without an exit code, text-only Jest, Vitest, pytest, Go and Cargo
-  successes stay unknown unless they emit a supported summary. This can reduce L1 evidence and candidate
-  generation in those projects. Unknown checks stay labelled unknown in the distillation prompt and provide no
-  execution trace row. A native exit code of zero still passes without requiring output.
+  result keeps the report at tier `none`, keeps the session's work below the distillation gate and claims no saving;
+  it never falls back to an earlier passing check. For Codex runs without an exit code, text-only Jest, Vitest,
+  pytest, Go and Cargo successes stay unknown unless they emit a supported summary. This can reduce L1 evidence and
+  distillation in those projects. An unknown check is a plain command in the distillation record and provides no
+  execution trace row; a check whose result is known without an exit code is a check line with no `exit` (and
+  `failed: true` when it failed). A native exit code of zero still passes without requiring output.
   A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. An older Proxy
   drops `source` and the plugin runs unchanged.
 - **Report outbox.** Reports are keyed by task id and asset, queued once and retried for 8 days, long enough for a
@@ -279,6 +328,23 @@ scripts/               pack.mjs, publish-tag.sh
 - **Turn numbers** come from a per-session counter, one per turn whatever started it, kept past the session's end:
   a resumed session continues under the same id, and a repeated task id is one the Hub drops as a duplicate.
 - **Subagents** get no recall; their checks and edits count toward the main turn.
+- **Distillation is session-level.** One verified turn was a poor unit: a small edit qualified, and a failure fixed
+  over several turns was cut apart. A session's work turns accumulate instead, and distillation runs only when they
+  pass the gate, at a session-level moment or once a fixed error has settled, never after each turn. The model reads
+  what the work was (the failed check's own output, the diff from where the range began, the person's correction)
+  rather than a digest, and answers a structured IR whose rules cite record lines, so the Proxy can check every rule
+  against the record and judge project-specific terms by where they came from. A correction no longer drops the work:
+  it is what the next distillation most needs to read.
+- **Trial controls.** When the Proxy holds a trial Gene back from a turn it would fit, to measure the Gene against
+  turns that went without it, that turn's end reports `{ asset_id, task_id, passed, platform }` to
+  `POST /asset/trial-control` through the outbox, only when it ran a check with a known result and the Gene did not
+  reach it later in the turn; the treated turns are the ordinary reuse reports.
+- **Calibration.** `node scripts/distill-calibrate.mjs <state>/<host>-distill-corpus.json [--model "<command>"]
+  [--proxy <url>] [--limit <n>]` runs today's gate, prompt and Proxy over the kept corpus (the model command reads
+  the prompt on stdin; `claude -p --output-format json` by default), posts every IR with `persist: false`, and prints
+  one JSON report: the gate's pass rate and why the rest fell below it, the model's answers, each IR's outcome and
+  rejection reason, and per IR its references per rule, failure repairs, unknowns, contracts and project notes. A
+  change to the prompt, the gate or a limit is compared on it with the version before.
 
 ## Claude Code engine behaviour found while testing
 
@@ -303,6 +369,7 @@ scripts/               pack.mjs, publish-tag.sh
 ```bash
 npm ci
 npm test
+npm run test:minimax
 npx -p typescript tsc -p .
 npm run validate
 ```
@@ -312,6 +379,11 @@ update. `npm run validate` packs `dist/claude-code` and runs `claude plugin vali
 2.1.286 or newer; an older `claude` on `PATH` validates the plugin as having no hooks. Installed copies update by
 version: bump `version` in a host's manifest with every change meant to reach its users, or the host reports the old
 version as the latest.
+
+Release CI runs the full suite on Linux and the MiniMax/packed-hook/shared-runtime suite on Windows, each
+on Node 22 and 26. Both jobs must pass before publication. MiniMax tests use disposable native profiles and
+local service fixtures; they do not require a developer's MiniMax account, Hub token or globally installed CLI.
+The MiniMax suite runs up to four test files at once; its multi-process contention tests retain their own parallel workers.
 
 ## Open questions
 

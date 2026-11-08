@@ -22,8 +22,12 @@ async function git(args, { cwd, env, signal, encoding }) {
   return result.code === 0 ? result.stdout : null;
 }
 
-async function locationOf(dir, options) {
-  const out = await git(['rev-parse', '--show-toplevel', '--git-path', 'index', '--verify', 'HEAD'], { ...options, cwd: dir });
+const COMMIT = /^[0-9a-f]{40,64}$/;
+
+// A base other than HEAD (the commit a range of turns began on) is used only while it names a commit here.
+async function locationOf(dir, options, base) {
+  const revision = COMMIT.test(String(base)) ? `${base}^{commit}` : 'HEAD';
+  const out = await git(['rev-parse', '--show-toplevel', '--git-path', 'index', '--verify', revision], { ...options, cwd: dir });
   const [root, index, head] = out?.split('\n') ?? [];
   return head ? { root, index: path.resolve(dir, index), head } : null;
 }
@@ -43,21 +47,29 @@ async function workTreeDiff({ root, index, head }, options) {
   }
 }
 
+const gitOptionsOf = (env) => ({ env: { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }, signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS) });
+
 /**
- * The git work tree a turn ran in, as `{ root, head, diff }`: applying `diff` (the work tree against `head`, untracked
- * files included) to `head` gives the files the turn's checks ran on. A tree that cannot be rebuilt that way is only
- * `{ diff_omitted }`, the reason (see `diffFieldsOf`), with no root or head that anyone could replay it from. Null
- * outside a git repository or before its first commit.
+ * The git work tree a range of turns ran in, as `{ root, head, diff }`: applying `diff` (the work tree against `head`,
+ * untracked files included) to `head` gives the files the last turn's checks ran on. `head` is `base`, the commit the
+ * range began on, so changes committed meanwhile are in the diff; HEAD when none is given or `base` is gone. A tree
+ * that cannot be rebuilt that way is only `{ diff_omitted }`, the reason (see `diffFieldsOf`), with no root or head
+ * that anyone could replay it from. Null outside a git repository or before its first commit. `head(dir)` is
+ * `{ root, head }` of HEAD now, null outside a repository.
  */
 export function projectSnapshotOf(env = process.env) {
   return {
-    async snapshot(dir) {
-      const options = { env: { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }, signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS) };
-      const location = await locationOf(dir, options).catch(() => null);
+    async snapshot(dir, { base = null } = {}) {
+      const options = gitOptionsOf(env);
+      const location = (base && await locationOf(dir, options, base).catch(() => null)) || await locationOf(dir, options).catch(() => null);
       if (!location) return null;
       const diff = await workTreeDiff(location, options).catch(() => null);
       const fields = diffFieldsOf(diff);
       return fields.diff === undefined ? fields : { root: location.root, head: location.head, ...fields };
+    },
+    async head(dir) {
+      const location = await locationOf(dir, gitOptionsOf(env)).catch(() => null);
+      return location ? { root: location.root, head: location.head } : null;
     },
   };
 }

@@ -7,15 +7,15 @@ import { detectSignals } from './signals.js';
 // verdict an automatic reuse report carries is read off the final test, build,
 // lint or type-check command, never off how the turn ended.
 const VERIFICATION_COMMANDS = [
-  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|lint|typecheck|type-check|check)\b/,
-  /\bnode\s+--test\b/,
-  /\b(?:jest|vitest|mocha|pytest|rspec|phpunit|tsc|eslint|ruff|mypy)\b/,
-  /\bgo\s+(?:test|build|vet)\b/,
-  /\bcargo\s+(?:test|build|check|clippy)\b/,
-  /\bdotnet\s+(?:test|build)\b/,
-  /\b(?:mvn|gradle|gradlew)\b/,
-  /\bmake\b/,
-  /\bclaude\s+plugin\s+(?:validate|test)\b/,
+  /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|lint|typecheck|type-check|check)\b/,
+  /^node\s+--test\b/,
+  /^(?:jest|vitest|mocha|pytest|rspec|phpunit|tsc|eslint|ruff|mypy)(?:\s|$)/,
+  /^go\s+(?:test|build|vet)\b/,
+  /^cargo\s+(?:test|build|check|clippy)\b/,
+  /^dotnet\s+(?:test|build)\b/,
+  /^(?:mvn|gradle|gradlew)(?:\s|$)/,
+  /^make(?:\s|$)/,
+  /^claude\s+plugin\s+(?:validate|test)\b/,
 ];
 
 const FAILURE_SIGNALS = new Set(['test_failure', 'log_error']);
@@ -31,8 +31,103 @@ const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2[ \t]*(?=\n|$)/g;
 
 const withoutHeredocBodies = (command) => command.replace(HEREDOC, '<<$2$3');
 
+// Keep separators inside strings, backticks and comments out of the command scan. A name in an argument is no
+// check. This recognises direct commands and known wrappers; it does not evaluate arbitrary shell control flow.
+// An escaped separator stays in the shell word and makes an immediately following hash literal.
+const SHELL_TOKEN = /\\(?:[ \t;&|()]#|[\s\S])|\x60[^\x60]*(?:\x60|$)|'(?:''|[^'])*(?:'|$)|"(?:\\[\s\S]|\x60[\s\S]|[^"\\\x60])*(?:"|$)|(?<![^\s;&|()])#[^\r\n]*|\$\(|[()]/g;
+const WINDOWS_PATH = /\b[A-Za-z]:\\(?:[\w.-]+\\)*[\w.-]+/g;
+
+// Consume the redirect and its target before splitting commands. Match && first so its second & cannot start &>.
+const SHELL_REDIRECTION = /&&|(?:&>>?|(?:(?<![^\s;&|()])\d+)?(?:<<<|<<-?|<>|>>|>&|<&|>\||[<>]))[ \t]*[^\s;&|()<>]+/g;
+const withoutRedirections = (shell) => shell.replace(SHELL_REDIRECTION, (token) => token === '&&' ? token : ' ');
+
+function withoutShellData(command, quotedTokens) {
+  const shell = withoutHeredocBodies(command);
+  const input = shell.replace(WINDOWS_PATH, (path) => path.replaceAll('\\', '/'));
+  let depth = 0;
+  let start = 0;
+  let output = '';
+  for (const { 0: token, index } of input.matchAll(SHELL_TOKEN)) {
+    if (depth === 0) {
+      if (token === '(' || token === ')') continue;
+      const quoted = token[0] === '"' || token[0] === "'";
+      const masked = quoted ? '\0' + (quotedTokens.push(shell.slice(index, index + token.length)) - 1) + '\0' : '\0';
+      output += input.slice(start, index) + masked;
+      start = index + token.length;
+    }
+    if (token === '$(' || (depth > 0 && token === '(')) depth += 1;
+    if (depth > 0 && token === ')') {
+      depth -= 1;
+      if (depth === 0) start = index + 1;
+    }
+  }
+  return depth === 0 ? output + input.slice(start) : output;
+}
+
+const WRAPPERS = [
+  /^(?:[A-Za-z_]\w*=\S*\s+)+/,
+  /^env\s+(?:(?:-i|--ignore-environment)\s+|(?:-u|--unset|-C|--chdir)(?:=\S+|\s+\S+)\s+|[A-Za-z_]\w*=\S*\s+)*(?:--\s+)?/,
+  /^npx\s+(?:(?:-y|--yes|--no-install)\s+|(?:-p|--package)(?:=\S+|\s+\S+)\s+)*(?:--\s+)?/,
+  /^npm\s+exec\s+(?:(?:-y|--yes|--no)\s+|--package(?:=\S+|\s+\S+)\s+)*(?:--\s+)?/,
+  /^pnpm\s+(?:(?:-r|--recursive)\s+)?exec\s+(?:(?:-r|--recursive)\s+)?(?:--\s+)?/,
+  /^corepack\s+(?=(?:npm|pnpm|yarn)\s)/,
+  /^command\s+(?:-p\s+)?(?:--\s+)?/,
+  /^sudo\s+(?:(?:-n|--non-interactive)\s+|(?:-u|--user|-g|--group)(?:=\S+|\s+\S+)\s+)*(?:--\s+)?/,
+  /^time\s+(?:(?:-p|--portability)\s+)?(?:--\s+)?(?:!\s+)?/,
+  /^(?:nohup|bunx|exec)\s+(?:--\s+)?/,
+  /^timeout\s+(?:(?:--foreground|--preserve-status)\s+|(?:-s|--signal)(?:=\S+|\s+\S+)\s+)*(?:--\s+)?\d+(?:\.\d+)?[smhd]?\s+/,
+  /^(?:uv|poetry)\s+run\s+/,
+  /^python(?:3(?:\.\d+)?)?\s+-m\s+(?=pytest(?:\s|$))/,
+  /^yarn\s+(?=(?:jest|vitest)(?:\s|$))/,
+];
+const executableName = (path) => path.split('/').at(-1).replace(/\.(?:exe|cmd|bat)$/i, '');
+
+function literalExecutable(token) {
+  const quote = token[0];
+  if ((quote !== "'" && quote !== '"') || token.length < 2 || !token.endsWith(quote)) return null;
+  const path = token.slice(1, -1);
+  const windows = /^[A-Za-z]:[\\/]/.test(path);
+  if (quote === '"' && (/[#$%!\x60"]/.test(path) || (!windows && path.includes('\\')))) return null;
+  const name = executableName(windows ? path.replaceAll('\\', '/') : path);
+  return /^[\w.-]+$/.test(name) ? name : null;
+}
+
+function withoutExecutablePath(command, quotedTokens) {
+  return command.replace(/^\S+/, (token) => {
+    const quoted = /^\0(\d+)\0$/.exec(token);
+    if (quoted) return literalExecutable(quotedTokens[Number(quoted[1])]) ?? token;
+    return token.includes('\0') ? token : executableName(token);
+  });
+}
+
+function executableCommandOf(part, quotedTokens) {
+  let check = part.trim().replace(/^(?:(?:if|then|elif|else|do|!)\s+|[({]\s*)+/, '');
+  while (check) {
+    // An assignment may contain slashes but is still a wrapper before the executable.
+    if (!/^[A-Za-z_]\w*=/.test(check)) check = withoutExecutablePath(check, quotedTokens);
+    const wrapper = WRAPPERS.find((pattern) => pattern.test(check));
+    if (!wrapper) break;
+    check = check.replace(wrapper, '');
+  }
+  return check;
+}
+
+// Only unwrap a whole literal argument. Double-quoted expansions belong to the outer shell.
+function literalScriptOf(check, quotedTokens) {
+  const argument = /^(?:bash|sh)[ \t]+-l?c[ \t]+\0(\d+)\0$/.exec(check);
+  if (!argument) return null;
+  const script = /^(?:'([^']*)'|"([^"\x60$\\]*)")$/.exec(quotedTokens[Number(argument[1])]);
+  return script ? script[1] ?? script[2] : null;
+}
+
 export function isVerificationCommand(command) {
-  return typeof command === 'string' && VERIFICATION_COMMANDS.some((pattern) => pattern.test(withoutHeredocBodies(command)));
+  if (typeof command !== 'string' || command.includes('\0')) return false;
+  const quotedTokens = [];
+  return withoutRedirections(withoutShellData(command, quotedTokens)).split(/[;&|\r\n]+/).some((part) => {
+    const check = executableCommandOf(part, quotedTokens);
+    const script = literalScriptOf(check, quotedTokens);
+    return script === null ? VERIFICATION_COMMANDS.some((pattern) => pattern.test(check)) : isVerificationCommand(script);
+  });
 }
 
 /** @param {{ isError?: boolean, text?: string }} result */
@@ -47,11 +142,56 @@ export function verificationFailed({ isError, text }) {
 const PASSED_COUNT = /^\s*(?:#|ℹ)\s+pass\s+[1-9]\d*\b/m;
 const ZERO_FAILED_COUNT = /^\s*(?:#|ℹ)\s+fail\s+0\b/m;
 const FAILED_COUNT = /^\s*(?:#|ℹ)\s+(?:fail|cancelled)\s+[1-9]\d*\b/m;
+// The summary line a test runner prints last, which survives `| tail`: pytest's "3 passed, 1 skipped in 0.52s",
+// vitest's "Tests  3 passed (3)", jest's "Tests: 3 passed, 3 total", cargo's "test result: ok. 3 passed; 0 failed".
+const RUNNER_SUMMARIES = [
+  /^=*\s*\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|deselected|warnings?)\b[^\n]*\bin \d+(?:\.\d+)?s\b[^\n]*$/gm,
+  /^\s*Tests\s+(?:\d+ \w+ \| )*\d+ (?:passed|failed) \(\d+\)[^\n]*$/gm,
+  /^Tests:\s+(?:\d+ \w+, )*\d+ (?:passed|failed), \d+ total[^\n]*$/gm,
+  /^test result: (?:ok|FAILED)\. \d+ passed; \d+ failed[^\n]*$/gm,
+];
+const SUMMARY_FAILED = /\b[1-9]\d* (?:failed|errors?)\b/;
+const SUMMARY_PASSED = /\b[1-9]\d* passed\b/;
 
-/** A finished check's failed flag: true = failed, false = passed, null = unknown. */
-export function verificationFailureOf({ exit, text }) {
+/** What the last runner summary in `output` says: true = failed, false = passed, null = none or nothing ran. */
+function runnerSummaryFailureOf(output) {
+  const last = RUNNER_SUMMARIES.flatMap((pattern) => [...output.matchAll(pattern)]).sort((a, b) => a.index - b.index).at(-1)?.[0];
+  if (!last) return null;
+  if (SUMMARY_FAILED.test(last)) return true;
+  return SUMMARY_PASSED.test(last) ? false : null;
+}
+
+const SHELL_CONTROL = /[;&|()\r\n]|(?:^|[ \t])!(?:[ \t]|$)|^(?:if|then|elif|else|do|\{)(?:\s|$)/;
+
+/** A host's numeric exit belongs to a check only when shell control flow cannot hide the result. */
+export function verificationExitOf(command, exit) {
+  if (!Number.isInteger(exit) || typeof command !== 'string') return exit;
+  if (command.includes('\0')) return null;
+  const quotedTokens = [];
+  const shell = withoutRedirections(withoutShellData(command, quotedTokens)).trim();
+  let direct = shell;
+  if (SHELL_CONTROL.test(shell)) {
+    // A successful directory change followed by one check implies the check ran and passed.
+    const [before, after, extra] = shell.split('&&', 3);
+    if (exit !== 0 || !after || extra !== undefined || !/^cd\s+\S/.test(before)
+      || SHELL_CONTROL.test(before) || SHELL_CONTROL.test(after.trim())) return null;
+    direct = after;
+  }
+  const script = literalScriptOf(executableCommandOf(direct, quotedTokens), quotedTokens);
+  return script === null ? exit : verificationExitOf(script, exit);
+}
+
+/**
+ * A finished check's failed flag: true = failed, false = passed, null = unknown. A shell that exited non-zero failed
+ * somewhere after or around the check, so a passing summary in its output proves nothing; a failing one still counts.
+ */
+export function verificationFailureOf({ command, exit, text }) {
   const output = String(text ?? '');
-  if (verificationFailed({ isError: Number.isInteger(exit) && exit !== 0, text: output }) || FAILED_COUNT.test(output)) return true;
-  if (exit === 0 || (PASSED_COUNT.test(output) && ZERO_FAILED_COUNT.test(output))) return false;
-  return null;
+  const checkExit = verificationExitOf(command, exit);
+  if (verificationFailed({ isError: Number.isInteger(checkExit) && checkExit !== 0, text: output }) || FAILED_COUNT.test(output)) return true;
+  if (checkExit === 0) return false;
+  const summary = runnerSummaryFailureOf(output);
+  if (summary === true) return true;
+  if (Number.isInteger(exit) && exit !== 0) return null;
+  return PASSED_COUNT.test(output) && ZERO_FAILED_COUNT.test(output) ? false : summary;
 }

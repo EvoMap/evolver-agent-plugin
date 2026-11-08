@@ -5,6 +5,7 @@ import distill from './distill.js';
 import drafts from './drafts.js';
 import evolve from './evolve.js';
 import evolverCli from './evolver-cli.js';
+import { config, jobs } from './host-settings.js';
 import login from './login.js';
 import { failure } from './result.js';
 import search from './search.js';
@@ -12,6 +13,9 @@ import status from './status.js';
 
 // Every command is run by the plugin, not the model, whichever way the host lets a person type it.
 export const COMMANDS = Object.freeze([status, login, search, distill, drafts, evolve, ...evolverCli]);
+
+export const HOST_COMMANDS = Object.freeze([jobs, config]);
+const ALL_COMMANDS = [...COMMANDS, ...HOST_COMMANDS];
 
 const TYPED_COMMAND = /^\/((?:[\w-]+:)?evolver-[\w-]+)(?:[ \t]+([\s\S]*))?$/;
 
@@ -22,7 +26,7 @@ export function typedCommandOf(prompt) {
   return { name: match[1].replace(/^[\w-]+:/, ''), args: (match[2] ?? '').trim() };
 }
 
-export const commandNamed = (name) => COMMANDS.find((command) => command.name === name) ?? null;
+export const commandNamed = (name) => ALL_COMMANDS.find((command) => command.name === name) ?? null;
 
 /** `{ ok, text }`, plus `forAgent` for a prompt meant for the agent and `agentGene` for a Gene the agent may write. */
 export async function runCommand(ports, { sessionId, projectDir = null, anySession = false, signal, name, args = '' }) {

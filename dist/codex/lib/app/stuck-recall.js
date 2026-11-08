@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
+import { recallRequestOf } from './recall-request.js';
 import { recallStrategy } from '../recall.js';
 import { listedIdsOf, sessionOf, withStuckQuery } from '../session/state.js';
 import { languagesOf, stuckQueryOf } from '../stuck-query.js';
 import { isFailedCheck, turnRecordOf } from '../turn/record.js';
-import { booked, CLOSING } from './prompt.js';
+import { booked, CLOSING, rememberWithheld } from './prompt.js';
 
 const belongsToOpenTurn = (session, turnId) => session.open && (!turnId || !session.turnId || turnId === session.turnId);
 
@@ -31,19 +32,26 @@ function contextOf(session, paths) {
  * failed call's result, booked into the turn, or '' when none lands within `waitMs`; a slower one is dropped, since
  * the agent has moved on by then.
  */
-export async function recallWhenStuck(ports, { sessionId, turnId = null, note, waitMs }) {
+export async function recallWhenStuck(ports, { sessionId, turnId = null, note, projectDir = null, waitMs }) {
   if (ports.settings?.recall === false || !isFailedCheck(note)) return '';
   const session = sessionOf(await ports.sessions.read(sessionId));
   if (!belongsToOpenTurn(session, turnId) || session.isCommand) return '';
   const record = turnRecordOf(await ports.notes.read(sessionId));
   const query = stuckQueryOf({ output: note.output, paths: record.paths, identifiers: record.identifiers });
   if (!query || !(await claimed(ports, sessionId, query, session.turn))) return '';
-  const proxyFetch = (method, path, body) => ports.proxy.request(method, path, body);
-  const recall = recallStrategy(proxyFetch, query, {
-    context: contextOf(session, record.paths),
-    listedIds: listedIdsOf(session),
-    closingOf: () => CLOSING,
-  });
-  const match = await Promise.race([recall, ports.clock.sleep(waitMs).then(() => null)]);
+  const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy);
+  let match;
+  try {
+    const recall = recallStrategy(proxyFetch, query, {
+      context: contextOf(session, record.paths),
+      projectDir,
+      listedIds: listedIdsOf(session),
+      onWithheld: rememberWithheld(ports, sessionId, session.turn),
+      closingOf: () => CLOSING,
+    });
+    match = await Promise.race([recall, ports.clock.sleep(waitMs, signal).then(() => null)]);
+  } finally {
+    cancel();
+  }
   return booked(ports, sessionId, { turn: session.turn, match, onlyWhileOpen: true });
 }

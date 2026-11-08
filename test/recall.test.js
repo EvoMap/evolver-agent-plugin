@@ -47,6 +47,19 @@ test('the task context leaves for the Proxy whole when it fits 4096 bytes', asyn
   assert.equal(searches[0].context.task, task);
 });
 
+test('quoted JSON credentials are redacted from the recall query and task context', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const prompt = 'Retry the uploader with this config: {"token":"fixtureCredential123456","accessToken":"fixtureAccess123456","mode":"retry"}';
+  await recallStrategy(proxyFetch, promptTextOf(prompt), { context: { task: taskTextOf(prompt), trigger: 'turn_start' } });
+  assert.equal(calls.length, 1);
+  assert.equal(searches.length, 1);
+  for (const body of [calls[0].body, searches[0]]) {
+    const sent = JSON.stringify(body);
+    assert.doesNotMatch(sent, /fixture(?:Credential|Access)123456/);
+    assert.match(sent, /retry/i);
+  }
+});
+
 test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const task = taskTextOf('上传失败后重试'.repeat(600));
@@ -309,6 +322,22 @@ test('a strategy longer than its budget keeps its opening and safety lines and n
   assert.match(match.text, /^\[Evolution Memory\] .*\n1\. x{380} step 0\.\n/);
   assert.match(match.text, /\. Safety boundary: never touch prod\.\n\(\d+ more lines of sha256:long left out for length\.\)\n/);
   assert.ok(!match.text.includes('step 11.'));
+});
+
+test('a compiled Gene over its budget keeps its first step and failure line, losing its exact contract first, then its do-not-use line', async () => {
+  const filler = (index) => `${'y'.repeat(300)} step ${index}.`;
+  const tail = [
+    'If npm test fails with ECONNRESET: raise the client retry cap.',
+    `Do not use when: ${'the Redis URL is wrong, not the connection. '.repeat(10)}`,
+    `Exact command (applies when the suite runs): ${'z'.repeat(300)}`,
+  ];
+  const rows = [[10, { doNotUse: true, contract: false }], [11, { doNotUse: false, contract: false }]];
+  for (const [steps, expected] of rows) {
+    const strategy = [...Array.from({ length: steps }, (_, index) => filler(index)), ...tail];
+    const { text } = await recallStrategy(stubProxy({ assets: [{ asset_id: 'sha256:ir', asset_type: 'Gene', similarity: 0.99, strategy }] }).proxyFetch, 'add a retry to the uploader');
+    assert.match(text, /\n1\. y+ step 0\.\n[\s\S]*\. If npm test fails with ECONNRESET: raise the client retry cap\.\n/, `${steps} steps`);
+    assert.deepEqual({ doNotUse: /Do not use when/.test(text), contract: /Exact command/.test(text) }, expected, `${steps} steps`);
+  }
 });
 
 test('a line is capped by tokens, so a Chinese line keeps as much meaning as an English one', async () => {

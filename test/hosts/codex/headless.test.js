@@ -72,7 +72,7 @@ test('the runner finds codex on PATH and runs it headless in an empty folder, th
     const env = { ...process.env, PATH: [FAKE_CODEX, dirname(process.execPath), process.env.PATH].join(delimiter), FAKE_CODEX_NODE: process.execPath, FAKE_CODEX_LOG: log, FAKE_CODEX_MCP: '[{"name":"github","enabled":true}]' };
     const runner = modelRunnerOf(codex.model, env);
     const reply = await runner.complete({ model: 'gpt-5.5' }, '## Task\nadd a retry', AbortSignal.timeout(10_000));
-    assert.equal(JSON.parse(reply.answer).title, 'Retry uploads');
+    assert.equal(JSON.parse(reply.answer).title, 'Stabilise Redis retries');
     assert.deepEqual(reply.usage, { inputTokens: 900, cachedInputTokens: 0, outputTokens: 120, reasoningOutputTokens: 0 });
     const [listing, call] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(listing.mcp, true);

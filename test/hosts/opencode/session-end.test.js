@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { distillPrompt } from '../../../lib/distill/prompt.js';
 import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
 import {
-  ASSET, PROMPT, callsNamed, deadPid, fakeClient, host, loadServer, reportsOf, requestsTo, startProxy, until, verifiedTurn,
+  ASSET, PROMPT, callsNamed, deadPid, fakeClient, fixTurn, host, loadServer, reportsOf, requestsTo, startProxy, until,
 } from './host.js';
+import { IR } from '../../app/work-turns.js';
 
 async function harness(t, { answer, assets } = {}) {
   const proxy = await startProxy(t, { assets });
@@ -18,14 +18,18 @@ async function harness(t, { answer, assets } = {}) {
 const distills = (proxy) => requestsTo(proxy, '/conversation/distill');
 const deleted = (oc, sessionID) => oc.event('session.deleted', { sessionID, info: { id: sessionID } });
 
-test('a verified turn is distilled once its session is deleted, in a tool-less helper session on its model', async (t) => {
+test('a fixed error is distilled once its session is deleted, in a tool-less helper session on its model', async (t) => {
   const { oc, proxy, client, stores } = await harness(t);
-  await verifiedTurn(oc, 'ses_d');
+  await fixTurn(oc, 'ses_d');
   assert.deepEqual(callsNamed(client, 'prompt'), [], 'nothing runs at turn end');
-  const candidate = (await stores.candidates.read()).ses_d;
 
   await deleted(oc, 'ses_d');
-  await until(() => distills(proxy).length === 1, 'the distillation');
+  try { await until(() => distills(proxy).length === 1, 'the distillation'); }
+  catch (error) {
+    const pending = (await stores.candidates.read()).ses_d;
+    t.diagnostic(JSON.stringify({ calls: client.calls.map(call => call.name), requests: proxy.requests.map(request => request.path), closed: pending?.closed, attempts: pending?.attempts, claimed: Boolean(pending?.claimedBy) }));
+    throw error;
+  }
   await until(async () => (await stores.candidates.read()).ses_d === undefined, 'the candidate to settle');
 
   const [create] = callsNamed(client, 'create');
@@ -34,7 +38,7 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   assert.equal(typeof callsNamed(client, 'update')[0].options.body.time.archived, 'number');
   const [prompt] = callsNamed(client, 'prompt');
   assert.deepEqual(prompt.options.body.model, { providerID: 'anthropic', modelID: 'claude-sonnet' });
-  assert.deepEqual(prompt.options.body.parts, [{ type: 'text', text: distillPrompt(candidate) }]);
+  assert.match(prompt.options.body.parts[0].text, /^Evolver distillation, prompt session-gene-ir-v1\.[\s\S]*\nR3 check \(exit 1\): npm test\n/);
   await until(() => callsNamed(client, 'delete').length === 1, 'the helper session to go');
 
   const [{ body }] = distills(proxy);
@@ -42,14 +46,14 @@ test('a verified turn is distilled once its session is deleted, in a tool-less h
   assert.equal(body.trigger, 'session_end');
   assert.equal(body.session_id, 'opencode:ses_d');
   assert.equal(body.user_prompt, PROMPT);
-  assert.deepEqual(body.execution, { trace: [{ command: 'npm test 2>&1 | tail -5', exit: 0, source: 'observed' }] });
+  assert.deepEqual(body.execution, { trace: [{ command: 'npm test', exit: 1, source: 'observed' }, { command: 'npm test 2>&1 | tail -5', ok: true, source: 'observed' }] });
   assert.deepEqual(body.distill_usage, { input: 900, output: 120 });
   assert.equal((await stores.drafts.read()).length, 1);
 });
 
 test('the helper session triggers none of this plugin\'s own work', async (t) => {
   const { oc, proxy, client } = await harness(t);
-  await verifiedTurn(oc, 'ses_h');
+  await fixTurn(oc, 'ses_h');
   client.hold = new Promise(() => {});
   await deleted(oc, 'ses_h');
   await until(() => callsNamed(client, 'prompt').length === 1, 'the helper prompt');
@@ -68,9 +72,9 @@ test('the helper session triggers none of this plugin\'s own work', async (t) =>
   assert.equal(reportsOf(proxy).length, 1);
 });
 
-test('a distillation the model failed keeps the candidate, and a session start once its retry wait is over retries it', async (t) => {
+test('a distillation the model failed keeps the session\'s work, and a session start once its retry wait is over retries it', async (t) => {
   const { oc, proxy, client, stores } = await harness(t, { answer: 'not json' });
-  await verifiedTurn(oc, 'ses_f');
+  await fixTurn(oc, 'ses_f');
   await deleted(oc, 'ses_f');
   await until(async () => (await stores.candidates.read()).ses_f?.attempts === 1, 'the failed try to count');
   const kept = (await stores.candidates.read()).ses_f;
@@ -81,7 +85,7 @@ test('a distillation the model failed keeps the candidate, and a session start o
 
   assert.ok(kept.retryAt > Date.now(), 'the next try waits');
   await stores.candidates.update((pending) => ({ ...pending, ses_f: { ...pending.ses_f, retryAt: 0 } }));
-  client.answer = JSON.stringify({ title: 'Retry', summary: 'Retry Redis connections deterministically.' });
+  client.answer = JSON.stringify(IR);
   await oc.prompt('ses_next', 'what does this repo do?');
   await until(() => distills(proxy).length === 1, 'the retry');
   await until(async () => (await stores.candidates.read()).ses_f === undefined, 'the candidate to settle');
@@ -101,7 +105,7 @@ test('a strategy whose turn never ended is reported aborted when its session is 
 test('shutting OpenCode down only writes what its sessions leave; the next instance delivers and distills it', async (t) => {
   const { oc, proxy, hooks, client, stores } = await harness(t);
   await oc.prompt('ses_open', PROMPT);
-  await verifiedTurn(oc, 'ses_done', 'make the flaky redis connection retries in the worker tests pass');
+  await fixTurn(oc, 'ses_done', 'make the flaky redis connection retries in the worker tests pass');
 
   const before = reportsOf(proxy).length;
   await hooks.dispose();
@@ -116,14 +120,17 @@ test('shutting OpenCode down only writes what its sessions leave; the next insta
   assert.equal(distills(proxy)[0].body.session_id, 'opencode:ses_done');
 });
 
-test("the next session reports a killed process's open strategies and distills its leftover candidate", async (t) => {
+test("the next session reports a killed process's open strategies and distills its leftover work", async (t) => {
   const { oc, proxy, client, stores } = await harness(t);
   const dead = deadPid();
   await stores.sessions.update('ses_killed', () => ({ turn: 4, open: true, pid: dead, injected: { [ASSET.asset_id]: { turn: 4, injectedAt: Date.now(), strategyText: '1. a.' } } }));
   await stores.sessions.update('ses_idle', () => ({ turn: 1, open: true, pid: process.pid, injected: { 'sha256:idle': { turn: 1, injectedAt: Date.now(), strategyText: '1. a.' } } }));
   await stores.candidates.update((pending) => ({
     ...pending,
-    ses_killed: { prompt: 'p', commands: ['npm test'], paths: [], checks: [{ command: 'npm test', failed: false }], answer: 'a', model: { providerID: 'p', modelID: 'm' }, turn: 4, pid: dead, attempts: 0, at: 1 },
+    ses_killed: {
+      turns: [{ turn: 4, prompt: 'p', steps: [{ kind: 'check', command: 'npm test', exit: 1, failed: true }, { kind: 'edit', path: 'a.js' }, { kind: 'check', command: 'npm test', exit: 0, failed: false }], answer: 'a', at: 1 }],
+      model: { providerID: 'p', modelID: 'm' }, pid: dead, attempts: 0, at: 1, changedAt: 1,
+    },
   }));
 
   await oc.prompt('ses_new', 'what does this repo do?');

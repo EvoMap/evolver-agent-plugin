@@ -1,5 +1,6 @@
 // In-memory ports: the use cases run against these without a filesystem, a process or a network.
 
+import { rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
 import { recipeSearchAnswer } from '../helpers/recipe-search.js';
 
 export const ASSET = {
@@ -64,8 +65,9 @@ const lines = () => {
   };
 };
 
-export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null } = {}) {
+export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = null, model = null, owner = 4242, gone = new Set(), now = 1_000_000, project = null, heads = [] } = {}) {
   const sessions = new Map();
+  const draftCorrections = new Set();
   const notes = lines();
   const edits = lines();
   const requests = [];
@@ -73,6 +75,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
   const scheduled = [];
   const wakeUps = [];
   const retained = [];
+  const snapshotBases = [];
   let time = now;
   const ports = {
     identity: { agent: 'testagent', label: 'Test Agent' },
@@ -107,8 +110,15 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
         return { before: new Map(taken.filter(ofTurn).map(({ file, before }) => [file, before])), commit };
       },
     },
-    candidates: table({}),
+    candidates: { ...table({}), referenceOf: rangeReferenceOf },
     drafts: table([]),
+    outcomes: table([]),
+    corpus: table([]),
+    draftCorrections: {
+      withSession: async (_id, work) => work(),
+      mark: async (id, turn, epoch) => { draftCorrections.add(JSON.stringify([id, turn, epoch])); },
+      has: async (id, turn, epoch) => draftCorrections.has(JSON.stringify([id, turn, epoch])),
+    },
     reports: { enqueue: async (entries) => queued.push(...entries) },
     outbox: { drain: async () => true },
     retention: {
@@ -127,7 +137,10 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     model,
     owner: { current: () => owner, self: () => 7, isGone: (pid) => gone.has(pid) },
-    project: { snapshot: async () => project },
+    project: {
+      snapshot: async (dir, { base = null } = {}) => { snapshotBases.push(base); return project; },
+      head: async () => (heads.length > 0 ? { root: '/proj', head: heads.shift() } : null),
+    },
     scheduler: { schedule: (tasks) => scheduled.push(...tasks), wakeAt: (at, tasks) => wakeUps.push({ at, tasks }) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
     engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
@@ -135,5 +148,5 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
     signIn: { latest: async () => null, joinOrStart: async () => null, forget: async () => {} },
   };
-  return { ports, requests, queued, scheduled, wakeUps, retained, sessions, advance: (ms) => { time += ms; } };
+  return { ports, requests, queued, scheduled, wakeUps, retained, sessions, snapshotBases, advance: (ms) => { time += ms; } };
 }

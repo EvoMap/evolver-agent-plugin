@@ -9,10 +9,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ASSET, PROMPT, recalledFor } from '../../app/memory-ports.js';
+import { IR } from '../../app/work-turns.js';
 
 export { ASSET, PROMPT };
 
-export const GENE = JSON.stringify({ title: 'Stabilise Redis retries', summary: 'Make a flaky Redis client retry deterministically.', strategy: ['Find the retry option.', 'Set it explicitly.'] });
+export const GENE = JSON.stringify(IR);
 
 const DRAFTED = { ok: true, distill_id: 'distill_1', quality: { ok: true, score: 0.9 }, gene: { asset_id: 'sha256:gene' }, capsule: { asset_id: 'sha256:capsule', summary: 'Retry Redis deterministically.' } };
 
@@ -32,7 +33,8 @@ export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer, 
     request.on('end', () => {
       const parsed = body ? JSON.parse(body) : undefined;
       requests.push({ path: request.url, body: parsed });
-      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer(request.url, parsed, assets)));
+      // Keep a cold Core import from racing the fixture's idle socket expiry on Node 22.
+      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }).end(JSON.stringify(answer(request.url, parsed, assets)));
       if (request.url === '/asset/fetch' && recallDelayMs) setTimeout(reply, recallDelayMs);
       else reply();
     });
@@ -40,7 +42,7 @@ export async function startProxy(t, { assets = [ASSET], answer = defaultAnswer, 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const home = mkdtempSync(join(tmpdir(), 'evolver-opencode-home-'));
   mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url: `http://127.0.0.1:${server.address().port}`, version: '2.0.49' } }));
+  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url: `http://127.0.0.1:${server.address().port}`, version: '2.0.50' } }));
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   Object.assign(process.env, { HOME: home, USERPROFILE: home });
   t.after(() => {
@@ -138,9 +140,19 @@ export function host(hooks) {
   };
 }
 
-/** A turn that edited a file and ended on a passing check: the kind that becomes the session's candidate. */
+/** A turn that edited a file and ended on a passing check: work the session accumulates. */
 export async function verifiedTurn(oc, sessionID, prompt = PROMPT) {
   await oc.prompt(sessionID, prompt);
+  await oc.tool(sessionID, 'edit', { filePath: 'lib/redis.js', oldString: 'a', newString: 'maxRetriesPerRequest: null' });
+  await oc.bash(sessionID, 'npm test 2>&1 | tail -5', { exit: 0, output: 'ℹ pass 4\nℹ fail 0' });
+  await oc.answer(sessionID, 'Set maxRetriesPerRequest to null; the suite passes.');
+  await oc.idle(sessionID);
+}
+
+/** A turn that fixed an error: its check failed, a file was edited, the check passed. Enough for distillation alone. */
+export async function fixTurn(oc, sessionID, prompt = PROMPT) {
+  await oc.prompt(sessionID, prompt);
+  await oc.bash(sessionID, 'npm test', { exit: 1, output: 'ℹ fail 1' });
   await oc.tool(sessionID, 'edit', { filePath: 'lib/redis.js', oldString: 'a', newString: 'maxRetriesPerRequest: null' });
   await oc.bash(sessionID, 'npm test 2>&1 | tail -5', { exit: 0, output: 'ℹ pass 4\nℹ fail 0' });
   await oc.answer(sessionID, 'Set maxRetriesPerRequest to null; the suite passes.');

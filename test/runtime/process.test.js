@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { profileNamed } from '../../lib/agent/registry.js';
 import { sessionEndWaitOf, waitBudgetOf } from '../../lib/runtime/budget.js';
 import { EPHEMERAL, environmentFor } from '../../lib/runtime/environment.js';
+import { waitForWakeUp } from '../../lib/runtime/lifetime/ephemeral.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
@@ -22,10 +25,55 @@ test('a run gets its input on stdin and the headless marker only when asked', as
   assert.equal((await runProcess(node, echo, { input: 'hi', headless: true })).stdout, 'hi|1');
 });
 
+test('a binary run preserves stdout bytes that cannot be decoded as UTF-8', async () => {
+  const bytes = [0xff, 0, 0xc3, 0xa9];
+  const result = await runProcess(node, ['-e', `process.stdout.write(Buffer.from(${JSON.stringify(bytes)}))`], { encoding: 'buffer' });
+  assert.equal(result.code, 0);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.stdout, Buffer.from(bytes));
+});
+
 test('a run past its timeout is killed and says so; a missing command reads as ENOENT', async () => {
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
   assert.equal((await runProcess('evolver-no-such-command-xyz', [])).error.code, 'ENOENT');
+});
+
+test('Windows timeout ends the process tree without system directory environment variables', { skip: process.platform !== 'win32' }, async (t) => {
+  const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-stripped-process-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const child = join(dir, 'child.exe');
+  // A fresh Node 22 child can fail its native RNG bootstrap before any JavaScript runs without SystemRoot.
+  const compiler = join(process.env.SystemRoot || process.env.WINDIR, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  await promisify(execFile)(compiler, ['/nologo', '/target:exe', '/out:' + child, fileURLToPath(new URL('../fixtures/process/windows-child.cs', import.meta.url))], { timeout: 12000, windowsHide: true });
+  const fixture = `
+    import assert from 'node:assert/strict';
+    import { setTimeout as delay } from 'node:timers/promises';
+    // Seed every key so stripping is exercised even when the host already omitted it.
+    const env = { ...process.env, SystemRoot: 'fixture-root', WINDIR: 'fixture-root', COMSPEC: 'fixture-shell' };
+    for (const key of Object.keys(env)) {
+      if (/^(systemroot|windir|comspec)$/i.test(key)) {
+        delete env[key];
+        delete process.env[key];
+      }
+    }
+    assert.deepEqual(Object.keys(env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'child env still contains a system directory variable');
+    assert.deepEqual(Object.keys(process.env).filter(key => /^(systemroot|windir|comspec)$/i.test(key)), [], 'runtime imported with a system directory variable');
+    const { runProcess } = await import(${JSON.stringify(runtime)});
+    const result = await runProcess(${JSON.stringify(child)}, [], { env, timeoutMs: 1500 });
+    if (!result.stdout) throw new Error(result.stderr || result.error?.message || 'Fixture process did not start');
+    const pids = JSON.parse(result.stdout);
+    const alive = pid => {
+      try { process.kill(pid, 0); return true; }
+      catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+    };
+    const deadline = Date.now() + 2000;
+    while (pids.some(alive) && Date.now() < deadline) await delay(50);
+    console.log(JSON.stringify({ code: result.error?.code, alive: pids.map(alive) }));
+  `;
+  const { stdout } = await promisify(execFile)(node, ['--input-type=module', '-e', fixture], { timeout: 12000, windowsHide: true });
+  assert.deepEqual(JSON.parse(stdout), { code: 'ETIMEDOUT', alive: [false, false] });
 });
 
 test('a cancelled run is ended and reported cancelled', async () => {
@@ -37,8 +85,8 @@ test('a cancelled run is ended and reported cancelled', async () => {
 
 test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
-  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off' };
-  const profile = await profileNamed('codex');
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off', MINIMAX_DATA_DIR: home, PLUGIN_DATA: '' };
+  const profile = await profileNamed(process.platform === 'win32' ? 'minimax' : 'codex');
   const { scheduler } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: async () => true }).ports;
   const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
   await stores.candidates.update(() => ({ leftover: { closed: true, at: 1 } }));
@@ -73,6 +121,15 @@ test('a hook process arms one sleeping waiter, another only for an earlier time 
   assert.equal(ownerIsGone(sleeping.pid), false, 'the later waiter sleeps on');
 });
 
+test('an unreadable waiter record neither stops a woken waiter nor is removed by it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-waiter-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const waiterFile = join(dir, 'waiter.json');
+  writeFileSync(waiterFile, '{unfinished');
+  await waitForWakeUp(0, { waiterFile, clock: { now: () => 1, sleep: async () => {} } });
+  assert.equal(readFileSync(waiterFile, 'utf8'), '{unfinished');
+});
+
 test("a process's age is read from every form ps prints it in, and is unknown where ps cannot say", async () => {
   const { elapsedMsOf } = await import('../../lib/runtime/process/identity.js');
   const ps = (stdout) => ({ probe: () => ({ stdout }), platform: 'darwin' });
@@ -80,7 +137,7 @@ test("a process's age is read from every form ps prints it in, and is unknown wh
   assert.equal(elapsedMsOf(1, ps('01:02:03')), 3_723_000);
   assert.equal(elapsedMsOf(1, ps('2-01:02:03')), 176_523_000);
   assert.equal(elapsedMsOf(1, ps('')), null);
-  assert.equal(elapsedMsOf(1, { platform: 'win32' }), null);
+  assert.equal(elapsedMsOf(process.pid, { platform: 'win32' }), null, 'Windows hosts must opt in to start-time probes');
 });
 
 test('cmd.exe metacharacters in an argument are quoted and escaped so none runs', () => {
@@ -94,6 +151,7 @@ test('the owner is this process, the parent past a shell, or the nearest named a
   assert.equal(ownerProbeOf('parent', { probe, platform: 'darwin' }).current(), 50);
   assert.equal(ownerProbeOf({ ancestor: /^codex/ }, { probe, platform: 'darwin' }).current(), 40);
   assert.equal(ownerProbeOf('parent', { probe, platform: 'win32' }).current(), null);
+  assert.equal(ownerProbeOf('parent', { probe, platform: 'win32', windowsAncestry: true }).current(), 50);
 });
 
 test('a hook waits what is left of its budget, never less than a floor', () => {
@@ -177,16 +235,17 @@ test('a CLI is looked up name by name, on PATH then in the host\'s folders, and 
   assert.equal(executableOf(cursor, options), null, 'an unrelated agent on PATH is never run');
   const workbuddy = { names: ['codebuddy'], dirs: ['/apps/wb'], nodeScriptOnWindows: true };
   assert.deepEqual(executableOf(workbuddy, options), { file: '/apps/wb/codebuddy', viaNode: false });
-  assert.deepEqual(executableOf(workbuddy, { ...options, platform: 'win32', env: { PATH: '/usr/bin' } }), { file: '/apps/wb/codebuddy', viaNode: true });
+  const windowsScript = 'C:\\apps\\wb\\codebuddy'; present.add(windowsScript);
+  assert.deepEqual(executableOf({ ...workbuddy, dirs: ['C:\\apps\\wb'] }, { ...options, platform: 'win32', env: { PATH: 'C:\\unrelated;C:\\usr\\bin' } }), { file: windowsScript, viaNode: true });
   present.add('/usr/bin/tool.cmd');
   assert.equal(executableOf({ names: ['tool'] }, { ...options, platform: 'win32' }), null, 'a .cmd shim needs a shell');
 });
 
 test('on Windows an npm .cmd shim is found only for a CLI that allows one, after an .exe of the same name', async () => {
   const { executableOf } = await import('../../lib/runtime/process/which.js');
-  const present = new Set(['/npm/codex.cmd', '/tools/codex.exe']);
+  const present = new Set(['C:\\npm\\codex.cmd', 'C:\\tools\\codex.exe']);
   const options = (PATH) => ({ env: { PATH }, platform: 'win32', exists: (file) => present.has(file), realPath: (file) => file });
-  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/npm')), { file: '/npm/codex.cmd', viaNode: false });
-  assert.equal(executableOf({ names: ['codex'] }, options('/npm')), null);
-  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('/tools')), { file: '/tools/codex.exe', viaNode: false });
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('C:\\unrelated;C:\\npm')), { file: 'C:\\npm\\codex.cmd', viaNode: false });
+  assert.equal(executableOf({ names: ['codex'] }, options('C:\\npm')), null);
+  assert.deepEqual(executableOf({ names: ['codex'], windowsShims: true }, options('C:\\tools')), { file: 'C:\\tools\\codex.exe', viaNode: false });
 });

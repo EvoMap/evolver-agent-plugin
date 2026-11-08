@@ -1,7 +1,7 @@
 [
   {
     "name": "evolver-status",
-    "description": "Evolver health: the Proxy, engine setup, Hub sign-in, distillation candidate and drafts."
+    "description": "Evolver health: the Proxy, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation and drafts."
   },
   {
     "name": "evolver-login",
@@ -14,7 +14,7 @@
   },
   {
     "name": "evolver-distill",
-    "description": "Distill this session's latest verified turn into a draft Gene now, instead of once the session goes quiet or ends.",
+    "description": "Distill this session's work since its last distillation into draft Genes now, instead of once the session goes quiet or ends.",
     "hint": "[focus]"
   },
   {

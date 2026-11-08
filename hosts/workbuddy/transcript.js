@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { CHECK_COMMAND_MAX_CHARS } from '../../lib/turn/record.js';
-import { isVerificationCommand, verificationFailureOf } from '../../lib/verification.js';
+import { CHECK_COMMAND_MAX_CHARS, checkStepOf } from '../../lib/turn/record.js';
+import { isVerificationCommand, verificationExitOf, verificationFailureOf } from '../../lib/verification.js';
 
 // FinalStop carries neither the answer nor the turn's tool calls, so a turn is read off the session transcript: one
 // JSON record per line, `function_call` / `function_call_result` pairs joined by `callId`, messages with a `role`.
@@ -88,14 +88,11 @@ const exitCodeOf = (result) => {
   return exit ? Number(exit[1]) : null;
 };
 
-function shellFailed(result) {
-  if (result.status !== 'completed') return true;
-  return verificationFailureOf({ exit: exitCodeOf(result), text: shellOutputOf(result.text) });
-}
-
 function checkOf(call) {
-  const failed = shellFailed(call.result);
-  return { command: call.args.command.slice(0, CHECK_COMMAND_MAX_CHARS), exit: exitCodeOf(call.result), failed };
+  const command = call.args.command;
+  const exit = verificationExitOf(command, exitCodeOf(call.result));
+  const failed = call.result.status !== 'completed' || verificationFailureOf({ exit, text: shellOutputOf(call.result.text) });
+  return { command: command.slice(0, CHECK_COMMAND_MAX_CHARS), exit, failed };
 }
 
 const isCheck = (call) => SHELL_TOOLS.has(call.name) && call.args.run_in_background !== true && isVerificationCommand(call.args.command);
@@ -121,16 +118,25 @@ export function modelOf(records) {
   return typeof model === 'string' && model ? { model } : null;
 }
 
-/** What a turn did, in the shape of lib/turn/record.js: commands, paths, edited files, checks and its answer. */
+const isEdit = (call) => EDIT_TOOLS.includes(call.name) && editSucceeded(call.result) && Boolean(editedPathOf(call.args));
+
+function stepOf(call) {
+  if (isEdit(call)) return { kind: 'edit', path: editedPathOf(call.args) };
+  if (isCheck(call)) return call.result ? checkStepOf(checkOf(call), shellOutputOf(call.result.text)) : null;
+  return typeof call.args.command === 'string' ? { kind: 'command', command: call.args.command } : null;
+}
+
+/** What a turn did, in the shape of lib/turn/record.js: commands, paths, edited files, checks, their order and its answer. */
 export function turnActivityOf(records) {
   const calls = callsOf(records);
   return {
     commands: calls.map((call) => call.args.command).filter((command) => typeof command === 'string'),
     paths: calls.flatMap((call) => PATH_KEYS.map((key) => call.args[key]).filter((value) => typeof value === 'string')),
-    edits: calls.filter((call) => EDIT_TOOLS.includes(call.name) && editSucceeded(call.result)).map((call) => editedPathOf(call.args)).filter(Boolean),
+    edits: calls.filter(isEdit).map((call) => editedPathOf(call.args)),
     checks: calls
       .filter((call) => isCheck(call) && call.result)
       .map(checkOf),
+    steps: calls.map(stepOf).filter(Boolean),
     answer: answerOf(records),
   };
 }

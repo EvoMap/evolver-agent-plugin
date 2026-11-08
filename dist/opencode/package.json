@@ -1,6 +1,6 @@
 {
   "name": "@evomap/evolver-opencode",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Evolver for OpenCode: recalls a proven strategy behind each prompt, reports its reuse at turn end, and distills verified work outside the conversation.",
   "type": "module",
   "exports": {

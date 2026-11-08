@@ -1,6 +1,6 @@
 {
   "name": "evolver-plugin",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Official Codex plugin for Evolver: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work once the session goes quiet or ends — all from hooks, with no tools in the model's context.",
   "author": {
     "name": "EvoMap",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Evolver",
     "shortDescription": "Recall proven strategies and learn from verified work, from hooks.",
-    "longDescription": "Evolver is EvoMap's GEP-powered self-evolution engine for AI agents. This Codex plugin runs entirely from hooks: before each prompt it recalls one proven strategy from the local Evolver Proxy and adds its steps to the turn, at turn end it reports how the strategy was reused (with the checks the turn ran as evidence), and once the session has been quiet for 30 minutes or ends it distills the session's latest verified turn into a draft Gene through Codex itself, headless. It registers no tools and no skill, so nothing but the recalled steps enters the model's context. People reach Evolver by typing its evolver-* commands into the prompt box.",
+    "longDescription": "Evolver is EvoMap's GEP-powered self-evolution engine for AI agents. This Codex plugin runs entirely from hooks: before each prompt it recalls one proven strategy from the local Evolver Proxy and adds its steps to the turn, at turn end it reports how the strategy was reused (with the checks the turn ran as evidence), and once the session's work holds three work turns or a fixed error it distills that work into draft Genes through Codex itself, headless: 10 minutes after the fix, 30 minutes after the session went quiet, or when it ends. It registers no tools and no skill, so nothing but the recalled steps enters the model's context. People reach Evolver by typing its evolver-* commands into the prompt box.",
     "developerName": "EvoMap",
     "category": "Productivity",
     "capabilities": [

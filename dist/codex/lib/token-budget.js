@@ -9,6 +9,9 @@ const WIDE_CHARS = new RegExp(WIDE_SCRIPTS, 'gu');
 const WIDE_CHAR = new RegExp(`^${WIDE_SCRIPTS}$`, 'u');
 const NARROW_CHARS_PER_TOKEN = 4;
 const SAFETY_LINE = /^\s*(?:\d+\.\s*)?safety boundary:/i;
+const FAILURE_LINE = /^\s*(?:\d+\.\s*)?If [^:]+: /;
+const DO_NOT_USE_LINE = /^\s*(?:\d+\.\s*)?Do not use when\b/i;
+const CONTRACT_LINE = /^\s*(?:\d+\.\s*)?Exact (?:command|api|config)\b/i;
 
 export function tokensOf(text) {
   const wide = text.match(WIDE_CHARS)?.length ?? 0;
@@ -33,17 +36,24 @@ export function linesCostOf(lines) {
   return lines.reduce((sum, line) => sum + lineCostOf(line), 0);
 }
 
-// The opening line says what the step is and a safety boundary what it must not do, so both outrank the detail
-// between them when a step has to be shortened.
+// The opening line says what the step is, a safety boundary what it must not do and an `If <signal>: <response>`
+// line what to do when it fails, so they outrank the other steps when a strategy has to be shortened; a compiled
+// Gene's `Do not use when` line goes before its exact contracts, which go first.
+function rankOf(line, index) {
+  if (index === 0) return 0;
+  if (SAFETY_LINE.test(line) || FAILURE_LINE.test(line)) return 1;
+  if (CONTRACT_LINE.test(line)) return 4;
+  return DO_NOT_USE_LINE.test(line) ? 3 : 2;
+}
+
 function byPriority(lines) {
   const indexes = lines.map((_, index) => index);
-  const rank = (index) => (index === 0 ? 0 : SAFETY_LINE.test(lines[index]) ? 1 : 2);
-  return indexes.sort((left, right) => rank(left) - rank(right) || left - right);
+  return indexes.sort((left, right) => rankOf(lines[left], left) - rankOf(lines[right], right) || left - right);
 }
 
 /**
- * The lines that fit `tokens`, in their own order: the first line and safety boundaries before the rest; none when
- * the first line does not fit, since the others say nothing without it.
+ * The lines that fit `tokens`, in their own order, kept by rank (see `rankOf`); none when the first line does not
+ * fit, since the others say nothing without it.
  */
 export function linesWithin(lines, tokens) {
   const kept = new Set();

@@ -116,7 +116,7 @@ function session(id) {
 
 const stateFile = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
 const sessionState = (id) => JSON.parse(readFileSync(stateFile(`grok-session-${createHash('sha256').update(id).digest('hex').slice(0, 16)}.json`), 'utf8'));
-const pending = () => (existsSync(stateFile('grok-distill-pending.json')) ? JSON.parse(readFileSync(stateFile('grok-distill-pending.json'), 'utf8')) : {});
+const pending = () => (existsSync(stateFile('grok-distill-ranges.json')) ? JSON.parse(readFileSync(stateFile('grok-distill-ranges.json'), 'utf8')) : {});
 const posted = (path) => proxy.requests.filter((request) => request.path === path).map((request) => request.body);
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
 const grokRuns = () => (existsSync(env.FAKE_GROK_LOG) ? readFileSync(env.FAKE_GROK_LOG, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : []);
@@ -159,9 +159,8 @@ test('a whole turn through the packed hooks: the strategy reaches the first tool
     reason: 'Injected by Evolver into turn 1; applied: used; last test passed after failing earlier.',
     evidence: { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' },
   });
-  const candidate = pending()['s-turn'];
-  assert.deepEqual(candidate.paths, [join(project, 'lib', 'redis.js')]);
-  assert.deepEqual(candidate.checks.map((check) => check.failed), [true, false]);
+  const [turn] = pending()['s-turn'].turns;
+  assert.deepEqual(turn.steps.map(({ kind, path, failed }) => (kind === 'edit' ? path : failed)), [true, join(project, 'lib', 'redis.js'), false]);
   assert.deepEqual(await s.shutdownStop(), {}, 'the Stop of a session\'s end ends no turn');
   assert.ok(readdirSync(stateFile('')).every((name) => name.startsWith('grok-')), 'every state file carries the agent name');
 });
@@ -176,7 +175,7 @@ test('a turn answered without any tool call never sees its strategy, and reports
   assert.ok((await s.read()).hookSpecificOutput, 'the next turn may recall it again');
 });
 
-test('a cancelled turn is reported aborted with the check it ran, and leaves no candidate', posix, async () => {
+test('a cancelled turn is reported aborted with the check it ran, which stays in the session\'s work', posix, async () => {
   const s = session('s-cut');
   await s.prompt(PROMPT);
   await s.read();
@@ -185,7 +184,7 @@ test('a cancelled turn is reported aborted with the check it ran, and leaves no 
   const report = await waitFor(() => reportOf('grok:s-cut:1'));
   assert.equal(report.evidence.aborted, true);
   assert.deepEqual(report.evidence.check, { kind: 'test', passed: true, fail_then_pass: false });
-  assert.equal(pending()['s-cut'], undefined);
+  assert.deepEqual(pending()['s-cut'].turns.map(({ turn }) => turn), [1]);
 });
 
 test('a check grok moved to the background is no pass: the turn reports no check, and its task\'s output settles it', posix, async () => {
@@ -197,7 +196,7 @@ test('a check grok moved to the background is no pass: the turn reports no check
   const report = await waitFor(() => reportOf('grok:s-background:1'));
   assert.equal(report.evidence.check, undefined, 'a check still running is no evidence');
   assert.notEqual(report.evidence.tier, 'L1');
-  assert.equal(pending()['s-background'], undefined, 'no passing check, no candidate');
+  assert.equal(pending()['s-background'].turns[0].steps.some(({ kind }) => kind === 'check'), false, 'a check still running is no step of its work');
   const settling = session('s-background-settled');
   await settling.prompt(PROMPT);
   await settling.edit();
@@ -264,14 +263,14 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   assert.ok(await waitFor(() => reportOf('grok:s-command:2')), 'the evolve turn counted; the blocked commands did not');
 });
 
-test('the session end distills its candidate through grok -p, headless, in an empty folder', posix, async () => {
+test('the session end distills a fixed error through grok -p, headless, in an empty folder', posix, async () => {
   const s = session('s-done');
   await verifiedTurn(s);
   assert.deepEqual(await s.end(), {});
   const body = await waitFor(() => posted('/conversation/distill').find((entry) => entry.session_id === 'grok:s-done'));
   assert.deepEqual([body.platform, body.trigger, body.user_prompt], ['grok', 'session_end', PROMPT]);
   assert.deepEqual(body.distill_usage, { inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, reasoningOutputTokens: 0 });
-  const run = grokRuns().find((entry) => entry.prompt.includes(`## Task\n${PROMPT}`));
+  const run = grokRuns().find((entry) => entry.prompt.includes(`\nR2 prompt: ${PROMPT}\n`));
   assert.equal(run.args[0], '--prompt-file');
   assert.deepEqual(run.args.slice(2, 4), ['--output-format', 'json']);
   assert.equal(run.isolation.GROK_CLAUDE_HOOKS_ENABLED, 'false', 'the Claude Code hooks grok imports stay off');
@@ -280,9 +279,12 @@ test('the session end distills its candidate through grok -p, headless, in an em
   await waitFor(() => !pending()['s-done']);
 });
 
-test('inside the headless run every hook answers {} and writes nothing', posix, async () => {
+test('inside the headless run every hook answers {} and writes nothing', posix, async (t) => {
+  // Earlier hooks may still be delivering reports to the shared Proxy.
+  const proxy = await fakeProxy();
+  t.after(() => closeWhenSettled(proxy));
   const before = proxy.requests.length;
-  const headless = { ...env, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
+  const headless = { ...env, ...proxy.env, PATH: env.PATH, EVOLVER_HEADLESS: '1', HOME: join(proxy.env.HOME, 'headless-home') };
   const base = { sessionId: 's-headless', session_id: 's-headless', cwd: project };
   assert.deepEqual(await answerOf('UserPromptSubmit', { ...PAYLOADS.UserPromptSubmit, ...base, prompt: PROMPT }, headless), {});
   assert.deepEqual(await answerOf('PostToolUse', { ...PAYLOADS['PostToolUse.read_file'], ...base }, headless), {});

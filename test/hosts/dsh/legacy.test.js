@@ -48,7 +48,7 @@ function standaloneLeftovers(stateDir, projectDir, pid) {
   });
 }
 
-test('what the standalone plugin left is adopted at the first session start: reports, retention, injections and its candidate', async (t) => {
+test('what the standalone plugin left is adopted at the first session start: reports, retention, injections, and its candidate for the gate', async (t) => {
   const proxy = await startProxy(t);
   const projectDir = projectDirectory();
   standaloneLeftovers(proxy.stateDir, projectDir, deadPid());
@@ -64,9 +64,9 @@ test('what the standalone plugin left is adopted at the first session start: rep
   assert.equal(byTask[`dsh:${OLD_SESSION}:3`].asset_id, ASSET.asset_id);
   assert.equal(byTask[`dsh:${OLD_SESSION}:3`].evidence.aborted, true, 'an injection no turn end reported is reported aborted');
 
-  await until(() => requestsTo(proxy, '/conversation/distill').length === 1, 'the leftover candidate\'s distillation');
-  assert.equal(requestsTo(proxy, '/conversation/distill')[0].body.session_id, `dsh:${OLD_SESSION}`);
-  assert.deepEqual([llm.calls[0].provider, llm.calls[0].model], ['deepseek-official', 'deepseek-flash']);
+  await until(() => stateFile(proxy, 'dsh-distill-outcomes.json', []).length === 1, 'the leftover candidate judged by the gate');
+  assert.deepEqual(stateFile(proxy, 'dsh-distill-outcomes.json', []).map(({ status, session }) => [status, session]), [['below_threshold', `dsh:${OLD_SESSION}`]]);
+  assert.deepEqual([llm.calls, requestsTo(proxy, '/conversation/distill')], [[], []]);
 
   for (const name of ['reports-outbox.json', 'retention-pending.json', 'distill-pending.json', `injected-${sha256(OLD_SESSION).slice(0, 16)}.json`]) {
     assert.equal(existsSync(join(proxy.stateDir, name)), false, `${name} is adopted`);

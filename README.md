@@ -20,9 +20,12 @@ Everything runs from the host's hooks or plugin API:
 - **Report.** When the turn ends, it reports what the reuse produced, backed by the checks
   the turn ran. Claude Code also shows a one-line summary: whether the goal was reached,
   and roughly how many tokens the reused strategy saved.
-- **Distill.** Once the session has been quiet for 30 minutes, or ends, its last turn that edited files and ended on a
-  passing test, build, lint or type-check is distilled into a draft Gene. Nothing reaches
-  the network until you publish the draft.
+- **Distill.** A session's work turns (each edited files, ran a test, build, lint or type-check, or ran three
+  commands) add up. Once there are three of them, or one fixed an error (a check failed, files changed, the same
+  check passed), and the last one ended on a passing check, the session's work is distilled into up to two draft
+  Genes: 10 minutes after the fix, 30 minutes after the session went quiet, or when it ends. Everyday questions are
+  never distilled, and nothing reaches the network until you publish a draft. `/evolver-status` names the last
+  distillation's outcome, including why the Proxy refused one.
 
 Publishing execution-backed drafts requires a trusted Proxy verifier and its publish receipt.
 When you publish a draft marked `publishable: false`, or a legacy draft without a receipt, the plugin first asks `POST /asset/reverify`
@@ -51,6 +54,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
+| MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -135,6 +139,17 @@ injections, undelivered reports), so nothing is lost on the way over.
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
   Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
+- **MiniMax Code:** run `node scripts/install-minimax.mjs install` from a checkout,
+  then run `mcode plugin enable evolver-plugin@local --json` and start a
+  new task. The data root defaults to `~/.minimax`; keep the same `MINIMAX_DATA_DIR` for a separate profile.
+  A release checkout installs its versioned `dist/minimax` bundle; `--version X.Y.Z` builds the current sources explicitly.
+  The checkout's manifest is `.minimax-plugin/plugin.json`; source stays in `hosts/minimax/`.
+  This is a local installation: MiniMax's current public Marketplace submission format excludes hooks.
+  Use `evolver-status`, `evolver-drafts` and `evolver-evolve` in chat; `evolver-config recall off` and
+  `evolver-config auto-distill off` save preferences. Longer commands run as background jobs; use
+  `evolver-jobs`, `evolver-jobs job <id>` or `evolver-jobs cancel <id>` to inspect or cancel them.
+  [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
+  configuration copies and recovery when a host exits without `SessionEnd`.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
@@ -162,10 +177,10 @@ injections, undelivered reports), so nothing is lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the distillation candidate and waiting drafts |
+| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub with a device code (setting Evolver up first when needed) and shows the registered node |
 | `/evolver-search <task or error text>` | Finds the best matching network strategy |
-| `/evolver-distill [focus]` | Distills the last verified turn into a draft now |
+| `/evolver-distill [focus]` | Distills the session's work since its last distillation into drafts now, even below the three-turn threshold |
 | `/evolver-drafts [publish\|discard <number>]` | Lists drafts; publishes one for Hub review or drops it |
 | `/evolver-evolve [focus]` | An evolution checkpoint the agent answers |
 

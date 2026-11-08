@@ -48,7 +48,7 @@ function hook(hostEvent, payload, env = proxy.env) {
 const statePath = (name) => join(proxy.env.HOME, '.evolver', 'state', name);
 const reuseReports = () => proxy.requests.filter((request) => request.path === '/asset/reuse-result').map((request) => request.body);
 const fetches = () => proxy.requests.filter((request) => request.path === '/asset/fetch');
-const candidates = () => (existsSync(statePath('cursor-distill-pending.json')) ? JSON.parse(readFileSync(statePath('cursor-distill-pending.json'), 'utf8')) : {});
+const candidates = () => (existsSync(statePath('cursor-distill-ranges.json')) ? JSON.parse(readFileSync(statePath('cursor-distill-ranges.json'), 'utf8')) : {});
 
 async function waitFor(read, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
@@ -170,7 +170,7 @@ test('each stop status is the turn-end reason: aborted is marked aborted, error 
   assert.equal(aborted.evidence.aborted, true);
   assert.equal(aborted.outcome, 'success', 'the check that passed still decides the outcome');
   assert.equal(reports.find((report) => report.task_id === 'cursor:s-errored:1').outcome, 'failed');
-  assert.deepEqual(candidates(), {});
+  assert.deepEqual(Object.keys(candidates()), ['s-aborted'], 'a turn that ran a check is work, however it ended');
 });
 
 test('a correction in the next prompt sends an L3 follow-up under :correction', async () => {
@@ -275,11 +275,11 @@ test('inside the headless distillation every hook does nothing', async () => {
   assert.equal(existsSync(statePath('')), false);
 });
 
-test('a verified turn becomes the chat candidate with its final answer', async () => {
+test('a verified turn joins the chat\'s work with its final answer', async () => {
   await fixTurn(chat('s-candidate'));
-  const candidate = candidates()['s-candidate'];
-  assert.equal(candidate?.answer, 'Retries fixed; npm test passes.');
-  assert.deepEqual(candidate?.model, { model: 'claude-4.5-sonnet' });
+  const range = candidates()['s-candidate'];
+  assert.equal(range?.turns[0].answer, 'Retries fixed; npm test passes.');
+  assert.deepEqual(range?.model, { model: 'claude-4.5-sonnet' });
 });
 
 test('session start tells the engine notice once, as additional_context', async () => {

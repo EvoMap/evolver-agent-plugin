@@ -57,6 +57,26 @@ test('an unknown end reason leaves the turn open; a subagent, an unmapped event 
   assert.deepEqual(await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }), {});
 });
 
+test('a correction whose draft lock stays held still opens its turn and recalls, and reports the lock', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(hookProfile(), made);
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  await driver.handle('PostToolUse', { ...base, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { exit_code: 0 } });
+  await driver.handle('Stop', { ...base, last_assistant_message: 'Done.' });
+  const held = Object.assign(new Error('Timed out waiting for the draft correction lock. Please retry.'), { code: 'ELOCKED' });
+  made.ports.draftCorrections.withSession = async () => { throw held; };
+  const errors = [];
+  const recalls = made.requests.length;
+
+  await driver.handle('UserPromptSubmit', { ...base, prompt: `still failing: ${PROMPT}` }, { onError: (error) => errors.push(error) });
+  assert.deepEqual(errors, [held]);
+  assert.ok(made.requests.length > recalls);
+  const session = made.sessions.get('s1');
+  assert.deepEqual([session.turn, session.open], [2, true]);
+  assert.match((await made.ports.candidates.read()).s1.turns[0].correction, /^still failing/);
+  assert.equal(await made.ports.draftCorrections.has('s1', 1, session.sessionEpoch), true);
+});
+
 test('a host whose injection lasts one call gets the open turn\'s strategy again, without a second recall', async () => {
   const made = memoryPorts();
   const { driver, requests } = driverOf(hookProfile({ reply: { lifetime: 'call' }, payload: { turnId: (payload) => payload.turn } }), made);
@@ -91,7 +111,7 @@ test('a host that keeps a transcript hands the turn record over from it', async 
   const { driver, ports } = driverOf(profile, memoryPorts(), transcripts);
   await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT, transcript_path: '/t.jsonl' });
   await driver.handle('Stop', { ...base, transcript_path: '/t.jsonl', last_assistant_message: 'Fixed.' });
-  assert.deepEqual((await ports.candidates.read()).s1.checks, [{ command: 'npm test', exit: null, failed: false }]);
+  assert.deepEqual((await ports.candidates.read()).s1.turns[0].steps, [{ kind: 'edit', path: 'a.js' }, { kind: 'check', command: 'npm test', exit: null, failed: false }]);
 });
 
 test('the MCP profile turns tool calls into a turn whose report is agent-reported and asks for a Gene', async () => {
@@ -99,12 +119,22 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   const { driver, queued } = driverOf(mcpGeneric, made);
   const recalled = await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
   assert.match(recalled.content[0].text, /Apply them where they fit\.\n\nturn_id: t1 /);
-  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks: [{ command: 'npm test', exit: 0 }], files: ['lib/redis.js'] });
-  assert.match(reported.content[0].text, /call evolver_distill with written_for \d+/);
+  const checks = [{ command: 'npm test', exit: 1 }, { command: 'npm test', exit: 0 }];
+  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks, files: ['lib/redis.js'] });
+  assert.match(reported.content[0].text, /call evolver_distill with written_for "v2-[A-Za-z0-9_-]{43}"[\s\S]*prompt session-gene-ir-v1/);
   assert.equal(queued[0].report.evidence.reported_by, 'agent');
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });
-  assert.match(status.content[0].text, /verified turn waiting to be distilled/);
+  assert.match(status.content[0].text, /This session has 1 work turn\(s\) since its last distillation\./);
+});
+
+test('a successful compound command reported through MCP does not make the session\'s work distillable', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(mcpGeneric, made);
+  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
+  const checks = [{ command: 'npm test', exit: 1 }, { command: 'true || npm test', exit: 0 }];
+  const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed the retries.', checks, files: ['lib/redis.js'] });
+  assert.equal(reported.content[0].text, 'Reported.');
 });
 
 test('a session start answers the engine notice once, and a session end schedules distillation', async () => {
@@ -117,15 +147,16 @@ test('a session start answers the engine notice once, and a session end schedule
   assert.ok(made.scheduled.includes('distill'));
 });
 
-test('over MCP, only the report of the turn that became the candidate asks for a Gene', async () => {
+test('over MCP, a report asks for a Gene only once the session\'s work turns pass the threshold', async () => {
   const made = memoryPorts();
   const { driver } = driverOf(mcpGeneric, made);
-  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't1', task: PROMPT });
-  const first = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't1', outcome: 'success', summary: 'Fixed.', checks: [{ command: 'npm test', exit: 0 }], files: ['a.js'] });
-  assert.match(first.content[0].text, /evolver_distill/);
-  await driver.handle('evolver_recall', { session_id: 'm1', turn_id: 't2', task: 'now explain what changed in the retry logic' });
-  const second = await driver.handle('evolver_report', { session_id: 'm1', turn_id: 't2', outcome: 'failed', summary: 'Gave up.' });
-  assert.equal(second.content[0].text, 'Reported.');
+  const answers = [];
+  for (const turn of ['t1', 't2', 't3']) {
+    await driver.handle('evolver_recall', { session_id: 'm1', turn_id: turn, task: `${PROMPT}, step ${turn}` });
+    const reported = await driver.handle('evolver_report', { session_id: 'm1', turn_id: turn, outcome: 'success', summary: 'Done.', checks: [{ command: 'npm test', exit: 0 }], files: [`${turn}.js`] });
+    answers.push(reported.content[0].text);
+  }
+  assert.deepEqual(answers.map((answer) => /evolver_distill/.test(answer)), [false, false, true]);
 });
 
 test('a host whose strategy lands at a tool result answers the prompt without it and the turn\'s first tool result with it', async () => {

@@ -52,7 +52,7 @@ test('the runner finds qodercli on the PATH and gives it the prompt on stdin in 
     const env = { HOME: home, PATH: [FAKE_QODERCLI, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter), FAKE_QODER_NODE: process.execPath, FAKE_QODER_LOG: log };
     const runner = modelRunnerOf(qoder.model, env);
     const { answer, usage } = await runner.complete(null, 'Distill this turn.');
-    assert.equal(JSON.parse(answer).title, 'Retry uploads');
+    assert.equal(JSON.parse(answer).title, 'Stabilise Redis retries');
     assert.deepEqual(usage, { inputTokens: 900, outputTokens: 120 });
     const [run] = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(run.args, qoder.model.args(null, 'Distill this turn.', {}));

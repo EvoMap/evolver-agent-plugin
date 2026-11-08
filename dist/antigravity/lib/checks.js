@@ -18,6 +18,35 @@ export function checkIdentityOf(command) {
   return String(command).replace(OUTPUT_PIPE, '').replace(STREAM_REDIRECT, '').replace(/\s+/g, ' ').trim();
 }
 
+// A target names what a run checks: a path, a pytest node id or a test file. Selecting flags narrow a run by name.
+const TARGET = /[/:]|\.(?:py|[cm]?[jt]sx?|rs|go|rb|java|kt|php)$/;
+const SELECTING_FLAG = /^(?:-k|-m|-t|--grep|--testNamePattern|--filter|--run|-run|--test)(?:=|$)/;
+
+// `python -m pytest` is pytest run as a module; its `-m` is no marker filter.
+const PYTHON_MODULE_RUN = /^(?:\S*\/)?python[\d.]*\s+-m\s+/;
+
+function runShapeOf(identity) {
+  const tokens = identity.replace(PYTHON_MODULE_RUN, '').split(' ').filter(Boolean);
+  const targets = tokens.filter((token) => !token.startsWith('-') && TARGET.test(token));
+  const base = tokens.filter((token) => !token.startsWith('-') && !TARGET.test(token));
+  return { base: base.join(' '), targets, selects: tokens.some((token) => SELECTING_FLAG.test(token)) };
+}
+
+const isWithin = (target, broader) => target === broader || target.startsWith(`${broader}::`) || target.startsWith(`${broader.replace(/\/$/, '')}/`);
+
+/**
+ * Whether a passing run of `passing` also ran what `failing` checked: the same runner, and targets that are the same or
+ * broader (a whole file over one of its tests, the whole suite over a file), with no name filter of its own.
+ */
+export function coversCheck(passing, failing) {
+  const pass = runShapeOf(checkIdentityOf(passing));
+  const fail = runShapeOf(checkIdentityOf(failing));
+  if (checkIdentityOf(passing) === checkIdentityOf(failing)) return true;
+  if (pass.base !== fail.base || pass.selects) return false;
+  if (pass.targets.length === 0) return true;
+  return fail.targets.length > 0 && fail.targets.every((target) => pass.targets.some((broader) => isWithin(target, broader)));
+}
+
 export function verdictOf(check) {
   if (check?.failed === true) return 'failed';
   if (check?.failed === false) return 'passed';
@@ -35,8 +64,7 @@ export function checkOutcomeOf(check) {
 }
 
 function failedEarlierThenPassed(checks, last) {
-  const identity = checkIdentityOf(last.command);
-  return checks.slice(0, -1).some((check) => verdictOf(check) === 'failed' && checkIdentityOf(check.command) === identity);
+  return checks.slice(0, -1).some((check) => verdictOf(check) === 'failed' && coversCheck(last.command, check.command));
 }
 
 export function checkEvidenceOf(checks) {

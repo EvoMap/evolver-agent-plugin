@@ -129,11 +129,21 @@ async function proxyData(proxyFetch, { method, path, body }) {
 }
 
 // `context` (`{ task, trigger, language? }`) never recalls: the Hub judges each recalled asset's fit to the task with it.
-// `signals` feed the Hub's signal and domain-signal recall channels, which stay empty without them.
-function textRecallOf(text, context) {
+// `signals` feed the Hub's signal and domain-signal recall channels, which stay empty without them. `project_dir`
+// lets the Proxy recognise the project, so its local project notes and project-bound Genes can be recalled.
+function textRecallOf(text, context, projectDir) {
   const signals = recallSignalsOf(text);
-  const body = { text, ...(context && { context }), ...(signals.length > 0 && { signals }) };
+  const body = { text, ...(context && { context }), ...(signals.length > 0 && { signals }), ...(projectDir && { project_dir: projectDir }) };
   return { method: 'POST', path: '/asset/fetch', body };
+}
+
+const WITHHELD_ID_MAX_CHARS = 200;
+const isTextUpTo = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max;
+
+// The Proxy takes a trial control only under the id of the withholding it answers, so one without that id is no control.
+function withheldOf(recalled) {
+  const { asset_id: assetId, withheld_id: withheldId } = recalled?.trial_withheld ?? {};
+  return typeof assetId === 'string' && assetId && isTextUpTo(withheldId, WITHHELD_ID_MAX_CHARS) ? { asset_id: assetId, withheld_id: withheldId } : null;
 }
 
 function withinProxyLimit(context) {
@@ -198,7 +208,9 @@ function singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) {
 // kept without reaching the model.
 const defaultClosing = (assetId) => `Apply it where it fits. Evolver reports how the reuse of ${assetId} went when this turn ends.`;
 
-export async function recallStrategy(proxyFetch, text, { context = null, listedIds = new Set(), minSimilarity = DEFAULT_MIN_SIMILARITY, onTrace = (_trace) => {}, closingOf = defaultClosing, recipeCutoff = null } = {}) {
+// `onWithheld({ asset_id, withheld_id })` hears of a trial Gene the Proxy held back from this recall to measure it
+// against, and of the withholding's id its control is reported under.
+export async function recallStrategy(proxyFetch, text, { context = null, projectDir = null, listedIds = new Set(), minSimilarity = DEFAULT_MIN_SIMILARITY, onTrace = (_trace) => {}, onWithheld = (_withheld) => {}, closingOf = defaultClosing, recipeCutoff = null } = {}) {
   if (text.length < MIN_PROMPT_CHARS) {
     onTrace({ outcome: 'short' });
     return EMPTY_MATCH;
@@ -208,7 +220,9 @@ export async function recallStrategy(proxyFetch, text, { context = null, listedI
   // `recipeCutoff`, so a slow Recipe search never costs the turn the strategy it would have had without Recipes.
   const sent = withinProxyLimit(context);
   const recipe = recalledRecipe(proxyFetch, text, { context: sent, listedIds, closingOf });
-  const recalled = await proxyData(proxyFetch, textRecallOf(text, sent));
+  const recalled = await proxyData(proxyFetch, textRecallOf(text, sent, projectDir));
+  const withheld = withheldOf(recalled);
+  if (withheld) await onWithheld(withheld);
   const single = recalled ? singleStrategyOf(recalled, { listedIds, minSimilarity, closingOf }) : null;
   const chain = await (single?.match ? recipeBy(recipe, recipeCutoff) : recipe);
   if (chain?.match) {

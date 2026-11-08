@@ -28,9 +28,15 @@
  * @property {(sessionId: string, file: string, turnId?: string|null) => Promise<void>} remember
  * @property {(sessionId: string, turnId?: string|null) => Promise<{ before: Map<string, string>, commit: () => Promise<void> }>} take
  *
- * @typedef {object} TableStore         One table keyed by session id (distill candidates) or a list (drafts).
+ * @typedef {object} TableStore         One table keyed by session id (each session's range of work turns to distill)
+ *                                      or a list (drafts, the last distillation outcomes, the calibration corpus).
  * @property {() => Promise<object>} read
  * @property {(mutate: Function) => Promise<object|undefined>} update
+ *
+ * @typedef {object} DraftCorrections
+ * @property {<T>(sessionId: string, work: () => T|Promise<T>, signal?: AbortSignal) => Promise<T>} withSession
+ * @property {(sessionId: string, turn: number, sessionEpoch?: number) => Promise<void>} mark
+ * @property {(sessionId: string, turn: number, sessionEpoch?: number) => Promise<boolean>} has
  *
  * @typedef {object} ReportQueue
  * @property {(entries: { report: object, sessionId: string }[]) => Promise<void>} enqueue
@@ -42,7 +48,7 @@
  * @property {(entry: { sessionId, projectDir, reuses, editedBefore: Map }) => Promise<void>} remember
  * @property {(due: { sessionId, projectDir }) => Promise<{ due: object[], commit: () => Promise<void> }>} takeDue
  *
- * @typedef {object} Proxy
+ * @typedef {object} Proxy              request initiates the transport before returning its promise.
  * @property {(method: string, path: string, body?: object, options?: { timeoutMs?: number, signal?: AbortSignal }) =>
  *   Promise<{ ok: true, data: any } | { ok: false, error: string, status?: number, data?: any }>} request
  *
@@ -54,8 +60,11 @@
  * @property {() => number} self
  * @property {(pid: number|null) => boolean} isGone
  *
- * @typedef {object} ProjectProbe     The git work tree a turn ran in: `{ root, head, diff }`, or `{ diff_omitted }` when it cannot be rebuilt; null outside one.
- * @property {(dir: string) => Promise<{ root: string, head: string, diff: string }|{ diff_omitted: string }|null>} snapshot
+ * @typedef {object} ProjectProbe     The git work tree turns ran in: `{ root, head, diff }` against `base` (the commit
+ *                                      a range began on, else HEAD), or `{ diff_omitted }` when it cannot be rebuilt;
+ *                                      `head`, the commit a turn begins on. Null outside a repository.
+ * @property {(dir: string, options?: { base?: string|null }) => Promise<{ root: string, head: string, diff: string }|{ diff_omitted: string }|null>} snapshot
+ * @property {(dir: string) => Promise<{ root: string, head: string }|null>} head
  *
  * @typedef {object} Scheduler          Slow work the caller must not wait for.
  * @property {(tasks: ('engine'|'drain'|'distill')[]) => void} schedule
@@ -65,7 +74,7 @@
  *
  * @typedef {object} Clock
  * @property {() => number} now
- * @property {(ms: number) => Promise<void>} sleep
+ * @property {(ms: number, signal?: AbortSignal) => Promise<void>} sleep
  *
  * @typedef {object} Engine             Evolver itself: whether it needs setting up, setting it up, and its outcome.
  * @property {() => Promise<boolean>} needsSetup
@@ -104,8 +113,11 @@
  * @property {SessionStore} sessions
  * @property {TurnNotes} notes
  * @property {EditBaseline} baseline
- * @property {TableStore} candidates
+ * @property {TableStore & { referenceOf: (sessionId: string, range: object) => string }} candidates
  * @property {TableStore} drafts
+ * @property {TableStore} outcomes
+ * @property {TableStore} corpus
+ * @property {DraftCorrections} draftCorrections
  * @property {ReportQueue} reports
  * @property {Outbox} outbox
  * @property {RetentionStore} retention
