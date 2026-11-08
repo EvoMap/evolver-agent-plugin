@@ -298,7 +298,7 @@ catch (error) { console.log(JSON.stringify({ error: error.message, code: error.c
   assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
 });
 
-test('the released bundle keeps its bytes/version by default; --version explicitly packs the checkout', t => {
+test('the released bundle keeps its bytes/version by default without allowing an implicit downgrade', t => {
   const root = scratch(t), checkout = join(root, 'checkout'), home = join(root, 'native');
   const repository = fileURLToPath(new URL('../../../', import.meta.url));
   for (const file of ['bin', 'lib', 'scripts', 'hosts/kimi', 'LICENSE', 'package.json', 'node_modules/smol-toml']) {
@@ -312,14 +312,32 @@ test('the released bundle keeps its bytes/version by default; --version explicit
   const installed = run('install');
   assert.equal(run('status').version, '9.8.7');
   assert.equal(readFileSync(join(installed.path, 'README.md'), 'utf8'), 'The released guide, not the source checkout.\n');
+  assert.equal(run('update').version, '9.8.7', 'the same version can be reinstalled');
   run('update', '--version', '10.0.0');
   assert.equal(run('status').version, '10.0.0');
   assert.equal(readFileSync(join(installed.path, 'README.md'), 'utf8'), readFileSync(join(checkout, 'hosts', 'kimi', 'dist', 'README.md'), 'utf8'));
+  const registryFile = join(home, 'plugins', 'installed.json'), before = readFileSync(registryFile, 'utf8');
+  const installedGuide = readFileSync(join(installed.path, 'README.md'), 'utf8');
+  assert.throws(() => run('update'), /Refusing to downgrade Kimi plugin from 10\.0\.0 to 9\.8\.7/);
+  assert.throws(() => run('install'), /Refusing to downgrade Kimi plugin from 10\.0\.0 to 9\.8\.7/);
+  assert.equal(run('status').version, '10.0.0');
+  assert.equal(readFileSync(join(installed.path, 'README.md'), 'utf8'), installedGuide);
+  assert.equal(readFileSync(registryFile, 'utf8'), before);
   const manifestFile = join(bundle, 'kimi.plugin.json'), released = JSON.parse(readFileSync(manifestFile, 'utf8'));
   for (const invalid of [{ name: 'foreign' }, { version: 'not-a-version' }]) {
     writeFileSync(manifestFile, JSON.stringify({ ...released, ...invalid }));
     assert.throws(() => run('update'), /Invalid Kimi package/);
     assert.equal(run('status').version, '10.0.0');
   }
+  const setBundleVersion = version => writeFileSync(manifestFile, JSON.stringify({ ...released, version }));
+  setBundleVersion('10.0.0-rc.10');
+  assert.throws(() => run('update'), /Refusing to downgrade Kimi plugin from 10\.0\.0 to 10\.0\.0-rc\.10/);
+  assert.equal(run('update', '--version', '10.0.0-rc.2').version, '10.0.0-rc.2', 'an explicit version can downgrade');
+  assert.equal(run('update').version, '10.0.0-rc.10', 'numeric prerelease identifiers compare numerically');
+  setBundleVersion('10.0.0-rc.2');
+  assert.throws(() => run('update'), /Refusing to downgrade Kimi plugin from 10\.0\.0-rc\.10 to 10\.0\.0-rc\.2/);
+  fs.renameSync(bundle, join(checkout, 'old-bundle'));
+  assert.throws(() => run('update'), /Refusing to downgrade Kimi plugin from 10\.0\.0-rc\.10 to 1\.0\.0/);
+  assert.equal(run('status').version, '10.0.0-rc.10');
   assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
 });

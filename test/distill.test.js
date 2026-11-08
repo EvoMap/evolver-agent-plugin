@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange } from '../lib/distill/range.js';
+import { isCurrentRange, settledRange, withWorkTurn } from '../lib/distill/range.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
   const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
@@ -16,6 +16,17 @@ test('settling what a distillation read cannot touch a range made at the same ti
     assert.equal(settledRange({ s: current }, 's', read, { consume: true, now: 2_000 }), undefined, name);
     assert.equal(isCurrentRange({ s: current }, 's', current), true, name);
   }
+});
+
+test('a delayed turn outside the retained window leaves the verified range intact', () => {
+  const turn = (number, modelBinding) => ({ turn: number, at: number, sessionEpoch: 1, modelBinding, steps: [] });
+  const base = { root: '/repo', head: 'new' };
+  const range = { at: 2, sessionEpoch: 1, native: true, base, project: { ...base, diff: 'verified diff' },
+    model: { binding: 'new' }, turns: Array.from({ length: 20 }, (_, index) => turn(index + 2, 'new')) };
+  const delayed = { ...turn(1, 'old'), head: { root: '/repo', head: 'old' } };
+  assert.equal(withWorkTurn({ s: range }, 's', delayed, {
+    now: 22, native: true, sessionEpoch: 1, model: { binding: 'old' }, beforeNewerTurn: true,
+  }), undefined);
 });
 
 const RESULT = {

@@ -25,6 +25,28 @@ test('a native monitor waits for terminal and pending check records, then exits 
   await monitorNativeTurn(f.ports, f.at, () => assert.fail('stale'), () => assert.fail('stale'), { dir: f.dir });
 });
 
+test('a deferred turn monitor observes its own owner and leaves the newer turn open', async t => {
+  const f = fixture(t);
+  const previous = { ...f.session, open: false, turnId: '0', native: { turn: 1, turnId: '0' } };
+  Object.assign(f.session, { turn: 2, pid: 321, native: { turn: 2 }, deferredNativeTurns: [previous] });
+  let reads = 0, slept = 0;
+  f.ports.owner.isGone = (pid) => {
+    assert.equal(pid, previous.pid);
+    return reads === 2;
+  };
+  await monitorNativeTurn(f.ports, f.at, async (at) => {
+    assert.deepEqual(at, f.at);
+    reads++;
+    return { waiting: true, native: previous.native };
+  }, () => assert.fail('a deferred monitor cannot abort the current turn'), {
+    dir: f.dir, sleep: async () => { slept++; },
+  });
+  assert.equal(reads, 2, 'the monitor rechecks native evidence after the old owner exits');
+  assert.equal(slept, 1);
+  assert.equal(f.session.open, true);
+  assert.equal(f.session.turn, 2);
+});
+
 test('an old worker cannot observe a recreated session with the same turn number', async t => {
   const f = fixture(t);
   await monitorNativeTurn(f.ports, { ...f.at, sessionEpoch: 400, projectDir: join(f.dir, 'old-project') },

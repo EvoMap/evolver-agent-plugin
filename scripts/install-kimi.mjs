@@ -13,8 +13,29 @@ import { pack } from './pack.mjs';
 
 const BUNDLE = fileURLToPath(new URL('../dist/kimi', import.meta.url));
 const NAME = 'evolver-plugin';
-const validVersion = value => typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value)
-  && !value.split('-').slice(1).join('-').split('.').some(part => /^0\d+$/.test(part));
+const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+function validVersion(value) {
+  const parts = typeof value === 'string' && VERSION.exec(value);
+  return Boolean(parts && !parts[4]?.split('.').some(part => /^0\d+$/.test(part)));
+}
+
+function isOlderVersion(candidate, installed) {
+  const [, ...next] = VERSION.exec(candidate);
+  const [, ...current] = VERSION.exec(installed);
+  for (let index = 0; index < 3; index += 1) {
+    if (next[index] !== current[index]) return BigInt(next[index]) < BigInt(current[index]);
+  }
+  if (!next[3] || !current[3]) return Boolean(next[3] && !current[3]);
+  const left = next[3].split('.'), right = current[3].split('.');
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    const a = left[index], b = right[index];
+    if (a === b) continue;
+    const aNumeric = /^\d+$/.test(a), bNumeric = /^\d+$/.test(b);
+    if (aNumeric !== bNumeric) return aNumeric;
+    return aNumeric ? BigInt(a) < BigInt(b) : a < b;
+  }
+  return left.length < right.length;
+}
 
 function ordinaryDirectory(path) {
   if (!fs.existsSync(path)) return;
@@ -136,6 +157,9 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
           const currentOwn = ownEntry(current, target);
           const currentPackage = packageOf(target) ?? (currentOwn ? recoverPackage(root, target) : null);
           if (operation === 'update' && (!currentOwn || !currentPackage)) throw new Error('Kimi plugin changed before activation; retry after checking status.');
+          if (version === undefined && currentPackage && isOlderVersion(next.version, currentPackage.version)) {
+            throw new Error(`Refusing to downgrade Kimi plugin from ${currentPackage.version} to ${next.version}. Use a current bundle or specify --version to build the checkout intentionally.`);
+          }
           if (currentPackage) { fs.renameSync(target, backup); moved = true; }
           fs.renameSync(prepared, target); activated = true;
           const entry = { ...currentOwn, id: NAME, root: target, source: 'local-path', enabled: currentOwn?.enabled ?? true, installedAt: currentOwn?.installedAt ?? new Date().toISOString() };

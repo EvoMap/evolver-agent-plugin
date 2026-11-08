@@ -143,8 +143,9 @@ injections, undelivered reports), so nothing is lost on the way over.
 - **Kimi Code on Windows:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI or Desktop session. Desktop uses the installed Kimi CLI to create drafts.
   `--home PATH` selects the profile root; use the same absolute `KIMI_CODE_HOME` when starting Kimi. Close Kimi before
   install/update/remove. The installer stages `dist/kimi`, registers its native `kimi.plugin.json` bundle and
-  preserves account config, other plugins, preferences and drafts. A release bundle keeps its bytes and version;
-  `--version X.Y.Z` explicitly builds current sources. `remove` unregisters the plugin while retaining managed bytes.
+  preserves account config, other plugins, preferences and drafts. A release bundle keeps its bytes and version.
+  Default install/update refuses to replace a newer managed package. `--version X.Y.Z` explicitly builds
+  current sources at the requested version. `remove` unregisters the plugin while retaining managed bytes.
   V1 targets the main agent in local CLI and Desktop sessions on Windows with an API/BYOK provider. Commands run from the terminal:
   `node <Kimi-home>/plugins/managed/evolver-plugin/bin/command.mjs kimi evolver-status`.
   Other OAuth regions, web/VS Code, subagents and parallel prompts have separate acceptance gates. This local installer
