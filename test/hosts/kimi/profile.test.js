@@ -7,17 +7,16 @@ import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 
 const payload = { session_id: 'session-fixture', cwd: join('D:', 'fixture'), client_type: 'kimi_code_cli', hook_event_name: 'UserPromptSubmit', prompt: [{ type: 'text', text: '  Fix retry. ' }, { type: 'image', image_url: 'untrusted' }, { type: 'text', text: 'Run tests.' }], is_steer: false };
 
-test('Windows Desktop hooks use the Kimi session contract and require a Kimi ancestor', () => {
-  const desktop = { ...payload, client_type: 'kimi_code_desktop' };
-  assert.equal(kimi.payload.isIgnored(desktop), false);
-  assert.equal(kimi.payload.isIgnored({ ...desktop, is_steer: true }), true);
-  assert.equal(kimi.payload.isIgnored({ ...desktop, client_type: 'kimi_code_vscode' }), true);
+test('Windows CLI hooks require the CLI client and a Kimi CLI ancestor', () => {
+  assert.equal(kimi.payload.isIgnored(payload), false);
+  assert.equal(kimi.payload.isIgnored({ ...payload, client_type: 'kimi_code_desktop' }), true);
+  assert.equal(kimi.payload.isIgnored({ ...payload, client_type: 'kimi_code_vscode' }), true);
   const owner = (name) => ownerProbeOf(kimi.owner, {
     platform: 'win32', windowsAncestry: kimi.windowsAncestry,
     probe: (pid) => pid === process.ppid ? { name: 'cmd.exe', ppid: 4242 }
       : pid === 4242 ? { name, ppid: 1 } : null,
   }).current();
-  assert.equal(owner('Kimi Code.exe'), 4242);
+  assert.equal(owner('Kimi Code.exe'), null);
   assert.equal(owner('kimi.exe'), 4242);
   assert.equal(owner('Other Kimi Code.exe'), null);
 });

@@ -50,7 +50,7 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 
 ## Adding a host
 
-Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows for the main agent in local sessions, using API/BYOK or an existing `kimi.com`
+Kimi Code's local adapter targets CLI 2.4.1 on Windows for the main agent in local sessions, using API/BYOK or an existing `kimi.com`
 managed access token. Its native
 root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
 `KIMI_CODE_HOME` and changes only its owned native registration. Native config, credentials and Evolver state

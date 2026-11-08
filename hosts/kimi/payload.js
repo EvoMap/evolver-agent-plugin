@@ -6,7 +6,6 @@ import { projectDirOf, sessionIdOf } from './paths.js';
 
 const text = value => typeof value === 'string' ? value : '';
 const toolEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure']);
-const localClients = new Set(['kimi_code_cli', 'kimi_code_desktop']);
 
 export const kimiPayload = Object.freeze({
   sessionId: sessionIdOf,
@@ -17,7 +16,7 @@ export const kimiPayload = Object.freeze({
     if (toolEvents.has(payload.hook_event_name)) return nativeTurnIdOf(context.nativeFacts?.toolTurnId);
     return nativeTurnIdOf(payload.turn_id) ?? nativeTurnIdOf(context.nativeFacts?.bind?.turnId);
   },
-  isIgnored: payload => payload.is_steer === true || Boolean(payload.agent_id && payload.agent_id !== 'main') || (payload.origin_kind !== undefined && payload.origin_kind !== 'user') || !localClients.has(payload.client_type),
+  isIgnored: payload => payload.is_steer === true || Boolean(payload.agent_id && payload.agent_id !== 'main') || (payload.origin_kind !== undefined && payload.origin_kind !== 'user') || payload.client_type !== 'kimi_code_cli',
   // SessionStart.model is a global default, not the selected native profile binding.
   model: (payload, context = {}) => context.nativeFacts?.modelHint ?? null,
 });

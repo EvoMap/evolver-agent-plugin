@@ -80,15 +80,17 @@ async function fixture(t) {
   return { proxy, plugin, home, project, state, wire, append, hook, command, read, config };
 }
 
-test('packed Desktop prompt hooks return Kimi message context, ignore unsupported clients and retain terminal preferences', async t => {
+test('packed CLI prompt hooks return Kimi message context, ignore unsupported clients and retain terminal preferences', async t => {
   const f = await fixture(t);
   assert.deepEqual(await f.hook('SessionStart'), {});
   const ignored = f.proxy.requests.length;
-  assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], client_type: 'kimi_code_vscode' }), {});
+  for (const client_type of ['kimi_code_vscode', 'kimi_code_desktop']) {
+    assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], client_type }), {});
+  }
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], is_steer: true }), {});
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] }, { EVOLVER_HEADLESS: '1' }), {});
   assert.equal(f.proxy.requests.length, ignored);
-  const answer = await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }], client_type: 'kimi_code_desktop' });
+  const answer = await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] });
   assert.match(answer.message, /maxRetriesPerRequest/);
   assert.equal(answer.decision, undefined, 'v1 never intercepts or blocks the native prompt');
   assert.equal(answer.hookSpecificOutput, undefined, 'Kimi consumes its own message response schema');
