@@ -190,3 +190,30 @@ test('recovery retains older work when its finalizer overlaps a completed newer 
     [[1, route.binding, undefined], [2, nextRoute.binding, undefined]]);
   assert.deepEqual(f.queued.map(({ report }) => [report.task_id, report.outcome, report.evidence.check?.passed]), [[oldTask, 'success', true]]);
 });
+
+test('a snapshot finishing after a newer prompt cannot attach the newer tree to the older check', async t => {
+  const f = fixture(t);
+  await firstTurn(f);
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  f.ports.project.snapshot = async () => {
+    entered.resolve();
+    await release.promise;
+    return { root: f.project, head: 'b'.repeat(40), diff: 'newer worktree contents' };
+  };
+  f.add(terminal);
+  const finishing = f.call('Notification', { turn_id: 0 });
+  try {
+    await Promise.race([entered.promise, finishing.then(() => assert.fail('the older worker did not start a snapshot'))]);
+    await f.prompt(nextPrompt);
+  } finally {
+    release.resolve();
+    await finishing;
+  }
+
+  await recoverNativeTurns(f.ports);
+  const candidate = (await f.ports.candidates.read())[f.id];
+  assert.deepEqual(candidate.turns.map(({ turn }) => turn), [1]);
+  assert.equal(candidate.projectDir, f.project);
+  assert.equal(candidate.project, null);
+  assert.deepEqual(f.queued.map(({ report }) => [report.outcome, report.evidence.check?.passed]), [['success', true]]);
+});
