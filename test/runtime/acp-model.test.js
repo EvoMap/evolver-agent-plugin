@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, fork, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -11,7 +11,7 @@ import { createConnection } from 'node:net';
 
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { declarationFor } from '../fixtures/acp/declaration.mjs';
-import { CHILD_FILE, OWNER_FILE, START_FILE } from '../../lib/runtime/process/acp-child.js';
+import { CHILD_FILE, guardianFile, OWNER_FILE, START_FILE } from '../../lib/runtime/process/acp-child.js';
 import { windowsJobExecutable } from '../../lib/runtime/process/windows-job.js';
 
 const SECRET = 'fixture-private-api-key-NOT-A-REAL-CREDENTIAL';
@@ -255,6 +255,49 @@ test('cancelling after native completion during cleanup rejects the answer after
   await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
   assert.equal(cancelledDuringCleanup, true);
   nativeClosed(dir);
+});
+
+test('a late stop preserves the closed guardian result without signaling the former process group', async t => {
+  const base = mkdtempSync(join(tmpdir(), 'evolver-acp-test-'));
+  const home = mkdtempSync(join(base, 'evolver-model-'));
+  const nonce = 'f'.repeat(32);
+  writeFileSync(join(home, START_FILE), JSON.stringify({ nonce }));
+  // Observe group signals without letting this test signal a PID that may have been reused.
+  const preload = `data:text/javascript,${encodeURIComponent(`
+    const kill = process.kill;
+    process.kill = (pid, signal) => {
+      if (pid < 0 && signal !== 0) {
+        process.send({ type: 'group-signal', pid, signal });
+        return true;
+      }
+      return kill.call(process, pid, signal);
+    };
+  `)}`;
+  const spec = { command: process.execPath, args: ['-e', 'void 0'], home, base, nonce, cwd: home, ownerPid: process.pid };
+  const guardian = fork(guardianFile, [JSON.stringify(spec)], { execArgv: ['--import', preload], stdio: ['pipe', 'ignore', 'ignore', 'ipc'], windowsHide: true });
+  const exited = new Promise(done => guardian.once('close', done));
+  t.after(async () => {
+    guardian.stdin.end();
+    if (guardian.connected) guardian.disconnect();
+    await exited;
+    await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  const messages = [];
+  guardian.on('message', message => messages.push(message));
+  await until(() => messages.some(message => message.type === 'closed') || guardian.exitCode !== null);
+  const closed = messages.find(message => message.type === 'closed');
+  assert.deepEqual(closed, { type: 'closed', code: 0, signal: null, treeClosed: true, outputBytes: 0 });
+  assert.equal(existsSync(home), true, 'scratch is still awaiting release');
+  guardian.stdin.end();
+  guardian.send({ type: 'stop' });
+  guardian.send({ type: 'release' });
+  const code = await exited;
+
+  assert.deepEqual(messages.filter(message => message.type === 'group-signal'), []);
+  assert.equal(code, 0, 'late stop does not replace native success with cancellation');
+  assert.ok(messages.some(message => message.type === 'cleanup' && message.cleaned));
+  assert.equal(existsSync(home), false);
 });
 
 test('a stalled POSIX guardian retains ownership until it can stop the native group', { skip: process.platform === 'win32' }, async (t) => {
