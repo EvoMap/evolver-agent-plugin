@@ -50,8 +50,9 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 
 ## Adding a host
 
-Kimi Code's local adapter targets CLI 2.4.1 on Windows for the main agent in local sessions, using API/BYOK or an existing `kimi.com`
-managed access token. Its native
+Kimi Code's local adapter targets CLI 2.4.1 on Windows for the main agent in local sessions with an API/BYOK
+provider. It also resolves the managed `kimi.com` route with an existing access token. Live managed inference
+requires separate acceptance. Its native
 root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
 `KIMI_CODE_HOME` and changes only its owned native registration. Native config, credentials and Evolver state
 (`KIMI_CODE_HOME/evolver`) stay outside the package; unregistering retains managed bytes. Other client types,

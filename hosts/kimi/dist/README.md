@@ -6,9 +6,9 @@ available as `node` on the hook process PATH.
 The integration covers the main agent in local sessions with a resolved
 API/BYOK provider. The adapter can also resolve the managed Kimi Code account on `kimi.com`. The
 managed route uses an existing, fresh access token and the device identity from
-the same native profile. Kimi handles sign-in and refresh. Other OAuth regions,
-VS Code/web, remote sessions, parallel prompts and subagents require
-separate acceptance.
+the same native profile. Kimi handles sign-in and refresh. Live managed inference,
+other OAuth regions, VS Code/web, remote sessions, parallel prompts and subagents
+require separate acceptance.
 
 The prompt hook adds recalled context. Tool hooks observe evidence; they do not add
 failed-check recall mid-turn. Stop is a lifecycle hint, not proof that a turn has

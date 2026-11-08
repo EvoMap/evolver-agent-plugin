@@ -39,7 +39,7 @@ export default defineProfile({
     unclosed: { settleMs: 0, as: 'error' },
   },
   budgets: { prompt: 6_000, sessionEnd: 2_000 },
-  owner: { ancestor: /^kimi(?:\.exe)?$/i },
+  owner: { ancestor: /^kimi(?:-code)?(?:\.exe)?$/i },
   windowsAncestry: true,
   drainWindowsHandles: true,
   model: headlessKimi,

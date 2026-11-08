@@ -18,6 +18,7 @@ test('Windows CLI hooks require the CLI client and a Kimi CLI ancestor', () => {
   }).current();
   assert.equal(owner('Kimi Code.exe'), null);
   assert.equal(owner('kimi.exe'), 4242);
+  assert.equal(owner('kimi-code.exe'), 4242);
   assert.equal(owner('Other Kimi Code.exe'), null);
 });
 
