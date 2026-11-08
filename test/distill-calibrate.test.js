@@ -39,9 +39,7 @@ test('the calibration runner gates the corpus the plugin kept, asks the model, h
   const kept = await corpusOf([['fixed', fixTurn], ['small', changeTurn]]);
   kept[0].turns[0].prompt += ` API_TOKEN=${token}`;
   writeFileSync(corpus, JSON.stringify(kept));
-  const assignment = process.platform === 'win32' ? `set "API_TOKEN=${token}" &&` : `API_TOKEN=${token}`;
-  const model = `${assignment} "${process.execPath}" "${MODEL}"`;
-  const { stdout } = await promisify(execFile)(process.execPath, [SCRIPT, corpus, '--model', model], { env: proxy.env });
+  const { stdout } = await promisify(execFile)(process.execPath, [SCRIPT, corpus, '--model', `"${process.execPath}" "${MODEL}" API_TOKEN=${token}`], { env: proxy.env });
   assert.ok(!stdout.includes(token), 'the report does not repeat a credential written into the model command');
   const report = JSON.parse(stdout);
   assert.deepEqual([report.prompt_version, report.entries, report.gate], ['session-gene-ir-v1', 2, { passed: 1, pass_rate: 0.5, below: { too_little_work: 1 } }]);
