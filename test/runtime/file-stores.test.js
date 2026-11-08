@@ -64,6 +64,25 @@ test('the outbox takes queued reports and keeps what each delivery attempt settl
   assert.equal(seen[0].sentAt, 5);
 });
 
+test('a report queued as the outbox holder finishes is delivered, though its own drain found the outbox taken', async () => {
+  const { stores: cursor } = stores();
+  const queued = (taskId) => ({ report: { task_id: taskId, asset_id: 'a' }, sessionId: 's1' });
+  await cursor.reports.enqueue([queued('first')]);
+  const delivered = [];
+  let lateDrain = null;
+  await cursor.outbox.drain(async (due) => {
+    const unsent = Object.entries(due).filter(([, entry]) => !entry.sentAt);
+    delivered.push(...unsent.map(([, entry]) => entry.report.task_id));
+    if (unsent.length === 0 && lateDrain === null) {
+      await cursor.reports.enqueue([queued('late')]);
+      lateDrain = await cursor.outbox.drain(async (other) => other);
+    }
+    return Object.fromEntries(unsent.map(([key, entry]) => [key, { ...entry, sentAt: 5 }]));
+  });
+  assert.equal(lateDrain, false, 'the late report\'s own drain left it to the holder');
+  assert.deepEqual(delivered, ['first', 'late']);
+});
+
 test('an unreadable or invalid draft table is preserved and never passed to an update as empty', async t => {
   for (const failure of ['EBUSY', 'EACCES', 'invalid-json', 'wrong-shape']) {
     const { dir, stores: cursor } = stores();

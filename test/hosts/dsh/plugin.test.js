@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  ASSET, DSH, PROMPT, bash, elapseRetryWaits, fakeLlm, fixTurn, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
+  ASSET, DSH, PROMPT, bash, fakeLlm, fixTurn, reportsOf, reportsQueued, requestsTo, startDsh, startProxy, stateFile, until, validatedConfig, verifiedTurn, write,
 } from './host.js';
 
 const fetches = (proxy) => requestsTo(proxy, '/asset/fetch');
@@ -118,16 +118,14 @@ test('the plugin\'s unload ends the open sessions; the next dsh process distills
   await first.preStep(running, { turn: 1, step: 1, messages: [{ ...DSH.preStep.prompt.messages[0], content: [{ type: 'text', text: PROMPT }] }] });
   await first.dispose();
   assert.equal(stateFile(proxy, 'dsh-distill-ranges.json')[done.session.id].closed, true);
+  assert.ok(reportsQueued(proxy).some((report) => report.task_id === `dsh:${running.session.id}:1`), 'the open turn\'s report is written');
+
+  const next = await startDsh({ llm: fakeLlm() });
+  await next.createAgent();
   await until(() => reportsOf(proxy).some((report) => report.task_id === `dsh:${running.session.id}:1`), 'the open turn\'s report');
   const aborted = reportsOf(proxy).find((report) => report.task_id === `dsh:${running.session.id}:1`);
   assert.equal(aborted.evidence.aborted, true);
   assert.equal(aborted.outcome, 'failed');
-
-  await until(() => stateFile(proxy, 'dsh-distill-ranges.json')[done.session.id]?.attempts === 1, 'the try without a model service to count');
-  elapseRetryWaits(proxy);
-  const llm = fakeLlm();
-  const next = await startDsh({ llm });
-  await next.createAgent();
   await until(() => distills(proxy).length === 1, 'the leftover distillation');
   assert.equal(distills(proxy)[0].body.session_id, `dsh:${done.session.id}`);
 });
