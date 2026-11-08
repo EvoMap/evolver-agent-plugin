@@ -17,9 +17,14 @@ const byPath = new Map();
 
 const NPM_ROOT_TIMEOUT_MS = 5_000;
 
+// `npm root -g` starts all of npm, seconds on a busy machine, for an answer that does not change while this process runs.
+let knownNpmRoot = null;
+
 async function globalNpmRoot() {
+  if (knownNpmRoot) return knownNpmRoot;
   const result = await runProcess('npm', ['root', '-g'], { timeoutMs: NPM_ROOT_TIMEOUT_MS, shim: true });
-  return result.error || result.code !== 0 ? null : result.stdout.trim() || null;
+  knownNpmRoot = result.error || result.code !== 0 ? null : result.stdout.trim() || null;
+  return knownNpmRoot;
 }
 
 // A plugin installed from a marketplace has no node_modules of its own. The
@@ -70,6 +75,11 @@ function cycleIdOf(sessionId) {
 // the route records nothing at all. Success and the negative verdicts ride
 // different events by design -- the ledger derives savings from one and the
 // keep/prune signal from the other.
+/** Loads the ledger's evolver-core, so the records that follow in this process pay no import. */
+export async function loadReuseLedger({ enginePrefix } = {}) {
+  await loadIngestor(enginePrefix);
+}
+
 export async function recordReuseLocally({ assetId, outcome, sessionId }, { enginePrefix } = {}) {
   if (!assetId || !outcome) return false;
   const ingestor = await loadIngestor(enginePrefix);

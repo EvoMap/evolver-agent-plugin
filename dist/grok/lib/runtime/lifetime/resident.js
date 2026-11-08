@@ -13,6 +13,7 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  */
 export function inProcessScheduler(run) {
   let queue = Promise.resolve();
+  let aside = Promise.resolve();
   let isStopped = false;
   let wakeUp = null;
   const stopping = new AbortController();
@@ -35,7 +36,13 @@ export function inProcessScheduler(run) {
     signal: stopping.signal,
     schedule,
     wakeAt,
-    idle: () => queue,
+    alongside: (work) => {
+      if (!isStopped) aside = aside.then(work).catch(() => false);
+    },
+    idle: async () => {
+      await queue;
+      await aside;
+    },
     stop: () => {
       isStopped = true;
       clearTimeout(wakeUp?.timer);

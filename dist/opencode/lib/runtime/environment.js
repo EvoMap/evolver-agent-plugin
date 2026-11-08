@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { recordReuseLocally } from '../local-ledger.js';
+import { loadReuseLedger, recordReuseLocally } from '../local-ledger.js';
 import { evolverCliOf } from './cli-executor.js';
 import { commandJobsOf } from './command-jobs.js';
 import { enginePortOf } from './engine/job.js';
 import { hubSignInOf, signInFilesOf } from './hub-login.js';
 import { detachedScheduler, waitForWakeUp } from './lifetime/ephemeral.js';
 import { inProcessScheduler } from './lifetime/resident.js';
+import { threadedLedger } from './ledger-thread.js';
 import { modelRunnerOf } from './model-executor.js';
 import { ownerProbeOf } from './process/owner.js';
 import { projectSnapshotOf } from './project.js';
@@ -59,7 +60,10 @@ export function environmentFor({ profile, env = process.env, lifetime, runBackgr
     project: projectSnapshotOf(env),
     clock,
     engine: enginePortOf(stores, { runningProxy: () => runningProxy({ env, proxyFetch: request }) }),
-    ledger: { record: (entry) => recordReuseLocally(entry, { enginePrefix: stores.folder('engine') }) },
+    ledger: lifetime === RESIDENT ? threadedLedger({ enginePrefix: stores.folder('engine') }) : {
+      load: () => loadReuseLedger({ enginePrefix: stores.folder('engine') }),
+      record: (entry) => recordReuseLocally(entry, { enginePrefix: stores.folder('engine') }),
+    },
     cli: evolverCliOf({ enginePrefix: stores.folder('engine') }),
     signIn: hubSignInOf({ files: signInFilesOf(env), enginePrefix: stores.folder('engine'), env }),
     settings: settingsOf(env, profile.settingsFile?.(env)),

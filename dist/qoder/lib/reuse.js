@@ -127,9 +127,12 @@ async function postToHub(proxyFetch, { report, path = REUSE_RESULT_PATH }) {
   }
 }
 
-function isLocalRecordDue({ report, path, localAt, localUncertainAt, localFailures = 0, rejectedAt }) {
+function isLocalRecordOwed({ report, path, localAt, localUncertainAt, localFailures = 0, rejectedAt }) {
   return !path && !localAt && !localUncertainAt && !rejectedAt && localFailures < MAX_LOCAL_FAILURES && report.evidence.tier !== 'none';
 }
+
+/** Whether a report the Hub took still waits for its local ledger record. */
+export const isLocalRecordDue = (entry) => Boolean(entry.sentAt) && isLocalRecordOwed(entry);
 
 async function recordedLocally(recordLocally, { report, sessionId }) {
   try {
@@ -140,14 +143,26 @@ async function recordedLocally(recordLocally, { report, sessionId }) {
   }
 }
 
-async function attemptOf(ledgers, entry) {
+async function postedOf(ledgers, entry) {
   const delivery = await postToHub(ledgers.proxyFetch, entry);
-  if (delivery.verdict === REJECTED) {
-    await ledgers.onRejected({ taskId: entry.report.task_id, assetId: entry.report.asset_id, ...delivery });
-  } else if (isLocalRecordDue(entry)) {
-    return { ...delivery, ...await recordedLocally(ledgers.recordLocally, entry) };
-  }
+  if (delivery.verdict === REJECTED) await ledgers.onRejected({ taskId: entry.report.task_id, assetId: entry.report.asset_id, ...delivery });
   return delivery;
+}
+
+async function attemptOf(ledgers, entry) {
+  const delivery = await postedOf(ledgers, entry);
+  if (delivery.verdict === REJECTED || !isLocalRecordOwed(entry)) return delivery;
+  return { ...delivery, ...await recordedLocally(ledgers.recordLocally, entry) };
+}
+
+/** Posts the unsettled reports to the Hub and records none locally: `deliverPending` records them afterwards. */
+export async function postPending(ledgers, outbox, now, afterAttempt = () => {}) {
+  let posted = outbox;
+  for (const [key, entry] of Object.entries(outbox).filter(([, candidate]) => !isSettled(candidate))) {
+    posted = withAttempt(posted, key, await postedOf(ledgers, entry), now);
+    afterAttempt();
+  }
+  return posted;
 }
 
 // Hub deliveries go first, so retrying an earlier report's local record never holds a new report back.
@@ -155,7 +170,7 @@ export async function deliverPending(ledgers, outbox, now, afterAttempt = () => 
   const entries = Object.entries(outbox);
   const attempts = [
     ...entries.filter(([, entry]) => !isSettled(entry)).map(([key, entry]) => [key, () => attemptOf(ledgers, entry)]),
-    ...entries.filter(([, entry]) => entry.sentAt && isLocalRecordDue(entry))
+    ...entries.filter(([, entry]) => isLocalRecordDue(entry))
       .map(([key, entry]) => [key, () => recordedLocally(ledgers.recordLocally, entry)]),
   ];
   let delivered = outbox;

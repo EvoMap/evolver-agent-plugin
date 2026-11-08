@@ -1,6 +1,6 @@
 {
   "name": "evolver-plugin",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Official Codex plugin for Evolver: recalls a proven strategy for each prompt, reports how it was reused, and distills verified work once the session goes quiet or ends — all from hooks, with no tools in the model's context.",
   "author": {
     "name": "EvoMap",
