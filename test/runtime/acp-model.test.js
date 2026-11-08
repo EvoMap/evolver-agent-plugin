@@ -11,7 +11,7 @@ import { createConnection } from 'node:net';
 
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { declarationFor } from '../fixtures/acp/declaration.mjs';
-import { CHILD_FILE, OWNER_FILE } from '../../lib/runtime/process/acp-child.js';
+import { CHILD_FILE, OWNER_FILE, START_FILE } from '../../lib/runtime/process/acp-child.js';
 import { windowsJobExecutable } from '../../lib/runtime/process/windows-job.js';
 
 const SECRET = 'fixture-private-api-key-NOT-A-REAL-CREDENTIAL';
@@ -155,27 +155,44 @@ test('invalid native config yields a typed sanitized preflight error', t => {
   assert.equal(existsSync(join(dir, 'receipt.json')), false);
 });
 
-test('orphan recovery cannot delete scratch without a child receipt proving both owned processes have exited', async t => {
+test('an owner exiting before fork does not block a fresh ACP completion', async t => {
+  const { runner, config, dir } = fixture(t);
+  const homeFile = join(dir, 'orphan-home');
+  const ownerFixture = fileURLToPath(new URL('../fixtures/acp/owner.mjs', import.meta.url));
+  assert.throws(() => execFileSync(process.execPath, [ownerFixture, config, homeFile, '', 'exit-before-fork'], {
+    timeout: 10_000, windowsHide: true, stdio: 'ignore',
+  }), { status: 17 });
+  const home = realpathSync(readFileSync(homeFile, 'utf8'));
+  assert.equal(dirname(home), realpathSync(tmpdir()));
+  assert.match(basename(home), /^evolver-model-/);
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const marker = join(home, existsSync(join(home, START_FILE)) ? START_FILE : OWNER_FILE);
+  const { ownerPid, origin } = JSON.parse(readFileSync(marker, 'utf8'));
+  assert.throws(() => process.kill(ownerPid, 0), { code: 'ESRCH' });
+  assert.equal(origin, createHash('sha256').update(config).digest('hex'));
+  assert.equal(existsSync(join(home, CHILD_FILE)), false);
+
+  const result = await runner.complete(runner.capture({ alias: 'route-a' }), 'fresh candidate');
+  assert.equal(result.answer, 'answer: fresh candidate');
+  nativeClosed(dir);
+  assert.equal(existsSync(home), false, 'the abandoned prelaunch scratch was removed');
+});
+
+test('orphan recovery rejects missing or malformed child receipts after launch was claimed', async t => {
   const { runner, config, dir } = fixture(t);
   const orphan = mkdtempSync(join(tmpdir(), 'evolver-model-'));
-  const live = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
-  t.after(async () => {
-    const stopped = new Promise(done => live.once('close', done));
-    live.kill('SIGKILL'); await stopped;
-    rmSync(orphan, { recursive: true, force: true });
-  });
+  t.after(() => rmSync(orphan, { recursive: true, force: true }));
   const ownerPid = 2147483647;
   assert.throws(() => process.kill(ownerPid, 0));
   writeFileSync(join(orphan, OWNER_FILE), JSON.stringify({ nonce: 'a'.repeat(32), ownerPid, origin: createHash('sha256').update(config).digest('hex') }));
   await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
-  assert.equal(existsSync(orphan), true, 'missing receipt is not proof that no native process exists');
-  assert.doesNotThrow(() => process.kill(live.pid, 0));
-  assert.equal(existsSync(join(dir, 'receipt.json')), false, 'a fresh native process was not started');
+  assert.equal(existsSync(orphan), true);
   for (const content of ['{incomplete', JSON.stringify({ nonce: 'a'.repeat(32) }), JSON.stringify({ nonce: 'b'.repeat(32), guardianPid: ownerPid, nativePid: ownerPid })]) {
     writeFileSync(join(orphan, CHILD_FILE), content);
     await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
     assert.equal(existsSync(orphan), true);
   }
+  assert.equal(existsSync(join(dir, 'receipt.json')), false, 'a fresh native process was not started');
 });
 
 test('orphan recovery ignores a matching scratch marker with a nonpositive owner PID', async t => {
