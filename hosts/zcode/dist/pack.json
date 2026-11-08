@@ -2,6 +2,7 @@
   "entries": ["bin/hook.mjs", "bin/worker.mjs", "bin/command.mjs"],
   "root": {
     ".zcode-plugin/plugin.json": "hosts/zcode/dist/plugin.json",
+    "marketplace.json": "hosts/zcode/dist/marketplace.json",
     "hooks/hooks.json": "hosts/zcode/dist/hooks/hooks.json",
     "README.md": "hosts/zcode/dist/README.md",
     "LICENSE": "LICENSE"

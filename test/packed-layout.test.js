@@ -29,6 +29,20 @@ test('every packed host is in the installer contract, and every host in it is pa
   assert.deepEqual(packedHosts().filter((host) => host !== 'workbuddy').sort(), Object.keys(CONTRACT).sort());
 });
 
+test('the packed ZCode Desktop marketplace installs the plugin at the bundle root', (t) => {
+  const out = mkdtempSync(join(tmpdir(), 'evolver-zcode-marketplace-'));
+  t.after(() => rmSync(out, { recursive: true, force: true }));
+  pack('zcode', out, { version: '9.8.7' });
+  const catalog = JSON.parse(readFileSync(join(out, 'marketplace.json'), 'utf8'));
+  const [plugin] = catalog.plugins;
+  assert.equal(catalog.name, 'evolver-zcode-local');
+  assert.equal(plugin.source, './');
+  const manifest = JSON.parse(readFileSync(join(out, plugin.source, '.zcode-plugin', 'plugin.json'), 'utf8'));
+  assert.equal(manifest.name, plugin.name);
+  assert.equal(plugin.version, '9.8.7');
+  assert.equal(manifest.version, plugin.version);
+});
+
 for (const [host, contract] of Object.entries(CONTRACT)) {
   test(`${host}: the packed folder passes the checks evolver plugin install makes`, (t) => {
     const out = mkdtempSync(join(tmpdir(), `evolver-layout-${host}-`));

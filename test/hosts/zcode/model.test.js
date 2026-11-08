@@ -127,6 +127,6 @@ test('standalone ZCode requires an explicit regular CLI bundle', (t) => {
   assert.equal(resolve({ ZCODE_CLI_PATH: file }), null);
   rmdirSync(file);
   writeFileSync(file, '');
-  assert.equal(resolve({ PATH: dir }), null);
+  assert.equal(resolve({ PATH: dir, LOCALAPPDATA: dir }), null);
   assert.deepEqual(resolve({ ZCODE_CLI_PATH: file }), { file, viaNode: true });
 });
