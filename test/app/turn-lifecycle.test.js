@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
+import { TASKS } from '../../lib/app/ports.js';
 import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
@@ -24,6 +25,27 @@ async function verifiedTurn(ports, sessionId, { prompt = PROMPT, exit = 0 } = {}
 }
 
 const end = (ports, sessionId, extra = {}) => turnEnded(ports, { sessionId, reason: 'answer', answer: 'Fixed.', projectDir: '/proj', ...extra });
+
+test('a report reaches the Hub, and the next batch runs, while the local ledger is still loading', async () => {
+  const { ports, requests } = memoryPorts();
+  let finishLoading = null;
+  let recorded = 0;
+  ports.ledger = { load: () => new Promise((resolve) => { finishLoading = resolve; }), record: async () => { recorded += 1; return true; } };
+  let outbox = { only: { report: { task_id: 'claude-code:s1:1', asset_id: ASSET.asset_id, outcome: 'success', evidence: { tier: 'L1' } }, sessionId: 's1', queuedAt: 0, attempts: 0 } };
+  ports.outbox = {
+    some: async (isDue) => Object.values(outbox).some(isDue),
+    drain: async (deliver) => { outbox = await deliver(outbox, () => {}); return true; },
+  };
+  let aside = Promise.resolve();
+  ports.scheduler = { ...ports.scheduler, alongside: (work) => { aside = aside.then(work); } };
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+  assert.deepEqual(requests.map(({ path }) => path), ['/asset/reuse-result']);
+  while (!finishLoading) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(recorded, 0);
+  finishLoading();
+  await aside;
+  assert.equal(recorded, 1);
+});
 
 test('a recalled strategy ends with the spec line, and its turn end reports it with the turn\'s check', async () => {
   const { ports, queued, scheduled } = memoryPorts();
