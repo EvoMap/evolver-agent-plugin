@@ -1,0 +1,6 @@
+{
+  "kind": "shell",
+  "command": "node --test native.test.cjs",
+  "exit": 0,
+  "output": "✔ a transient disconnect retries with deterministic backoff and closes after success (0.9777ms)\n✔ an authentication failure is terminal and closes without retrying (0.339ms)\n✔ two retries allow three failed attempts and still close the client (0.1428ms)\n✔ a zero retry budget still allows the initial operation (0.7ms)\n✔ an unclassified application failure is not retried and still closes the client (0.1552ms)\nℹ tests 5\nℹ suites 0\nℹ pass 5\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 64.3841"
+}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
@@ -16,6 +17,7 @@ import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 import { fixTurn } from './work-turns.js';
 
 const WAIT = { waitMs: 5_000 };
+const nativePassingCheck = JSON.parse(readFileSync(new URL('../fixtures/node-spec-passing-errors.json', import.meta.url), 'utf8'));
 
 async function verifiedTurn(ports, sessionId, { prompt = PROMPT, exit = 0 } = {}) {
   const opened = await promptSubmitted(ports, { sessionId, prompt, ...WAIT });
@@ -49,14 +51,21 @@ test('a report reaches the Hub, and the next batch runs, while the local ledger 
 
 test('a recalled strategy ends with the spec line, and its turn end reports it with the turn\'s check', async () => {
   const { ports, queued, scheduled } = memoryPorts();
-  const { injection } = await verifiedTurn(ports, 's1');
+  const { injection } = await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { ...nativePassingCheck, exit: 1, output: 'ℹ pass 1\nℹ fail 4' } });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'edit', paths: ['/proj/lib/redis.js'] } });
+  await toolFinished(ports, { sessionId: 's1', note: nativePassingCheck });
   assert.match(injection, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.ok(injection.endsWith('Apply them where they fit.'));
   const ended = await end(ports, 's1');
   assert.equal(ended.reports.length, 1);
   assert.equal(ended.reports[0].task_id, 'testagent:s1:1');
   assert.equal(ended.reports[0].outcome, 'success');
-  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
+  assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: true }, source: 'observed', aborted: false, stage: 'immediate' });
+  assert.deepEqual(ended.record.checks.at(-1), { command: nativePassingCheck.command, exit: 0, failed: false });
+  const range = (await ports.candidates.read()).s1;
+  assert.deepEqual(range.turns[0].steps.at(-1), { kind: 'check', command: nativePassingCheck.command, exit: 0, failed: false });
+  assert.equal(ended.isDistillable, true, 'the observed failure, edit and pass leave no failed-check gate');
   assert.deepEqual(queued.map(({ report }) => report.task_id), ['testagent:s1:1']);
   assert.ok(scheduled.includes('drain'));
 });
@@ -203,13 +212,17 @@ test('a plugin command turn recalls nothing, keeps the last reuses for labelling
   assert.equal(queued.find(({ report }) => report.task_id.endsWith(':correction')).report.outcome, 'success');
 });
 
-test('an aborted turn reports its injection as failed, with no check', async () => {
+test('an aborted turn reports its injection as failed, without trusting passing output from an unfinished check', async () => {
   const { ports } = memoryPorts();
   await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
-  const [report] = (await end(ports, 's1', { reason: 'aborted' })).reports;
+  await toolFinished(ports, { sessionId: 's1', note: { ...nativePassingCheck, exit: null, running: true, callId: 'unfinished-check' } });
+  const ended = await end(ports, 's1', { reason: 'aborted' });
+  const [report] = ended.reports;
   assert.equal(report.outcome, 'failed');
   assert.equal(report.evidence.tier, 'none');
   assert.equal(report.evidence.aborted, true);
+  assert.deepEqual(ended.record.checks, []);
+  assert.equal((await ports.candidates.read()).s1, undefined);
 });
 
 test('a check still running at turn end counts as not run; a later note with its call id settles it', async () => {
