@@ -8,6 +8,36 @@ import { test } from 'node:test';
 
 import { fakeProxy } from './fake-proxy.js';
 
+test('the fake Proxy stays healthy while the test process does synchronous work', async t => {
+  const proxy = await fakeProxy();
+  t.after(() => proxy.close());
+  const runtime = new URL('../../lib/runtime/proxy.js', import.meta.url).href;
+  const script = `
+    import { runningProxy } from ${JSON.stringify(runtime)};
+    console.log('READY');
+    await new Promise(resolve => process.stdin.once('data', resolve));
+    console.log(JSON.stringify(await runningProxy()));
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: proxy.env, windowsHide: true });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  const exited = once(child, 'close');
+  let stdout = '', stderr = '', blocked = false;
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  child.stdout.on('data', chunk => {
+    stdout += chunk;
+    if (blocked || !stdout.includes('READY')) return;
+    blocked = true;
+    child.stdin.end('GO\n');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
+  });
+  assert.deepEqual(await exited, [0, null], stderr);
+  assert.equal(blocked, true);
+  const result = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(result?.version, '2.0.50');
+  proxy.close();
+  assert.equal(proxy.requests.filter(request => request.path === '/proxy/status').length, 1);
+});
+
 test('fake Proxy teardown still stops a waiter when a monitor directory disappears', async t => {
   const proxy = await fakeProxy();
   const home = proxy.env.HOME;

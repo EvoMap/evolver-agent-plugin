@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { headlessZCode } from '../../../hosts/zcode/model.js';
+import profile from '../../../hosts/zcode/profile.js';
 import { executableOf } from '../../../lib/runtime/process/which.js';
 
 const selection = {
@@ -47,6 +48,32 @@ const builtin = JSON.stringify({ schemaVersion: 1, config: {
   modelConfigRules: { modelRules: [], modelApiRules: [] },
 } });
 const prepare = (source) => headlessZCode.configFile.prepare([JSON.stringify(source), builtin], { selection });
+
+test('ZCode keeps the native session database when its provider data root changes', () => {
+  const home = join(tmpdir(), 'evolver-zcode-native-home');
+  const selected = join(tmpdir(), 'evolver-zcode-selected-home');
+  const env = { HOME: home, USERPROFILE: home, ZCODE_DATA_BASE_DIR: ` ${selected} ` };
+  assert.equal(profile.turnEnd.statusRecord.file(env), join(home, '.zcode', 'cli', 'db', 'db.sqlite'));
+  assert.equal(profile.modelRecord.file(env), join(home, '.zcode', 'cli', 'db', 'db.sqlite'));
+  assert.equal(headlessZCode.configFile.source(env)[0], join(selected, '.zcode', 'v2', 'provider_config.json'));
+  assert.equal(profile.stateDir(env), join(selected, '.zcode', 'cli', 'evolver-plugin'));
+});
+
+test('ZCode rejects a relative provider source from a blank data root and preserves explicit file overrides', () => {
+  const home = join(tmpdir(), 'evolver-zcode-native-home');
+  for (const base of [undefined, '', '   ']) {
+    const env = { HOME: home, USERPROFILE: home, ZCODE_DATA_BASE_DIR: base };
+    assert.equal(profile.turnEnd.statusRecord.file(env), join(home, '.zcode', 'cli', 'db', 'db.sqlite'));
+    assert.equal(headlessZCode.configFile.source(env)[0], base === undefined ? join(home, '.zcode', 'v2', 'provider_config.json') : null);
+    const database = join(home, 'custom.sqlite');
+    const provider = join(home, 'provider.json');
+    const override = { ...env, ZCODE_SESSION_DB_PATH: ` ${database} `, ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: ` ${provider} ` };
+    assert.equal(profile.turnEnd.statusRecord.file(override), database);
+    assert.equal(profile.modelRecord.file(override), database);
+    assert.equal(headlessZCode.configFile.source(override)[0], provider);
+    assert.equal(profile.turnEnd.statusRecord.file({ ...env, ZCODE_SESSION_DB: database }), database);
+  }
+});
 
 test('ZCode isolates a personal Responses route with only the selected provider and model rule', () => {
   const { content, files } = prepare(config());

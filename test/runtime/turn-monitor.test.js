@@ -101,3 +101,30 @@ test('a native turn gets bounded time for its final record after the owner exits
     assert.equal(now, ownerExitAt + (status ? 5_000 : 30_000));
   }
 });
+
+test('an owner exit preserves the pending native completion window without extending missing metadata', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-pending-owner-exit-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const [status, completesAt, expectedEnd] of [
+    ['pending', 45_000, 45_000],
+    ['pending', null, 5 * 60_000],
+    [null, null, 30_000],
+  ]) {
+    const at = { sessionId: 's1', turnId: 't1', projectDir: dir };
+    const opened = { open: true, turnId: 't1', turn: 1, sessionEpoch: 1 };
+    let now = 0, closed;
+    const ports = {
+      sessions: { read: async () => opened },
+      owner: { isGone: () => true },
+      turnStatus: () => completesAt !== null && now >= completesAt ? { status: 'completed' } : status && { status },
+      confirmTurnCompletion: true,
+    };
+    await monitorTurn(ports, at, result => { closed = result; }, {
+      dir, now: () => now, sleep: async () => { now += 500; },
+    });
+    assert.equal(now, expectedEnd);
+    assert.deepEqual(closed, completesAt === null ? undefined : {
+      sessionId: 's1', turnId: 't1', reason: 'answer', expectedTurn: opened,
+    });
+  }
+});

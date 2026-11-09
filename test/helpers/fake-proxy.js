@@ -1,11 +1,11 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 
 import { isSameProcess } from '../../lib/runtime/process/identity.js';
-import { ASSET, recalledFor } from '../app/memory-ports.js';
-import { recipeSearchAnswer } from './recipe-search.js';
+import { ASSET } from '../app/memory-ports.js';
 
 // A verified turn's hook arms a detached waiter for background distillation, which would sleep on past the test.
 function endWaiters(home) {
@@ -40,34 +40,48 @@ function endWaiters(home) {
  */
 export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {}, status = { running: true, status: 'running', node_id: 'node_test' } } = {}) {
   const requests = [];
-  const fetched = (body) => (body?.asset_ids ? stepAssets.filter((asset) => body.asset_ids.includes(asset.asset_id)) : recalledFor(assets, body));
-  const server = createServer((request, response) => {
-    let body = '';
-    request.on('data', (chunk) => { body += chunk; });
-    request.on('end', () => {
-      const parsed = body ? JSON.parse(body) : undefined;
-      requests.push({ method: request.method, path: request.url, body: parsed });
-      const answer = request.url === '/asset/fetch' ? { assets: fetched(parsed) }
-        : request.url === '/recipe/search' ? recipeSearchAnswer(recipes, parsed)
-        : request.url === '/proxy/status' ? status
-          : request.url === '/conversation/distill' ? distillAnswer
-            : { recorded: true };
-      const reply = () => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer));
-      if (delays[request.url]) setTimeout(reply, delays[request.url]).unref();
-      else reply();
-    });
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
-  const url = `http://127.0.0.1:${server.address().port}`;
-  mkdirSync(join(home, '.evolver'));
-  writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.50' } }));
+  const { port1, port2 } = new MessageChannel();
+  port1.on('message', request => requests.push(request));
+  const flushRequests = () => {
+    for (let next; (next = receiveMessageOnPort(port1));) requests.push(next.message);
+  };
+  let worker, url, stopped = false, failure;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    flushRequests();
+    port1.close();
+    port2.close();
+    worker?.terminate();
+  };
+  try {
+    // The real Proxy runs outside a host's event loop, including its synchronous filesystem work.
+    worker = new Worker(new URL('./fake-proxy-worker.js', import.meta.url), {
+      workerData: { assets, recipes, stepAssets, distillAnswer, delays, status, requests: port2 }, transferList: [port2], execArgv: [],
+    });
+    worker.on('error', error => { if (!stopped) failure = error; });
+    [url] = await Promise.race([
+      once(worker, 'message'),
+      once(worker, 'exit').then(([code]) => { throw new Error(`Fake Proxy exited before listening (${code})`); }),
+    ]);
+    mkdirSync(join(home, '.evolver'));
+    writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.50' } }));
+  } catch (error) {
+    stop();
+    rmSync(home, { recursive: true, force: true });
+    throw error;
+  }
   return {
-    requests,
-    env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: String(server.address().port), EVOLVER_HEADLESS: '' },
+    get requests() {
+      if (failure) throw failure;
+      // A child can observe its response before this thread dispatches the request notification.
+      flushRequests();
+      return requests;
+    },
+    env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: new URL(url).port, EVOLVER_HEADLESS: '' },
     close: () => {
-      server.close();
-      server.closeAllConnections();
+      stop();
       endWaiters(home);
       // A detached worker the hooks started can still be writing its state here after the request a test waits on.
       rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
