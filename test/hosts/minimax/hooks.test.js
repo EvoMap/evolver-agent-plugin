@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -51,7 +51,7 @@ async function fixture(t) {
   writeFileSync(join(bin, 'mcode.cmd'), `@echo off\r\n"%FAKE_MINIMAX_NODE%" "${fakeCli}" %*\r\n`);
   writeFileSync(join(bin, 'mcode'), `#!/usr/bin/env node\nimport(${JSON.stringify(new URL('../../fixtures/minimax/fake-mcode.mjs', import.meta.url).href)});\n`); chmodSync(join(bin, 'mcode'), 0o755);
   const system = Object.fromEntries(['SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'].filter(key => proxy.env[key]).map(key => [key, proxy.env[key]]));
-  const env = { ...system, HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, PLUGIN_ROOT: plugin, PLUGIN_DATA: state, MINIMAX_DATA_DIR: data, MAVIS_DATA_DIR: data, FAKE_MINIMAX_NODE: process.execPath, FAKE_MINIMAX_LOG: log, PATH: [bin, dirname(process.execPath)].join(delimiter), NODE_OPTIONS: `--import=${workerObserver}`, FAKE_MINIMAX_WORKERS: workers, FAKE_MINIMAX_WORKER_ENTRY: join(plugin, 'bin/worker.mjs') };
+  const env = { ...system, HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, PLUGIN_ROOT: plugin, PLUGIN_DATA: state, MINIMAX_DATA_DIR: data, MAVIS_DATA_DIR: data, FAKE_MINIMAX_NODE: process.execPath, FAKE_MINIMAX_LOG: log, PATH: [bin, dirname(process.execPath)].join(delimiter), NODE_OPTIONS: `--import=${workerObserver}`, FAKE_MINIMAX_WORKERS: workers, FAKE_MINIMAX_WORKER_ENTRY: realpathSync(join(plugin, 'bin/worker.mjs')) };
   delete env.EVOLVER_RECALL; delete env.EVOLVER_AUTO_DISTILL;
   const hooks = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8')).hooks;
   const base = { session_id: 's1', turn_id: 't1', cwd: project, model: 'model-a' };
