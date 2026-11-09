@@ -19,6 +19,7 @@ const CONTRACT = {
   antigravity: { manifest: 'plugin.json', name: 'evolver-plugin', entries: ['hooks.json', 'bin/hook.mjs'] },
   opencode: { manifest: 'package.json', name: '@evomap/evolver-opencode', entries: ['server.mjs', 'tui.mjs'], npm: true },
   dsh: { manifest: 'package.json', name: '@evomap/dsh-evolver', entries: ['plugin.mjs'], npm: true },
+  stepcode: { manifest: 'package.json', name: '@evomap/stepcode-evolver', entries: ['plugin.mjs'], npm: true },
 };
 const REPOSITORY = /^(?:git\+)?https:\/\/github\.com\/EvoMap\/evolver-agent-plugin(?:\.git)?$/i;
 

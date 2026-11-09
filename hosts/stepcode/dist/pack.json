@@ -1,0 +1,9 @@
+{
+  "entries": ["hosts/stepcode/dist/plugin.mjs"],
+  "root": {
+    "plugin.mjs": "hosts/stepcode/dist/root/plugin.mjs",
+    "package.json": "hosts/stepcode/dist/package.json",
+    "README.md": "hosts/stepcode/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

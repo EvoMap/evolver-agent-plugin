@@ -54,6 +54,14 @@ cancelled turns without a reuse report or distillation evidence. State lives in 
 sets it. Headless distillation uses the configured standalone CLI bundle with a private copy of the recorded provider route.
 [The ZCode adapter guide](zcode/dist/README.md) describes local installation and the runtime configuration paths.
 
+Step Code CLI 0.1.7 on Windows uses a resident native extension. Recipe guidance is projected into each model request
+of the current prompt and is not persisted into the transcript. A plugin turn spans native model steps and ends only
+at `agent_settled`; a latched abort, unfinished command or unsupported inline/background check prevents reporting
+and candidate creation. Native shell starts and terminal exit metadata are paired by call. SDK completion receives
+only a private distillation prompt, no tools or native session transcript, and retains the captured account/model route.
+Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in `evolver-plugin`.
+[The Step Code draft guide](stepcode/dist/README.md) records installation, supported commands and acceptance limits.
+
 ## Adding a host
 
 MiniMax Code's local adapter uses the hook defaults for `session_id`, `turn_id`, prompt and additional context.

@@ -49,6 +49,7 @@ jobs:
       - run: npm ci
       - run: npm run test:minimax
       - run: npm run test:zcode
+      - run: npm run test:stepcode
       - run: npm run pack
 
   # A release is a tag vX.Y.Z a maintainer pushes on main; nothing on main names a version. The tag's version is
