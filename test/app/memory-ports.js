@@ -70,6 +70,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
   const draftCorrections = new Set();
   const notes = lines();
   const edits = lines();
+  const evidenceKey = (id, scope) => scope ? `generation:${JSON.stringify([id, scope.sessionEpoch, scope.turn])}` : `session:${id}`;
   const requests = [];
   const queued = [];
   const scheduled = [];
@@ -97,18 +98,18 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
       },
     },
     notes: {
-      append: (id, note) => notes.append(id, note),
-      read: (id) => notes.read(id),
-      take: async (id) => {
-        const { lines: taken, commit } = await notes.take(id);
+      append: (id, note, scope) => notes.append(evidenceKey(id, scope), note),
+      read: (id, scope) => notes.read(evidenceKey(id, scope)),
+      take: async (id, scope) => {
+        const { lines: taken, commit } = await notes.take(evidenceKey(id, scope));
         return { notes: taken, commit };
       },
-      clear: (id) => notes.clear(id),
+      clear: (id, scope) => notes.clear(evidenceKey(id, scope)),
     },
     baseline: {
-      remember: (id, file, turnId = null) => edits.append(id, { file, before: `hash-of-${file}`, turnId }),
-      take: async (id, turnId = null) => {
-        const { lines: taken, commit } = await edits.take(id);
+      remember: (id, file, turnId = null, scope) => edits.append(evidenceKey(id, scope), { file, before: `hash-of-${file}`, turnId }),
+      take: async (id, turnId = null, scope) => {
+        const { lines: taken, commit } = await edits.take(evidenceKey(id, scope));
         const ofTurn = (line) => !line.turnId || !turnId || line.turnId === turnId;
         return { before: new Map(taken.filter(ofTurn).map(({ file, before }) => [file, before])), commit };
       },

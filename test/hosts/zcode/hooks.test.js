@@ -282,8 +282,9 @@ test('a check result and Stop re-arm native status observation for a long turn',
   ports.turnStatus = () => null;
   const driver = createDriver({ profile, ports, lifetime: 'ephemeral' });
   const base = { sessionId: 's1', turnId: 't1', cwd: process.cwd() };
-  const task = `turn:${JSON.stringify({ sessionId: 's1', projectDir: base.cwd, turnId: 't1' })}`;
   await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
+  const { turn, turnId, sessionEpoch } = await ports.sessions.read('s1');
+  const task = `turn:${JSON.stringify({ sessionId: 's1', projectDir: base.cwd, turnId: 't1', expectedTurn: { turn, turnId, sessionEpoch } })}`;
   assert.ok(scheduled.includes(task));
   scheduled.length = 0;
   await driver.handle('PostToolUse', { ...base, ...shell('old', 'old-check', 0) });

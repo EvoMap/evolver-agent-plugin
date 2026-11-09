@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
@@ -7,11 +10,12 @@ import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
-import { toolFinished } from '../../lib/app/tool-result.js';
+import { beforeEdit, toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
 import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
 import { EPISODE_QUIET_MS } from '../../lib/distill/range.js';
 import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
+import { contentHashOf, fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
 import { fixTurn } from './work-turns.js';
 
@@ -59,6 +63,142 @@ test('a recalled strategy ends with the spec line, and its turn end reports it w
   assert.deepEqual(ended.reports[0].evidence, { tier: 'L1', applied: 'used', check: { kind: 'test', passed: true, fail_then_pass: false }, source: 'observed', aborted: false, stage: 'immediate' });
   assert.deepEqual(queued.map(({ report }) => report.task_id), ['testagent:s1:1']);
   assert.ok(scheduled.includes('drain'));
+});
+
+test('a slow host record cannot take the next turn\'s notes when the host names no turn ids', async () => {
+  const { ports } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1, output: '# fail 1' } });
+  let entered, finishRead;
+  const reading = new Promise(resolve => { entered = resolve; });
+  const observed = new Promise(resolve => { finishRead = resolve; });
+  const closing = end(ports, 's1', { recordOf: () => { entered(); return observed; } });
+  await reading;
+  // The driver waits for settling, but a slow old hook must not hold the person's next prompt forever.
+  await closeUnfinishedTurn(ports, { sessionId: 's1' });
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'verify the repaired retry policy', ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: '# pass 1\n# fail 0' } });
+  finishRead(null);
+  const previous = await closing;
+  assert.equal(previous.record.checks[0]?.failed, true);
+  assert.equal(previous.reports[0].outcome, 'failed');
+  const next = await end(ports, 's1');
+  assert.equal(next.record.checks[0]?.failed, false);
+});
+
+test('a slow host record cannot take the next turn\'s edit baseline when the host names no turn ids', async () => {
+  const { ports, retained } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await beforeEdit(ports, { sessionId: 's1', file: '/proj/old.js' });
+  let entered, finishRead;
+  const reading = new Promise(resolve => { entered = resolve; });
+  const observed = new Promise(resolve => { finishRead = resolve; });
+  const closing = end(ports, 's1', { recordOf: () => { entered(); return observed; } });
+  await reading;
+  await closeUnfinishedTurn(ports, { sessionId: 's1' });
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'repair the next file', ...WAIT });
+  await beforeEdit(ports, { sessionId: 's1', file: '/proj/new.js' });
+  finishRead(null);
+  await closing;
+  assert.deepEqual([...retained[0].editedBefore.keys()], ['/proj/old.js']);
+  await end(ports, 's1');
+  assert.deepEqual([...retained[1].editedBefore.keys()], ['/proj/new.js']);
+});
+
+test('a delayed close keeps its observed record without taking the next turn\'s evidence', async () => {
+  const { ports, retained } = memoryPorts();
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  let entered, finishClose;
+  const closingStore = new Promise(resolve => { entered = resolve; });
+  const stored = new Promise(resolve => { finishClose = resolve; });
+  const update = ports.sessions.update;
+  let held = false;
+  ports.sessions.update = async (...args) => {
+    const result = await update(...args);
+    if (!held && result?.settling) { held = true; entered(); await stored; }
+    return result;
+  };
+  const original = { edits: [], commands: ['npm test'], checks: [{ command: 'npm test', exit: 1, failed: true }] };
+  const closing = end(ports, 's1', { recordOf: () => original });
+  await closingStore;
+  await closeUnfinishedTurn(ports, { sessionId: 's1' });
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'verify the next file', ...WAIT });
+  await beforeEdit(ports, { sessionId: 's1', file: '/proj/current.js' });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: '# pass 1\n# fail 0' } });
+  finishClose();
+  assert.equal((await closing).record.checks[0].failed, true);
+  assert.deepEqual([...retained[0].editedBefore.keys()], []);
+  assert.equal((await end(ports, 's1')).record.checks[0]?.failed, false);
+  assert.deepEqual([...retained[1].editedBefore.keys()], ['/proj/current.js']);
+});
+
+test('captured evidence of a replaced epoch stays recoverable only by its origin', async (t) => {
+  for (const failedRead of [false, true]) {
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-replaced-evidence-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { ports, advance } = memoryPorts();
+    const stores = fileStoresOf({ dir, agent: 'testagent' });
+    ports.notes = stores.notes;
+    ports.baseline = stores.baseline;
+    await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+    await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 1 } });
+    await beforeEdit(ports, { sessionId: 's1', file: '/proj/old.js' });
+    const origin = await ports.sessions.read('s1');
+    const closing = end(ports, 's1', { recordOf: async () => {
+      advance(1);
+      await ports.sessions.update('s1', () => ({ turn: 0 }));
+      await promptSubmitted(ports, { sessionId: 's1', prompt: 'a different session', ...WAIT });
+      if (failedRead) throw new Error('host record unavailable');
+      return null;
+    } });
+    if (failedRead) await assert.rejects(closing, /host record unavailable/);
+    else assert.equal(await closing, null);
+    // Let durable claims reach their recovery age without making the test wait a minute.
+    for (const name of readdirSync(dir)) utimesSync(join(dir, name), new Date(0), new Date(0));
+    const current = await ports.sessions.read('s1');
+    const notes = await ports.notes.take('s1', current);
+    const baseline = await ports.baseline.take('s1', null, current);
+    assert.deepEqual(notes.notes, []);
+    assert.equal(baseline.before.size, 0);
+    await notes.commit(); await baseline.commit();
+    const previousNotes = await ports.notes.take('s1', origin);
+    const previousBaseline = await ports.baseline.take('s1', null, origin);
+    assert.deepEqual(previousNotes.notes.map(note => note.command), ['npm test']);
+    assert.deepEqual([...previousBaseline.before.keys()], ['/proj/old.js']);
+    await previousNotes.commit(); await previousBaseline.commit();
+  }
+});
+
+test('a failed host record cannot resurrect its notes and edit baseline into the next turn', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-failed-evidence-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { ports, retained } = memoryPorts();
+  const stores = fileStoresOf({ dir, agent: 'testagent' });
+  ports.notes = stores.notes;
+  ports.baseline = stores.baseline;
+  const oldFile = join(dir, 'old.js');
+  const currentFile = join(dir, 'current.js');
+  writeFileSync(oldFile, 'before');
+  const originalHash = contentHashOf(oldFile);
+  await promptSubmitted(ports, { sessionId: 's1', prompt: PROMPT, ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'node --test old.test.js', exit: 1 } });
+  await beforeEdit(ports, { sessionId: 's1', file: oldFile });
+  writeFileSync(oldFile, 'after');
+  const origin = await ports.sessions.read('s1');
+  await assert.rejects(end(ports, 's1', { recordOf: async () => { throw new Error('host record unavailable'); } }), /host record unavailable/);
+  await promptSubmitted(ports, { sessionId: 's1', prompt: 'verify the next file', ...WAIT });
+  await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'node --test current.test.js', exit: 0 } });
+  await beforeEdit(ports, { sessionId: 's1', file: currentFile });
+  for (const name of readdirSync(dir)) if (name.endsWith('.taking')) utimesSync(join(dir, name), new Date(0), new Date(0));
+  const next = await end(ports, 's1');
+  assert.deepEqual(next.record.commands, ['node --test current.test.js']);
+  assert.deepEqual([...retained[0].editedBefore.keys()], [currentFile]);
+  const previousNotes = await ports.notes.take('s1', origin);
+  const previousBaseline = await ports.baseline.take('s1', null, origin);
+  assert.deepEqual(previousNotes.notes.map(note => note.command), ['node --test old.test.js']);
+  assert.equal(previousBaseline.before.get(oldFile), originalHash);
+  assert.notEqual(originalHash, contentHashOf(oldFile));
+  await previousNotes.commit(); await previousBaseline.commit();
 });
 
 test('printing a check command does not verify a turn or raise its reuse evidence', async () => {

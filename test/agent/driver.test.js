@@ -28,6 +28,58 @@ test('a prompt answers the recalled strategy in the hook channel\'s shape', asyn
   assert.ok(answer.hookSpecificOutput.additionalContext.endsWith('Apply them where they fit.'));
 });
 
+test('a delayed prompt schedules only the generation it opened', async t => {
+  const made = memoryPorts();
+  made.ports.settings = { recall: false };
+  made.ports.confirmTurnCompletion = true;
+  made.ports.turnStatus = () => null;
+  const { driver } = driverOf(hookProfile({ turnEnd: { statusRecord: { file: () => null, query: 'SELECT 1' } } }), made);
+  let release, entered, reads = 0;
+  const held = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  made.ports.project.head = async () => { if (reads++ === 0) { entered(); return held; } return null; };
+  const payload = { ...base, turn_id: 'same-turn', prompt: PROMPT };
+  const old = driver.handle('UserPromptSubmit', payload);
+  t.after(async () => { release(null); await old; });
+  await started;
+  made.advance(1);
+  await made.ports.sessions.update('s1', () => ({ turn: 0 }));
+  await driver.handle('UserPromptSubmit', payload);
+  const tasks = made.scheduled.filter(task => task.startsWith('turn:'));
+  assert.equal(tasks.length, 1);
+  release({ root: '/old-project', head: 'old-head' });
+  await old;
+  assert.deepEqual(made.scheduled.filter(task => task.startsWith('turn:')), tasks);
+  assert.equal((await made.ports.sessions.read('s1')).turnHead, null);
+});
+
+test('a delayed tool result schedules only the generation that recorded its note', async t => {
+  const made = memoryPorts();
+  made.ports.settings = { recall: false };
+  made.ports.confirmTurnCompletion = true;
+  made.ports.turnStatus = () => null;
+  const { driver } = driverOf(hookProfile({ turnEnd: { statusRecord: { file: () => null, query: 'SELECT 1' } } }), made);
+  const payload = { ...base, turn_id: 'same-turn', prompt: PROMPT };
+  await driver.handle('UserPromptSubmit', payload);
+  made.scheduled.length = 0;
+  let release, entered;
+  const held = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const append = made.ports.notes.append;
+  made.ports.notes.append = async (...args) => { await append(...args); entered(); await held; };
+  const old = driver.handle('PostToolUse', { ...payload, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { exit_code: 0 } });
+  t.after(async () => { release(); await old; });
+  await started;
+  made.advance(1);
+  await made.ports.sessions.update('s1', () => ({ turn: 0 }));
+  await driver.handle('UserPromptSubmit', payload);
+  const tasks = made.scheduled.filter(task => task.startsWith('turn:'));
+  assert.equal(tasks.length, 1);
+  release();
+  await old;
+  assert.deepEqual(made.scheduled.filter(task => task.startsWith('turn:')), tasks);
+});
+
 test('a whole turn through the driver reports its injection with the check the tool hook saw', async () => {
   const { driver, queued } = driverOf(hookProfile());
   await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT });
