@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { pack, packedHosts, packSpecOf } from '../scripts/pack.mjs';
 
 const PUBLISH = fileURLToPath(new URL('../scripts/publish-tag.sh', import.meta.url));
-const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const posix = { skip: process.platform === 'win32' && 'bash script' };
 const MANIFEST = /(?:^|\/)(?:plugin|marketplace|package)\.json$/;
 
@@ -34,7 +34,7 @@ test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, 
   assert.match(workflow, /tags: \['v\*'\]/);
   assert.match(workflow, /needs: \[test, windows-minimax\]\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  publish:'));
-  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\n\s+runs-on: \[self-hosted, Windows, X64, evox-gcp-win\]/);
+  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\n\s+runs-on: windows-latest\n/);
   assert.match(windows, /node: \[22, 26\]/);
   assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
