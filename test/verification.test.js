@@ -154,9 +154,16 @@ test('a passing summary that counts zero failures passes', () => {
 });
 
 test('structured passing test titles keep their known check verdict', () => {
-  const tap = 'TAP version 13\n# Subtest: handles failed attempts\nok 1 - handles failed attempts\n1..1\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n';
+  const tap = (title) => `TAP version 13\n${title}\n1..1\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n`;
+  const tapTitles = [
+    'ok 1 - handles failed attempts',
+    'ok 1 handles failed attempts',
+    'ok 1 handles failed attempts # SKIP optional platform',
+    'ok 1 handles failed attempts # TODO pending repair',
+    'ok 1 # SKIP handles failed attempts',
+  ];
   const coloredTitles = nativePassingCheck.output.replace(/^✔[^\n]+/gm, (line) => `\u001b[32m${line}\u001b[0m`);
-  for (const output of [nativePassingCheck.output, coloredTitles, tap]) {
+  for (const output of [nativePassingCheck.output, coloredTitles, ...tapTitles.map(tap)]) {
     const note = { ...nativePassingCheck, output };
     assert.equal(verificationFailureOf({ command: note.command, exit: note.exit, text: output }), false);
     assert.deepEqual(turnRecordOf([note]).checks, [{ command: note.command, exit: 0, failed: false }]);
@@ -168,14 +175,19 @@ test('structured passing test titles keep their known check verdict', () => {
 
 test('passing titles neither hide real failures nor prove a check passed on their own', () => {
   const { command, output } = nativePassingCheck;
+  const tap = 'ok 1 handles failed attempts # TODO pending repair\n# pass 1\n# fail 0\n# cancelled 0';
   for (const [exit, text] of [
     [1, output],
     [0, `${output}\nAssertionError: expected one connection, got two`],
     [0, `${output}\n✔ TypeError: connection lost`],
     [0, output.replace('ℹ fail 0', 'ℹ fail 1')],
     [0, output.replace('ℹ cancelled 0', 'ℹ cancelled 1')],
+    [0, `${tap}\nAssertionError: expected one connection, got two`],
+    [0, tap.replace('# fail 0', '# fail 1')],
+    [0, tap.replace('# cancelled 0', '# cancelled 1')],
   ]) assert.equal(verificationFailureOf({ command, exit, text }), true);
-  for (const text of ['✔ handles failed attempts (0.1428ms)', 'ok 1 - handles failed attempts']) {
+  for (const text of ['✔ handles failed attempts (0.1428ms)', 'ok 1 - handles failed attempts',
+    'ok 1 handles failed attempts', 'ok 1 # SKIP handles failed attempts']) {
     assert.equal(verificationFailureOf({ command, text }), null);
     assert.equal(verificationFailureOf({ command: `${command} | tail -1`, exit: 0, text }), null);
   }
