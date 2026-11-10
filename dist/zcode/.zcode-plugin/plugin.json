@@ -1,0 +1,7 @@
+{
+  "name": "evolver-plugin",
+  "description": "Evolver Recipe recall and verification evidence for ZCode CLI and Desktop.",
+  "version": "1.0.9",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT"
+}

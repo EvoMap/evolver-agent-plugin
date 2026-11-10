@@ -1,0 +1,11 @@
+{
+  "name": "evolver-zcode-local",
+  "owner": { "name": "EvoMap" },
+  "plugins": [
+    {
+      "name": "evolver-plugin",
+      "source": "./",
+      "version": "1.0.9"
+    }
+  ]
+}

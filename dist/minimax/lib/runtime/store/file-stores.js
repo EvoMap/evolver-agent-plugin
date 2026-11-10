@@ -84,6 +84,11 @@ export function fileStoresOf({ dir, agent }) {
   const file = (kind, extension = 'json') => path.join(dir, `${agent}-${kind}.${extension}`);
   const sessionFile = (kind, sessionId, extension = 'json') => path.join(dir, `${agent}-${kind}-${digestOf(sessionId)}.${extension}`);
   const sessionPattern = (kind, extension) => new RegExp(`^${agent}-${kind}-[0-9a-f]{16}\\.${extension}$`);
+  // Native turn ids can be absent or reused; a failed reader's claims stay in their plugin generation.
+  const evidenceFile = (kind, sessionId, scope) => scope
+    ? sessionFile(`${kind}-generation`, JSON.stringify([sessionId, scope.sessionEpoch, scope.turn]), 'jsonl')
+    : sessionFile(kind, sessionId, 'jsonl');
+  const evidencePattern = (kind) => new RegExp(`^${agent}-${kind}(?:-generation)?-[0-9a-f]{16}\\.jsonl(?:\\.\\d+\\.[0-9a-f]{12}\\.taking)?$`);
   const filesOf = (pattern) => {
     try {
       return fs.readdirSync(dir).filter((name) => pattern.test(name)).map((name) => path.join(dir, name));
@@ -116,37 +121,44 @@ export function fileStoresOf({ dir, agent }) {
     has: async (sessionId, turn, sessionEpoch) => Boolean(fs.statSync(correctionFile(sessionId, turn, sessionEpoch), { throwIfNoEntry: false })),
   };
 
+  // One unreadable or busy session must not stop the others; the first failure is still raised afterwards.
+  const eachSession = (visit) => {
+    let failure;
+    for (const target of filesOf(sessionPattern('session', 'json'))) {
+      try {
+        visit(target);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
+  };
   const sessions = {
     read: async (sessionId) => readState(sessionFile('session', sessionId), {}),
+    readEach: async (visit) => eachSession((target) => {
+      const stored = readState(target, {});
+      if (stored.sessionId) visit(stored, stored.sessionId);
+    }),
     update: async (sessionId, mutate) => updateState(sessionFile('session', sessionId), {}, (stored) => stamped(sessionId, mutate(stored))),
-    // One unreadable or busy session must not stop the others; the first failure is still raised afterwards.
-    updateEach: async (mutate) => {
-      const failures = [];
-      for (const target of filesOf(sessionPattern('session', 'json'))) {
-        try {
-          updateState(target, {}, (stored) => (stored.sessionId ? stamped(stored.sessionId, mutate(stored, stored.sessionId)) : undefined));
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      if (failures.length > 0) throw failures[0];
-    },
+    updateEach: async (mutate) => eachSession((target) => {
+      updateState(target, {}, (stored) => (stored.sessionId ? stamped(stored.sessionId, mutate(stored, stored.sessionId)) : undefined));
+    }),
   };
 
   const notes = {
-    append: (sessionId, note) => linesStore(sessionFile('turn', sessionId, 'jsonl')).append(note),
-    read: (sessionId) => linesStore(sessionFile('turn', sessionId, 'jsonl')).read(),
-    take: async (sessionId) => {
-      const { lines, commit } = await linesStore(sessionFile('turn', sessionId, 'jsonl')).take();
+    append: (sessionId, note, scope) => linesStore(evidenceFile('turn', sessionId, scope)).append(note),
+    read: (sessionId, scope) => linesStore(evidenceFile('turn', sessionId, scope)).read(),
+    take: async (sessionId, scope) => {
+      const { lines, commit } = await linesStore(evidenceFile('turn', sessionId, scope)).take();
       return { notes: lines, commit };
     },
-    clear: (sessionId) => linesStore(sessionFile('turn', sessionId, 'jsonl')).clear(),
+    clear: (sessionId, scope) => linesStore(evidenceFile('turn', sessionId, scope)).clear(),
   };
 
   const baseline = {
-    remember: (sessionId, target, turnId = null) => linesStore(sessionFile('edits', sessionId, 'jsonl')).append({ path: target, before: contentHashOf(target), turnId }),
-    take: async (sessionId, turnId = null) => {
-      const { lines, commit } = await linesStore(sessionFile('edits', sessionId, 'jsonl')).take();
+    remember: (sessionId, target, turnId = null, scope) => linesStore(evidenceFile('edits', sessionId, scope)).append({ path: target, before: contentHashOf(target), turnId }),
+    take: async (sessionId, turnId = null, scope) => {
+      const { lines, commit } = await linesStore(evidenceFile('edits', sessionId, scope)).take();
       const before = new Map();
       const ofTurn = (line) => !line.turnId || !turnId || line.turnId === turnId;
       for (const { path: target, before: hash } of lines.filter(ofTurn)) if (typeof target === 'string' && !before.has(target)) before.set(target, hash);
@@ -226,7 +238,7 @@ export function fileStoresOf({ dir, agent }) {
   };
 
   const prune = (now = Date.now()) => {
-    const lifetimes = [[sessionPattern('session', 'json'), SESSION_TTL_MS], [sessionPattern('turn', 'jsonl'), OUTBOX_TTL_MS], [sessionPattern('edits', 'jsonl'), OUTBOX_TTL_MS]];
+    const lifetimes = [[sessionPattern('session', 'json'), SESSION_TTL_MS], [evidencePattern('turn'), OUTBOX_TTL_MS], [evidencePattern('edits'), OUTBOX_TTL_MS]];
     for (const [pattern, ttlMs] of lifetimes) {
       for (const target of filesOf(pattern)) {
         try {

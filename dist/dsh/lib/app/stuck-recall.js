@@ -36,7 +36,7 @@ export async function recallWhenStuck(ports, { sessionId, turnId = null, note, p
   if (ports.settings?.recall === false || !isFailedCheck(note)) return '';
   const session = sessionOf(await ports.sessions.read(sessionId));
   if (!belongsToOpenTurn(session, turnId) || session.isCommand) return '';
-  const record = turnRecordOf(await ports.notes.read(sessionId));
+  const record = turnRecordOf(await ports.notes.read(sessionId, session));
   const query = stuckQueryOf({ output: note.output, paths: record.paths, identifiers: record.identifiers });
   if (!query || !(await claimed(ports, sessionId, query, session.turn))) return '';
   const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy);

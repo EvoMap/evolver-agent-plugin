@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -38,7 +38,12 @@ async function workTreeDiff({ root, index, head }, options) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'evolver-diff-'));
   try {
     const scratchIndex = path.join(scratch, 'index');
-    await copyFile(index, scratchIndex).catch(() => {});
+    const original = await stat(index, { bigint: true }).catch(() => null);
+    if (original && await copyFile(index, scratchIndex).then(() => true, () => false)) {
+      // Git rechecks same-timestamp edits when the index is at least as old as the entry.
+      const indexTime = Number(original.mtimeMs / 1000n);
+      await utimes(scratchIndex, indexTime, indexTime);
+    }
     const scratchOptions = { ...options, cwd: root, env: { ...options.env, GIT_INDEX_FILE: scratchIndex } };
     const added = await git(['add', '--intent-to-add', '--', '.'], scratchOptions);
     return added === null ? null : await git(diffArgsOf(head), { ...scratchOptions, encoding: 'buffer' });

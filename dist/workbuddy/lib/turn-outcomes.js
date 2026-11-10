@@ -11,3 +11,9 @@ const TURN_OUTCOMES = {
 export function outcomeOfReason(turnReason) {
   return TURN_OUTCOMES[turnReason] ?? null;
 }
+
+export function reasonOfNativeStatus(status, confirmCompletion) {
+  if (status === 'aborted') return 'aborted';
+  if (status === 'failed') return 'error';
+  return status === 'completed' && confirmCompletion ? 'answer' : null;
+}

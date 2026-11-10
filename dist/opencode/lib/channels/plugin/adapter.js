@@ -6,7 +6,8 @@ import { createDriver } from '../../agent/driver.js';
 import { RESIDENT, environmentFor } from '../../runtime/environment.js';
 import { transcripts } from '../../runtime/transcripts.js';
 
-export { commandCatalog } from '../../agent/commands.js';
+export { commandCatalog, hostCommandCatalog } from '../../agent/commands.js';
+export { isHeadlessRun } from '../../runtime/headless.js';
 
 /** The prompt the agent answers for a command that is one, such as `evolver-evolve`, for hosts that register prompts. */
 export { EVOLVE_PROMPT } from '../../app/commands/evolve.js';

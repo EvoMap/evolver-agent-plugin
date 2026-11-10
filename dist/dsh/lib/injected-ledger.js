@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-/** @typedef {Record<string, { turn: number, injectedAt: number, strategyText?: string, reportedAt?: number }>} Ledger */
+/** @typedef {Record<string, { turn: number, injectedAt: number, strategyText?: string, reportedAt?: number, pendingReport?: object }>} Ledger */
 
 const ENTRY_PRUNE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -29,6 +29,10 @@ export function unreportedAssets(ledger, turn) {
 /** @returns {Ledger} */
 export function withReported(ledger, assetIds, now) {
   const kept = pruned(ledger, now);
-  for (const assetId of assetIds) if (kept[assetId]) kept[assetId] = { ...kept[assetId], reportedAt: now };
+  for (const assetId of assetIds) {
+    if (!kept[assetId]) continue;
+    const { pendingReport, ...entry } = kept[assetId];
+    kept[assetId] = { ...entry, reportedAt: now };
+  }
   return kept;
 }

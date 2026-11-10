@@ -48,6 +48,21 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | State | default | **plugin data folder** | default | default | default | default | default | default | default | default | PLUGIN_DATA; persistent recall/auto-distill preferences |
 | Installed from | **`dist/claude-code` on the `release` branch** (`git-subdir`) | **`dist/workbuddy` on the `release` branch** (`git-subdir`); **the old data folder is moved in** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`git-subdir`, `.agents/plugins/marketplace.json`) | **npm, as `@evomap/dsh-evolver` (`dsh plugin add -w @evomap/dsh-evolver@latest`), published from `dist/dsh` on the `release` branch** | **`dist/grok` on the `release` branch** (`git-subdir`, `.grok-plugin/marketplace.json`) | **`dist/qoder` on the `release` branch** (`git-subdir`, `.qoder-plugin/marketplace.json`) | dist/minimax locally; scripts/install-minimax.mjs stages install/update |
 
+ZCode CLI and Desktop on Windows use native session and turn IDs and foreground Bash exit codes. The prompt hook returns
+`additionalContext`. The adapter waits for the native `turn_usage` record before using completed work and closes
+cancelled turns without a reuse report or distillation evidence. State lives in `ZCODE_PLUGIN_DATA` when the host
+sets it. Headless distillation uses the configured standalone CLI bundle or the runtime shipped with Desktop,
+with a private copy of the recorded provider route.
+[The ZCode adapter guide](zcode/dist/README.md) describes local installation and the runtime configuration paths.
+
+Step Code CLI 0.1.7 on Windows uses a resident native extension. Recipe guidance is projected into each model request
+of the current prompt and is not persisted into the transcript. A plugin turn spans native model steps and ends only
+at `agent_settled`; a latched abort, unfinished command or unsupported inline/background check prevents reporting
+and candidate creation. Native shell starts and terminal exit metadata are paired by call. SDK completion receives
+only a private distillation prompt, no tools or native session transcript, and retains the captured account/model route.
+Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in `evolver-plugin`.
+[The Step Code draft guide](stepcode/dist/README.md) records installation, supported commands and acceptance limits.
+
 ## Adding a host
 
 MiniMax Code's local adapter uses the hook defaults for `session_id`, `turn_id`, prompt and additional context.

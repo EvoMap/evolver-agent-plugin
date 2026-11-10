@@ -47,10 +47,10 @@ export function checkStepOf(check, output) {
  * `lines` counts what an edit changed and `identifiers` the names it introduced, where the host says. `steps` keeps
  * the commands, checks and edits in the order they happened.
  */
-export function turnRecordOf(notes) {
+export function turnRecordOf(notes, { pairShellCalls = false } = {}) {
   const record = { checks: [], commands: [], paths: [], edits: [], identifiers: [], changedLines: 0, answer: '', steps: [] };
   const pending = new Set();
-  for (const note of notes ?? []) {
+  for (const note of pairShellCalls ? pairedNotes(notes ?? []) : notes ?? []) {
     if (note.kind === 'answer') {
       record.answer = String(note.text ?? '');
       continue;
@@ -83,6 +83,31 @@ function noteEdit(record, note) {
   record.steps.push(...paths.map((path) => ({ kind: 'edit', path })));
   record.identifiers.push(...(note.identifiers ?? []).filter((name) => typeof name === 'string'));
   record.changedLines += Number(note.lines) || 0;
+}
+
+function pairedNotes(notes) {
+  const calls = new Map();
+  const result = [];
+  for (const note of notes) {
+    if (note.kind !== 'shell' || !note.callId) { result.push(note); continue; }
+    let call = calls.get(note.callId);
+    if (!call) {
+      call = { command: note.command, position: result.length };
+      calls.set(note.callId, call);
+      result.push(null);
+    }
+    if (note.command !== call.command) {
+      call.conflict = true;
+      if (isVerificationCommand(note.command)) call.command = note.command;
+    }
+    if (note.running) call.started = true;
+    else if (call.finished && note.exit !== call.finished.exit) call.conflict = true;
+    else call.finished = note;
+  }
+  for (const { command, position, started, finished, conflict } of calls.values()) {
+    result[position] = started && finished && !conflict ? finished : { kind: 'shell', command, exit: null };
+  }
+  return result;
 }
 
 /** Whether a tool note is a finished test, build, lint or type-check that failed. */

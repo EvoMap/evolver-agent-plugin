@@ -65,18 +65,20 @@ export function endTree(pid, { platform = process.platform, killWindowsTree = ta
  * `encoding: 'buffer'` keeps stdout as the bytes the command wrote. Resolves `{ code, stdout, stderr, error }`; never
  * rejects. `error.code === 'ENOENT'` means no such command.
  */
-export function runProcess(command, args = [], { input, env = process.env, cwd = os.homedir(), timeoutMs, signal, shim = false, headless = false, encoding = 'utf8' } = {}) {
+export function runProcess(command, args = [], { input, closeInputOn, env = process.env, cwd = os.homedir(), timeoutMs, signal, shim = false, headless = false, encoding = 'utf8' } = {}) {
   return new Promise((resolve) => {
     const viaShell = IS_WINDOWS && shim;
     const isBinary = encoding === 'buffer';
-    if ((viaShell && !SYSTEM32) || (IS_WINDOWS && !TASKKILL_DIR && (timeoutMs || signal))) {
+    if ((viaShell && !SYSTEM32) || (IS_WINDOWS && !TASKKILL_DIR && (timeoutMs || signal || closeInputOn))) {
       const error = Object.assign(new Error('Windows system directory is unavailable; no command was started'), { code: 'ENOENT' });
       return resolve({ code: null, stdout: isBinary ? Buffer.alloc(0) : '', stderr: '', error });
     }
     const stdoutChunks = [];
     let stdoutSize = 0;
     let stderr = '';
+    let incompleteLine = '';
     let settled = false;
+    let inputFailure;
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -88,22 +90,36 @@ export function runProcess(command, args = [], { input, env = process.env, cwd =
       cwd, env: headless ? headlessEnv(env) : env, shell: viaShell ? path.join(SYSTEM32, 'cmd.exe') : false, detached: !IS_WINDOWS, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stop = () => child.pid && endTree(child.pid);
-    const timer = timeoutMs ? setTimeout(() => { stop(); finish({ code: null, error: Object.assign(new Error(`timed out after ${timeoutMs} ms`), { code: 'ETIMEDOUT' }) }); }, timeoutMs) : null;
+    const timer = timeoutMs ? setTimeout(() => { stop(); finish(inputFailure ?? { code: null, error: Object.assign(new Error(`timed out after ${timeoutMs} ms`), { code: 'ETIMEDOUT' }) }); }, timeoutMs) : null;
     timer?.unref?.();
     if (signal?.aborted) stop();
     signal?.addEventListener('abort', stop, { once: true });
     if (!isBinary) child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
-      if (stdoutSize >= OUTPUT_MAX_BYTES) return;
-      stdoutChunks.push(chunk);
-      stdoutSize += chunk.length;
+      if (stdoutSize < OUTPUT_MAX_BYTES) {
+        stdoutChunks.push(chunk);
+        stdoutSize += chunk.length;
+      }
+      if (settled || inputFailure || !closeInputOn || child.stdin.writableEnded) return;
+      const lines = chunk.toString().split('\n');
+      // Discard an oversized line through its newline without matching a partial suffix.
+      lines[0] = incompleteLine === null ? null : incompleteLine + lines[0];
+      incompleteLine = lines.pop();
+      if (incompleteLine?.length > OUTPUT_MAX_BYTES) incompleteLine = null;
+      try {
+        if (lines.some((line) => line !== null && line.length <= OUTPUT_MAX_BYTES && closeInputOn(line))) child.stdin.end();
+      } catch (error) {
+        inputFailure = { code: null, error };
+        stop();
+      }
     });
     child.stderr.on('data', (chunk) => { if (stderr.length < OUTPUT_MAX_BYTES) stderr += chunk; });
     child.stdin.on('error', () => {});
-    child.on('error', (error) => finish({ code: null, error }));
-    child.on('close', (code) => finish(signal?.aborted ? { code, error: Object.assign(new Error('cancelled'), { code: 'ABORT_ERR' }) } : { code, error: null }));
-    child.stdin.end(input ?? '');
+    child.on('error', (error) => finish(inputFailure ?? { code: null, error }));
+    child.on('close', (code) => finish(inputFailure ?? (signal?.aborted ? { code, error: Object.assign(new Error('cancelled'), { code: 'ABORT_ERR' }) } : { code, error: null })));
+    if (closeInputOn) child.stdin.write(input ?? '');
+    else child.stdin.end(input ?? '');
   });
 }
 

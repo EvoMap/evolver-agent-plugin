@@ -72,7 +72,12 @@ export async function startProxy(t, options = {}) {
     for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
     proxy.close();
   });
-  return { ...proxy, home: proxy.env.HOME, port: Number(proxy.env.EVOMAP_PROXY_PORT), stateDir: join(proxy.env.HOME, '.evolver', 'state') };
+  return {
+    ...proxy,
+    // Object spread snapshots getters; each read must still drain the worker notifications.
+    get requests() { return proxy.requests; },
+    home: proxy.env.HOME, port: Number(proxy.env.EVOMAP_PROXY_PORT), stateDir: join(proxy.env.HOME, '.evolver', 'state'),
+  };
 }
 
 export const requestsTo = (proxy, path) => proxy.requests.filter((request) => request.path === path);

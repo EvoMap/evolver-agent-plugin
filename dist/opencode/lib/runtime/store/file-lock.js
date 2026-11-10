@@ -114,7 +114,8 @@ function acquire(lockPath, deadline) {
         const held = stateOwnerOf(lockPath);
         if (held === null) return null;
         if (abandonedState.get(lockPath) === held || reused.get(held) || ownerIsGone(ownerPidOf(held))) {
-          fs.unlinkSync(lockPath);
+          try { fs.unlinkSync(lockPath); }
+          catch (error) { if (error?.code !== 'ENOENT') throw error; }
           abandonedState.delete(lockPath);
           return create();
         }

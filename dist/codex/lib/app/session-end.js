@@ -2,7 +2,7 @@
 // Copyright (c) 2026 EvoMap
 
 import { withClosedRange } from '../distill/range.js';
-import { endedSession, isEarlierTurn, markedReported, sessionOf, unreportedOf } from '../session/state.js';
+import { endedSession, isEarlierTurn, markedReported, pendingReportsOf, sessionOf, unreportedOf } from '../session/state.js';
 import { TASKS } from './ports.js';
 import { settledSessionOf, turnEnded, withoutPendingControls } from './turn-end.js';
 import { turnReportsOf } from './turn-reports.js';
@@ -21,14 +21,18 @@ export async function sessionEnded(ports, { sessionId, projectDir, turnId = null
   if (isEarlierTurn(session, turnId)) return;
   await turnEnded(ports, { sessionId, reason: openTurnReason, projectDir, recordOf: () => NOTHING_DONE });
   const ending = sessionOf(await ports.sessions.read(sessionId));
-  const due = unreportedOf(ending, sessionId, Infinity);
+  // Native mode only replays cached reports; session start settles explicitly adopted legacy injections.
+  // An uncached native entry has no safe legacy provenance, so shutdown cannot classify it.
+  const pending = ports.confirmTurnCompletion ? pendingReportsOf(ending, sessionId) : null;
+  const due = pending ? pending.map(({ asset }) => asset) : unreportedOf(ending, sessionId, Infinity);
+  const queued = pending ? pending.map(({ entry }) => entry) : turnReportsOf(ports.identity, due, { reason: 'aborted', checks: [] });
   const controls = ending.pendingControls;
-  await ports.reports.enqueue([...turnReportsOf(ports.identity, due, { reason: 'aborted', checks: [] }), ...controls]);
+  await ports.reports.enqueue([...queued, ...controls]);
   await ports.sessions.update(sessionId, (stored) => {
     const marked = markedReported(sessionOf(stored), due, ports.clock.now()) ?? sessionOf(stored);
     return endedSession(withoutPendingControls(marked, controls));
   });
   await ports.candidates.update((pending) => withClosedRange(pending, sessionId));
-  await ports.notes.clear(sessionId);
+  await ports.notes.clear(sessionId, session);
   ports.scheduler.schedule([TASKS.DRAIN, TASKS.DISTILL]);
 }
