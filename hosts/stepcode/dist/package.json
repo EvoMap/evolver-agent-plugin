@@ -1,0 +1,14 @@
+{
+  "name": "@evomap/stepcode-evolver",
+  "version": "1.0.0",
+  "description": "Recipe recall, native verification evidence and private drafts for Step Code CLI.",
+  "type": "module",
+  "main": "./plugin.mjs",
+  "exports": { ".": "./plugin.mjs", "./package.json": "./package.json" },
+  "files": ["plugin.mjs", ".evolver-packed", "hosts/", "lib/", "README.md", "LICENSE"],
+  "keywords": ["pi-package", "stepcode", "evomap", "evolver"],
+  "repository": { "type": "git", "url": "git+https://github.com/EvoMap/evolver-agent-plugin.git", "directory": "hosts/stepcode/dist" },
+  "license": "MIT",
+  "engines": { "node": ">=22.13.0" },
+  "pi": { "extensions": ["./plugin.mjs"] }
+}

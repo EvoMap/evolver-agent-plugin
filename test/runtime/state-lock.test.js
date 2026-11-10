@@ -336,3 +336,30 @@ test('three state updaters preserve every increment while recovering one dead fi
   assert.equal(existsSync(marker('overlap')), false, 'state mutators never overlap during dead-owner recovery');
   assert.deepEqual(JSON.parse(readFileSync(target, 'utf8')), { count: 3 });
 });
+
+test('a state owner releasing its lock before dead-owner recovery does not reject the next update', (t) => {
+  const { target, lock } = scratch(t);
+  const exited = spawnSync(process.execPath, ['-e', '']);
+  assert.equal(exited.status, 0);
+  writeFileSync(lock, `${exited.pid}:deadbeef`);
+  const read = fs.readFileSync;
+  let released = false;
+  t.mock.method(fs, 'readFileSync', (file, ...args) => {
+    const result = read(file, ...args);
+    if (file === lock && !released) {
+      // The owner may release and exit between inspection and the liveness check.
+      fs.unlinkSync(lock);
+      released = true;
+    }
+    return result;
+  });
+  let mutations = 0;
+  assert.deepEqual(updateState(target, {}, (stored) => {
+    mutations += 1;
+    return { count: stored.count + 1 };
+  }), { count: 1 });
+  assert.equal(released, true);
+  assert.equal(mutations, 1);
+  assert.equal(existsSync(lock), false);
+  assert.equal(read(target, 'utf8'), '{"count":1}');
+});

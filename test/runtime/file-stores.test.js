@@ -34,6 +34,47 @@ test('every file carries the agent name, so two agents in one directory never me
   assert.deepEqual(seen, [['s1', 5]]);
 });
 
+test('evidence generations keep turns and epochs apart without changing legacy calls', async () => {
+  const { stores: cursor } = stores();
+  const first = { sessionEpoch: 10, turn: 1 }, next = { sessionEpoch: 10, turn: 2 }, replacement = { sessionEpoch: 11, turn: 1 };
+  const legacyId = JSON.stringify(['s1', first.sessionEpoch, first.turn]);
+  await cursor.notes.append('s1', { command: 'first' }, first);
+  await cursor.notes.append('s1', { command: 'next' }, next);
+  await cursor.notes.append('s1', { command: 'replacement' }, replacement);
+  await cursor.notes.append(legacyId, { command: 'legacy collision' });
+  await cursor.notes.append('s1', { command: 'legacy' });
+  assert.deepEqual(await cursor.notes.read('s1', first), [{ command: 'first' }]);
+  assert.deepEqual(await cursor.notes.read('s1', replacement), [{ command: 'replacement' }]);
+  assert.deepEqual(await cursor.notes.read(legacyId), [{ command: 'legacy collision' }]);
+  assert.deepEqual(await cursor.notes.read('s1'), [{ command: 'legacy' }]);
+  await cursor.notes.clear('s1', first);
+  assert.deepEqual(await cursor.notes.read('s1', first), []);
+  const captured = await cursor.notes.take('s1', next);
+  await cursor.notes.append('s1', { command: 'arrived after take' }, next);
+  await captured.commit();
+  assert.deepEqual(await cursor.notes.read('s1', next), [{ command: 'arrived after take' }]);
+  assert.deepEqual(await cursor.notes.read('s1'), [{ command: 'legacy' }]);
+  await cursor.baseline.remember('s1', '/generation.js', null, next);
+  await cursor.baseline.remember('s1', '/legacy.js');
+  assert.deepEqual([...(await cursor.baseline.take('s1', null, next)).before.keys()], ['/generation.js']);
+  assert.deepEqual([...(await cursor.baseline.take('s1')).before.keys()], ['/legacy.js']);
+});
+
+test('pruning expires generation evidence and its claims without touching report claims', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'retained evidence' }, scope);
+  await cursor.baseline.remember('s1', '/old.js', null, scope);
+  await cursor.notes.take('s1', scope);
+  await cursor.baseline.take('s1', null, scope);
+  const reportClaim = join(dir, 'cursor-reports-queue.jsonl.123.0123456789ab.taking');
+  writeFileSync(reportClaim, 'keep report');
+  for (const name of readdirSync(dir)) fs.utimesSync(join(dir, name), new Date(0), new Date(0));
+  cursor.prune();
+  assert.deepEqual(readdirSync(dir), ['cursor-reports-queue.jsonl.123.0123456789ab.taking']);
+  assert.equal(fs.readFileSync(reportClaim, 'utf8'), 'keep report');
+});
+
 test('ranges stay out of the pending file an earlier version claims from, and its leftovers move over once', async () => {
   const { dir, stores: cursor } = stores();
   writeFileSync(join(dir, 'cursor-distill-pending.json'), JSON.stringify({ old: { prompt: 'p', at: 1 } }));
