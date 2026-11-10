@@ -967,3 +967,19 @@ test('a model failure is logged without the credential its message carried', asy
   assert.equal(outcome.status, 'model_failed');
   assert.equal(JSON.stringify([outcome, await made.ports.outcomes.read()]).includes('sk-fixture-secret-0123456789abcdef'), false);
 });
+
+test('a shutdown while the Proxy answers stops the distillation and leaves the range for the next start', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const stopping = new AbortController();
+  made.ports.scheduler = { ...made.ports.scheduler, signal: stopping.signal };
+  made.ports.proxy.request = async (method, path, body, { signal } = {}) => {
+    if (path !== '/conversation/distill') return { ok: true, data: { recorded: true } };
+    stopping.abort();
+    signal.throwIfAborted();
+    return { ok: true, data: DRAFTED };
+  };
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'stopped');
+  const range = (await made.ports.candidates.read()).s1;
+  assert.deepEqual([range.claimedBy, range.turns.length], [null, 1]);
+});
