@@ -111,3 +111,14 @@ test('a late turn, removal or correction of an older session epoch leaves the ne
   assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 40 }).s.sessionEpoch, 40);
   assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 20 }).s.turns[0].correction, 'no, still failing');
 });
+
+test('a turn judged again after a later one joined keeps the range\'s newer route, snapshot and block', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number });
+  const newer = { root: '/repo', head: 'h2', diff: 'newer diff' };
+  const range = { at: 1, changedAt: 2, sessionEpoch: 1, model: 'route-b', project: newer, pid: 2, blocked: { reason: 'route_changed', at: 2 }, turns: [turn(1), turn(2)] };
+  const { s } = withWorkTurn({ s: range }, 's', { ...turn(1), answer: 'judged again' }, {
+    now: 3, sessionEpoch: 1, model: 'route-a', project: { root: '/repo', head: 'h1', diff: 'older diff' }, pid: 1,
+  });
+  assert.deepEqual([s.model, s.project, s.pid, s.blocked], ['route-b', newer, 2, range.blocked]);
+  assert.equal(s.turns.find(({ turn }) => turn === 1).answer, 'judged again');
+});
