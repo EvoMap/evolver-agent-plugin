@@ -89,8 +89,9 @@ function underInstallLock(plugins, work) {
   return result;
 }
 
-// A rollback can remove the new target before restoring the backup, leaving only "previous" in staging.
+// An interrupted activation can leave a valid target or only "previous" in staging.
 function recoverPackage(root, target) {
+  const current = packageOf(target);
   let interrupted;
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^\.evolver-install-[a-z0-9]{6}$/i.test(entry.name)) continue;
@@ -99,20 +100,21 @@ function recoverPackage(root, target) {
     const backup = join(stage, 'previous'), prepared = join(stage, 'package');
     const previous = packageOf(backup);
     if (!previous) continue;
-    packageOf(prepared);
+    if (packageOf(prepared) && current) throw new Error('Ambiguous interrupted Kimi update found. Check the staged packages before retrying.');
     if (interrupted) throw new Error('Multiple interrupted Kimi updates found. Restore the intended backup before retrying.');
     interrupted = { stage, backup, prepared, previous };
   }
-  if (!interrupted) return null;
-  fs.renameSync(interrupted.backup, target);
+  if (!interrupted) return current;
+  if (current) fs.rmSync(interrupted.backup, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  else fs.renameSync(interrupted.backup, target);
   fs.rmSync(interrupted.prepared, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   if (fs.readdirSync(interrupted.stage).length === 0) fs.rmdirSync(interrupted.stage);
-  return interrupted.previous;
+  return current ?? interrupted.previous;
 }
 
 function installationOf(root, target, registryFile, recover = false) {
   const own = ownEntry(registryOf(registryFile), target);
-  const previous = packageOf(target) ?? (recover && own ? recoverPackage(root, target) : null);
+  const previous = recover && own ? recoverPackage(root, target) : packageOf(target);
   return { own, previous };
 }
 
@@ -134,7 +136,7 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
     return { installed: false, registered: false, path: target, packageRetained };
   });
   let { own, previous } = installationOf(root, target, registryFile);
-  if (!dryRun && own && !previous) {
+  if (!dryRun && own) {
     ({ own, previous } = underInstallLock(plugins, () => installationOf(root, target, registryFile, true)));
   }
   const registered = Boolean(own), installed = registered && Boolean(previous);
@@ -155,7 +157,7 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
         updateState(registryFile, { version: 1, plugins: [] }, current => {
           validRegistry(current);
           const currentOwn = ownEntry(current, target);
-          const currentPackage = packageOf(target) ?? (currentOwn ? recoverPackage(root, target) : null);
+          const currentPackage = currentOwn ? recoverPackage(root, target) : packageOf(target);
           if (operation === 'update' && (!currentOwn || !currentPackage)) throw new Error('Kimi plugin changed before activation; retry after checking status.');
           if (version === undefined && currentPackage && isOlderVersion(next.version, currentPackage.version)) {
             throw new Error(`Refusing to downgrade Kimi plugin from ${currentPackage.version} to ${next.version}. Use a current bundle or specify --version to build the checkout intentionally.`);
