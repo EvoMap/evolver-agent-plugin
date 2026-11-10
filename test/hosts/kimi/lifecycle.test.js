@@ -138,3 +138,13 @@ test('a session whose Kimi process died is recovered from the session log at the
   assert.equal(successes(f.queued).length, 1);
   assert.deepEqual((await f.ports.candidates.read())[f.sessionId].turns.map(({ turn }) => turn), [1]);
 });
+
+test('SessionStart does not look up the owner process of a host whose sessions start with an event', async (t) => {
+  const f = fixture(t);
+  let probes = 0;
+  const current = f.ports.owner.current;
+  f.ports.owner.current = () => { probes += 1; return current(); };
+  await f.hook('SessionStart');
+  assert.equal(probes, 0);
+  assert.equal((await f.session()).startedUnder, null);
+});

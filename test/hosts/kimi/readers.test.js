@@ -94,6 +94,10 @@ test('unsupported schemas and foreign agents do not supply evidence', () => {
 test('fixed task discovery rejects paths and does not inspect arbitrary output paths', () => {
   const records = [event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: 'bash-task' } }), event({ type: 'tool.result', result: { output: 'task_id: bash-task\nstatus: running' } }), event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: '../outside' } })];
   assert.deepEqual(taskIdsOf(records), ['bash-task']);
+  const many = Array.from({ length: 70 }, (_, index) => event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: `task-${index}` } }));
+  const ids = taskIdsOf([...many, many[0]]);
+  assert.equal(ids.length, 64);
+  assert.equal(ids.at(-1), 'task-0', 'a task the newest turn names again is kept');
 });
 
 test('duplicate native events do not duplicate checks and mismatched results remain unknown', () => {

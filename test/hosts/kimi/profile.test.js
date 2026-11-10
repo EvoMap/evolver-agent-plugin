@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import kimi from '../../../hosts/kimi/profile.js';
 import { EVENTS } from '../../../lib/agent/events.js';
+import { defineProfile } from '../../../lib/agent/profile.js';
 import { ownerProbeOf } from '../../../lib/runtime/process/owner.js';
 
 const payload = { session_id: 'session-fixture', cwd: join('D:', 'fixture'), client_type: 'kimi_code_cli', hook_event_name: 'UserPromptSubmit', prompt: [{ type: 'text', text: '  Fix retry. ' }, { type: 'image', image_url: 'untrusted' }, { type: 'text', text: 'Run tests.' }], is_steer: false };
@@ -71,4 +72,10 @@ test('a turn\'s route is the one its log names, under the stamp it began and end
   assert.deepEqual(kimi.turnEnd.modelOf({ model: route }, 'stamp', 'other'), { unavailable: 'route_changed' });
   assert.deepEqual(kimi.turnEnd.modelOf({ model: route }, null, 'stamp'), { unavailable: 'credential_missing' });
   assert.deepEqual(kimi.turnEnd.modelOf({ model: null }, 'stamp', 'stamp'), { unavailable: 'route_unresolved' });
+});
+
+test('a status record is a database query or a session log, never both', () => {
+  const { name, label, ...spec } = { ...kimi };
+  const statusRecord = { ...kimi.turnEnd.statusRecord, file: () => 'state.db', query: 'SELECT 1' };
+  assert.throws(() => defineProfile({ ...spec, name: 'mixed', label: 'Mixed', turnEnd: { ...kimi.turnEnd, statusRecord } }), /statusRecord requires/);
 });

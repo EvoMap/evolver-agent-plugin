@@ -946,3 +946,24 @@ test('an agent is neither asked for nor can post a Gene for work below the expli
   assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor })).status, 'dropped');
   assert.deepEqual(distills(requests), []);
 });
+
+test('a distillation that throws gives its claim back, so the same live process can try the range again', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const request = made.ports.proxy.request;
+  made.ports.proxy.request = async (...args) => {
+    if (args[1] === '/conversation/distill') throw new Error('the Proxy connection reset');
+    return request(...args);
+  };
+  await assert.rejects(endedAndDistilled(made), /connection reset/);
+  assert.equal((await made.ports.candidates.read()).s1.claimedBy, null);
+  made.ports.proxy.request = request;
+  const [outcome] = await distillDue(made.ports);
+  assert.equal(outcome.status, 'drafted');
+});
+
+test('a model failure is logged without the credential its message carried', async () => {
+  const made = await fixedSession({ model: { complete: async () => { throw new Error('401 for Authorization: Bearer sk-fixture-secret-0123456789abcdef'); } } });
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'model_failed');
+  assert.equal(JSON.stringify([outcome, await made.ports.outcomes.read()]).includes('sk-fixture-secret-0123456789abcdef'), false);
+});

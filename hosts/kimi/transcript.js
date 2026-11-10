@@ -34,7 +34,8 @@ export function taskIdsOf(records = []) {
       ids.push(taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(event.result?.output))?.[1]));
     }
   }
-  return [...new Set(ids.filter(Boolean))].slice(-MAX_TASKS);
+  const newestLast = [...new Set(ids.filter(Boolean).reverse())].reverse();
+  return newestLast.slice(-MAX_TASKS);
 }
 
 function callsOf(records, turnId) {

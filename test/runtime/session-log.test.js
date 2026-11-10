@@ -42,13 +42,12 @@ test('a session log row decodes the whole lines of the session found through the
   assert.deepEqual(f.decoded[0].context, { turnId: '0', tasks: [], projectDir: f.project });
 });
 
-test('a long log is read as its head and tail, and an unchanged log is decoded once', (t) => {
+test('a long log is read as its head and tail, and an unchanged log is parsed once', (t) => {
   const f = fixture(t);
   writeFileSync(f.wire, line({ type: 'metadata' }) + line({ filler: 'x'.repeat(5 * 1024 * 1024) }) + line({ type: 'turn.prompt' }));
   const { records } = f.reader(f.sessionId, '1');
   assert.deepEqual(records.map((record) => record.type), ['metadata', 'turn.prompt']);
-  f.reader(f.sessionId, '1');
-  assert.equal(f.decoded.length, 1);
+  assert.equal(f.reader(f.sessionId, '2').records, records);
   appendFileSync(f.wire, line({ type: 'turn.ended' }));
   assert.equal(f.reader(f.sessionId, '1').records.at(-1).type, 'turn.ended');
 });
@@ -87,10 +86,12 @@ test('task files the log names are read by id, and a mismatched identity spoils 
   const f = fixture(t, { taskIds: () => ['task'], tasksDir: (dir) => join(dir, 'agents', 'main', 'tasks') });
   writeFileSync(f.wire, line({}));
   mkdirSync(join(f.agent, 'tasks'));
-  writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'task', status: 'completed' }));
+  writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'task', status: 'running' }));
   assert.ok(f.reader(f.sessionId, '0'));
-  assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'completed' }]);
+  assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'running' }]);
+  writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'task', status: 'completed' }));
+  f.reader(f.sessionId, '0');
+  assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'completed' }], 'a task settling without a log write is seen');
   writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'wrong' }));
-  appendFileSync(f.wire, line({}));
   assert.equal(f.reader(f.sessionId, '0'), null);
 });
