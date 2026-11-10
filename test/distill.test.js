@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange, withoutWorkTurn } from '../lib/distill/range.js';
+import { isCurrentRange, settledRange, withoutExpiredLeftovers, withoutWorkTurn } from '../lib/distill/range.js';
+import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
   const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
@@ -86,4 +87,17 @@ test('a range claimed again by another process is no longer the one a distillati
   const read = { at: 1, changedAt: 1, sessionEpoch: 1, claimedBy: 10, turns: [{ turn: 1, prompt: 'p', steps: [], answer: '', at: 1 }] };
   assert.equal(isCurrentRange({ s: read }, 's', read), true);
   assert.equal(isCurrentRange({ s: { ...read, claimedBy: 11 } }, 's', read), false);
+});
+
+test('cleaning up an empty or missing range table changes nothing', () => {
+  for (const pending of [undefined, null, {}]) assert.equal(withoutExpiredLeftovers(pending, { now: 1, isGone: () => false }), undefined);
+});
+
+test('a work turn\'s stored route binding never reaches the calibration corpus', () => {
+  const turn = { turn: 1, prompt: 'p', steps: [], answer: 'a', at: 1, modelBinding: 'a'.repeat(64) };
+  const entry = corpusEntryOf({
+    platform: 'kimi', sessionId: 's', trigger: 'idle', range: { turns: [turn] },
+    gate: { passed: true, reason: null, workTurns: 1, episodes: 1 }, kind: 'fix', session: { record: [], userPrompt: '', finalAnswer: '' }, now: 2,
+  });
+  assert.equal(JSON.stringify(entry).includes('modelBinding'), false);
 });

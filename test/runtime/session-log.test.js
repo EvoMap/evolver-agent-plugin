@@ -95,3 +95,18 @@ test('task files the log names are read by id, and a mismatched identity spoils 
   writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'wrong' }));
   assert.equal(f.reader(f.sessionId, '0'), null);
 });
+
+test('a tail window that opens on a line start keeps that line, and a header crossing it comes from the head', (t) => {
+  const f = fixture(t);
+  const tailBytes = 4 * 1024 * 1024;
+  const header = line({ type: 'metadata' });
+  const exact = line({ type: 'turn.prompt' });
+  const rest = line({ b: 'w'.repeat(tailBytes - exact.length - '{"b":""}\n'.length) });
+  assert.equal(Buffer.byteLength(exact + rest), tailBytes);
+  writeFileSync(f.wire, header + line({ before: 'z'.repeat(100 * 1024) }) + exact + rest);
+  assert.deepEqual(f.reader(f.sessionId, '0').records.map((record) => record.type).filter(Boolean), ['metadata', 'turn.prompt']);
+  const crossing = line({ type: 'metadata', padding: 'h'.repeat(200) });
+  writeFileSync(f.wire, crossing + line({ b: 'w'.repeat(tailBytes - 50) }));
+  const records = f.reader(f.sessionId, '1').records;
+  assert.equal(records[0].type, 'metadata', 'a header the tail window cuts is read from the head');
+});
