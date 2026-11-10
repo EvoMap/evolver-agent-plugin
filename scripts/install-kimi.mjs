@@ -182,7 +182,7 @@ export function installKimi({ operation = 'install', home = kimiHomeOf(process.e
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values, positionals } = parseArgs({ options: { home: { type: 'string' }, 'dry-run': { type: 'boolean' }, version: { type: 'string' }, help: { type: 'boolean' } }, allowPositionals: true });
     const usage = 'Usage: node scripts/install-kimi.mjs [install|update|status|remove] [--home PATH] [--dry-run] [--version X.Y.Z]';
