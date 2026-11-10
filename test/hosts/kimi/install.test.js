@@ -243,6 +243,82 @@ installKimi({ home, operation: 'update', version: '2.0.0' });
   assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
 });
 
+for (const checkStatus of [true, false]) test(`an update interrupted after activation does not block a later interrupted update (${checkStatus ? 'status' : 'update'} recovery)`, t => {
+  const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
+  const registry = join(home, 'plugins', 'installed.json'), oldRegistry = JSON.parse(readFileSync(registry, 'utf8'));
+  oldRegistry.plugins[0].enabled = false;
+  writeFileSync(registry, JSON.stringify(oldRegistry));
+  const before = readFileSync(registry, 'utf8');
+  writeFileSync(join(home, 'config.toml'), 'default_model = "personal"\n');
+  mkdirSync(join(home, 'evolver'));
+  writeFileSync(join(home, 'evolver', 'kimi-settings.json'), '{"recall":false}');
+  writeFileSync(join(home, 'evolver', 'kimi-distill-drafts.json'), '[{"title":"unpublished"}]');
+  const script = fileURLToPath(new URL('../../../scripts/install-kimi.mjs', import.meta.url));
+  const interrupt = point => `import fs from 'node:fs';
+const target = ${JSON.stringify(installed.path)}, point = ${JSON.stringify(point)};
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  rename(from, to);
+  if ((point === 'activation' && to === target) || (point === 'backup' && from === target)) process.exit(73);
+};
+`;
+  const crash = (point, version) => assert.throws(() => execFileSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(interrupt(point))}`, script, 'update', '--home', home, '--version', version], {
+    timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'],
+  }), { status: 73 });
+  const status = () => JSON.parse(execFileSync(process.execPath, [script, 'status', '--home', home], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  crash('activation', '2.0.0');
+  if (checkStatus) assert.equal(status().version, '2.0.0');
+  writeFileSync(join(installed.path, 'keep-on-failure'), 'last good package');
+  crash('backup', '3.0.0');
+  assert.equal(existsSync(installed.path), false);
+  assert.equal(status().version, '2.0.0');
+  assert.equal(readFileSync(join(installed.path, 'keep-on-failure'), 'utf8'), 'last good package');
+  assert.equal(readFileSync(registry, 'utf8'), before);
+  assert.equal(readFileSync(join(home, 'config.toml'), 'utf8'), 'default_model = "personal"\n');
+  assert.equal(readFileSync(join(home, 'evolver', 'kimi-settings.json'), 'utf8'), '{"recall":false}');
+  assert.equal(readFileSync(join(home, 'evolver', 'kimi-distill-drafts.json'), 'utf8'), '[{"title":"unpublished"}]');
+  assert.equal(readdirSync(home).some(name => name.startsWith('.evolver-install-')), false);
+});
+
+for (const state of ['prepared', 'invalid backup', 'invalid prepared', 'multiple']) test(`recovery preserves ${state} staging beside an active package`, t => {
+  const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
+  const registry = join(home, 'plugins', 'installed.json'), before = readFileSync(registry, 'utf8');
+  writeFileSync(join(installed.path, 'keep-on-failure'), 'active package');
+  const stage = mkdtempSync(join(home, '.evolver-install-')), backup = join(stage, 'previous'), prepared = join(stage, 'package');
+  cpSync(installed.path, backup, { recursive: true });
+  if (state === 'invalid backup') writeFileSync(join(backup, '.evolver-packed'), 'foreign');
+  if (state === 'prepared' || state === 'invalid prepared') {
+    cpSync(installed.path, prepared, { recursive: true });
+    if (state === 'invalid prepared') writeFileSync(join(prepared, '.evolver-packed'), 'foreign');
+  }
+  const duplicate = state === 'multiple' ? mkdtempSync(join(home, '.evolver-install-')) : null;
+  if (duplicate) cpSync(stage, duplicate, { recursive: true });
+  const script = fileURLToPath(new URL('../../../scripts/install-kimi.mjs', import.meta.url));
+  assert.throws(() => execFileSync(process.execPath, [script, 'status', '--home', home], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), /Ambiguous interrupted|Invalid Kimi package|Multiple interrupted/);
+  for (const path of [installed.path, backup, ...(existsSync(prepared) ? [prepared] : []), ...(duplicate ? [join(duplicate, 'previous')] : [])]) {
+    assert.equal(readFileSync(join(path, 'keep-on-failure'), 'utf8'), 'active package');
+  }
+  assert.equal(readFileSync(registry, 'utf8'), before);
+});
+
+test('recovery cleans only the stale backup and preserves unrelated staging bytes', t => {
+  const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
+  const stage = mkdtempSync(join(home, '.evolver-install-')), backup = join(stage, 'previous');
+  cpSync(installed.path, backup, { recursive: true });
+  writeFileSync(join(stage, 'personal-file'), 'keep');
+  const preparing = mkdtempSync(join(home, '.evolver-install-')), prepared = join(preparing, 'package');
+  cpSync(installed.path, prepared, { recursive: true });
+  assert.equal(installKimi({ home, operation: 'status', dryRun: true }).version, '1.2.3');
+  assert.ok(existsSync(backup), 'dry-run retains staging');
+  assert.equal(installKimi({ home, operation: 'status' }).version, '1.2.3');
+  assert.equal(existsSync(backup), false);
+  assert.equal(readFileSync(join(stage, 'personal-file'), 'utf8'), 'keep');
+  assert.ok(existsSync(join(prepared, 'kimi.plugin.json')), 'a concurrent prepared-only stage is retained');
+  assert.equal(installKimi({ home, operation: 'update', version: '2.0.0' }).version, '2.0.0');
+  assert.equal(readFileSync(join(stage, 'personal-file'), 'utf8'), 'keep');
+  assert.ok(existsSync(join(prepared, 'kimi.plugin.json')));
+});
+
 test('a concurrent installer cannot replace a package while a failed registry write is rolling back', async t => {
   const home = scratch(t), installed = installKimi({ home, version: '1.2.3' });
   const registry = join(home, 'plugins', 'installed.json'), ready = join(home, 'rollback-ready'), release = join(home, 'allow-rollback');
