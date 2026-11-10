@@ -6,6 +6,7 @@ import { projectDirOf, sessionIdOf } from './paths.js';
 
 const text = (value) => typeof value === 'string' ? value : '';
 const toolEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure']);
+const localClients = new Set(['kimi_code_cli', 'kimi_code_desktop']);
 
 export const kimiPayload = Object.freeze({
   sessionId: sessionIdOf,
@@ -21,8 +22,7 @@ export const kimiPayload = Object.freeze({
   isIgnored: (payload) => payload.is_steer === true
     || Boolean(payload.agent_id && payload.agent_id !== 'main')
     || (payload.origin_kind !== undefined && payload.origin_kind !== 'user')
-    || payload.client_type !== 'kimi_code_cli',
-
+    || !localClients.has(payload.client_type),
   // SessionStart.model is a global default, not the selected native profile binding.
   model: (payload, context = {}) => context.nativeFacts?.modelHint ?? null,
 });

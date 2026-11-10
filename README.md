@@ -54,7 +54,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
-| Kimi Code CLI 2.4.1 | Direct install; Windows native checked | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
+| Kimi Code CLI 2.4.1 and Desktop 1.2.1 | Direct install; Windows native checked | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
 | MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | ZCode CLI / Desktop | Supported locally on Windows | `hosts/zcode`, native hooks; installs `dist/zcode` |
 | Step Code CLI 0.1.7 | Draft, Windows | `hosts/stepcode`, a native resident extension; installs `dist/stepcode` |
@@ -142,13 +142,13 @@ injections, undelivered reports), so nothing is lost on the way over.
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
   Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
-- **Kimi Code CLI on Windows:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI session.
+- **Kimi Code on Windows:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI or Desktop session. Desktop uses the installed Kimi CLI to create drafts.
   `--home PATH` selects the profile root; use the same absolute `KIMI_CODE_HOME` when starting Kimi. Close Kimi before
   install/update/remove. The installer stages `dist/kimi`, registers its native `kimi.plugin.json` bundle and
   preserves account config, other plugins, preferences and drafts. A release bundle keeps its bytes and version.
   Default install/update refuses to replace a newer managed package. `--version X.Y.Z` explicitly builds
   current sources at the requested version. `remove` unregisters the plugin while retaining managed bytes.
-  V1 targets the main agent in local CLI sessions on Windows with an API/BYOK provider. Commands run from the terminal:
+  V1 targets the main agent in local CLI and Desktop sessions on Windows with an API/BYOK provider. Commands run from the terminal:
   `node <Kimi-home>/plugins/managed/evolver-plugin/bin/command.mjs kimi evolver-status`.
   Other OAuth regions, web/VS Code, subagents and parallel prompts have separate acceptance gates. This local installer
   does not establish support in the external Evolver CLI installer or a Marketplace.
