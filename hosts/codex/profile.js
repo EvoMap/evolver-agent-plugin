@@ -30,6 +30,8 @@ export default defineProfile({
   },
   payload: {
     model: (payload) => (text(payload.model) ? { model: payload.model } : null),
+    // The rollout's first line is its session_meta, which names the Codex that wrote it.
+    agentVersion: (payload, context) => /"cli_version":"([^"]+)"/.exec(context.transcriptHead())?.[1] ?? null,
   },
   reply: {
     // A blocked prompt reaches no model and opens no turn; Codex shows the reason to the person.
