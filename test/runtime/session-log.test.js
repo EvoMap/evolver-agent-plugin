@@ -39,7 +39,7 @@ test('a session log row decodes the whole lines of the session found through the
   assert.equal(row.status, 'completed');
   assert.deepEqual(row.records.map((record) => record.type), ['metadata', 'turn.prompt']);
   assert.equal(row.records[1].$offset, line({ type: 'metadata' }).length);
-  assert.deepEqual(f.decoded[0].context, { turnId: '0', tasks: [], projectDir: f.project });
+  assert.deepEqual(f.decoded[0].context, { turnId: '0', tasks: [], projectDir: f.project, unread: null });
 });
 
 test('a long log is read as its head and tail, and an unchanged log is parsed once', (t) => {
@@ -48,6 +48,8 @@ test('a long log is read as its head and tail, and an unchanged log is parsed on
   const { records } = f.reader(f.sessionId, '1');
   assert.deepEqual(records.map((record) => record.type), ['metadata', 'turn.prompt']);
   assert.equal(f.reader(f.sessionId, '2').records, records);
+  const [from, to] = f.decoded.at(-1).context.unread;
+  assert.ok(from <= 64 * 1024 && to > 5 * 1024 * 1024 - 64 * 1024, 'the decoder is told which bytes were left unread');
   appendFileSync(f.wire, line({ type: 'turn.ended' }));
   assert.equal(f.reader(f.sessionId, '1').records.at(-1).type, 'turn.ended');
 });

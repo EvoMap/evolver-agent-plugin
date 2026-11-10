@@ -138,16 +138,18 @@ function routeOf(turn) {
 /**
  * A turn's status row from the main agent's supported wire: `accepted` while it runs, its terminal status once it
  * ended, `pending` while a background check it started still runs, and its record, answer and model route from the log
- * alone (hook tool output is truncated). Null for no unique user turn of that id, or contradictory records. Native
- * turn zero is a real identity.
+ * alone (hook tool output is truncated). Null for no unique user turn of that id, contradictory records, or a turn
+ * that runs through the part of a long log left unread. Native turn zero is a real identity.
  */
-export function turnStatusOf(records = [], { turnId: wanted, tasks = [], projectDir } = {}) {
+export function turnStatusOf(records = [], { turnId: wanted, tasks = [], projectDir, unread = null } = {}) {
   const turnId = nativeTurnIdOf(wanted);
   if (turnId === null || records.find((record) => record.type === 'metadata')?.protocol_version !== '1.5') return null;
   const prompts = records.filter(promptOf).filter((record) => nativeTurnIdOf(record.turnId) === turnId);
   if (new Set(prompts.map((record) => record.promptId)).size !== 1) return null;
   const start = records.indexOf(prompts[0]);
   const next = records.findIndex((record, index) => index > start && promptOf(record) && nativeTurnIdOf(record.turnId) !== turnId);
+  const crossesUnread = unread && prompts[0].$offset < unread[1] && (next === -1 || records[next].$offset > unread[0]);
+  if (crossesUnread) return null;
   const turn = records.slice(start, next === -1 ? undefined : next);
   const isTerminal = (item) => item.type === 'turn.ended' && main(item) && nativeTurnIdOf(item.turnId) === turnId;
   const ended = records.slice(start).filter(isTerminal);

@@ -135,3 +135,16 @@ test('a later turn and a truncated continuation cannot become an earlier turn fi
   ];
   assert.equal(status(records).record.answer, '');
 });
+
+test('a turn that runs through the unread middle of a long log has no status', () => {
+  const at = (record, offset) => Object.defineProperty({ ...record }, '$offset', { value: offset });
+  const check = event({ type: 'tool.call', uuid: 'c', turnId: '0', toolCallId: 'c', name: 'Bash', args: { command: 'npm test', run_in_background: true } });
+  const records = [at(meta, 0), at(prompt(0), 100), at(ended(0), 9_000_000)];
+  assert.equal(turnStatusOf(records, { turnId: '0', unread: [65_536, 5_000_000] }), null);
+  assert.equal(turnStatusOf(records, { turnId: '0' }).status, 'completed', 'the same records read whole');
+  const unread = [65_536, 5_000_000];
+  const log = [at(meta, 0), at(prompt(0), 100), at(check, 200), at(ended(0), 300), at(prompt(1), 400), at(prompt(2), 6_000_000), at(ended(2), 6_000_100)];
+  assert.equal(turnStatusOf(log, { turnId: '0', unread }).status, 'pending', 'a turn that ends in the head is still read');
+  assert.equal(turnStatusOf(log, { turnId: '1', unread }), null, 'a turn that runs on into the unread span is not');
+  assert.equal(turnStatusOf(log, { turnId: '2', unread }).status, 'completed', 'a turn wholly in the tail is read');
+});
