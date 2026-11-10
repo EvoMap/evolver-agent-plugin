@@ -33,6 +33,29 @@ test('a binary run preserves stdout bytes that cannot be decoded as UTF-8', asyn
   assert.deepEqual(result.stdout, Buffer.from(bytes));
 });
 
+test('a stdout handshake can close stdin after the capture limit', async () => {
+  const fixture = `
+    process.stdin.resume();
+    process.stdin.on('end', () => process.stderr.write('stdin closed'));
+    process.stdout.write(Buffer.alloc(17 * 1024 * 1024, 'x'), () => {
+      process.stdout.write('overlong line suffix\\nrea', () => process.stdout.write('dy\\n'));
+    });
+  `;
+  const lines = [];
+  const result = await runProcess(node, ['-e', fixture], {
+    timeoutMs: 2_000,
+    closeInputOn: (line) => {
+      lines.push(line.length);
+      return line === 'ready';
+    },
+  });
+  assert.ifError(result.error);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, 'stdin closed');
+  assert.deepEqual(lines, ['ready'.length]);
+  assert.equal(result.stdout.includes('ready'), false, 'stdout capture remains bounded');
+});
+
 test('a run past its timeout is killed and says so; a missing command reads as ENOENT', async () => {
   const slow = await runProcess(node, ['-e', 'setTimeout(()=>{},60000)'], { timeoutMs: 200 });
   assert.equal(slow.error.code, 'ETIMEDOUT');
@@ -211,6 +234,25 @@ test('a cli model declaration runs headless and parses its answer; none or in-se
   assert.equal(modelRunnerOf(null), null);
   assert.equal(modelRunnerOf({ kind: 'in-session' }), null);
   assert.equal(modelRunnerOf({ kind: 'cli', command: () => null }), null);
+});
+
+test('a cli model marked isolated without an env does not inherit parent variables', async (t) => {
+  const key = 'EVOLVER_TEST_ISOLATED_MODEL_SECRET';
+  const previous = process.env[key];
+  process.env[key] = 'synthetic-credential';
+  t.after(() => {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  });
+  const runner = modelRunnerOf({
+    kind: 'cli',
+    command: () => node,
+    isolated: true,
+    args: () => ['-e', `console.log(JSON.stringify({ inherited: Object.hasOwn(process.env, '${key}'), headless: process.env.EVOLVER_HEADLESS }))`],
+    parse: ({ stdout }) => ({ answer: JSON.parse(stdout) }),
+  });
+  const { answer } = await runner.complete('m', '', AbortSignal.timeout(5_000));
+  assert.deepEqual(answer, { inherited: false, headless: '1' });
 });
 
 test('the CLI runs the plugin-installed engine in the project directory, before any on PATH', async () => {

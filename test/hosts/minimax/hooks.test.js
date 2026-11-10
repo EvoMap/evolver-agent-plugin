@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { pack } from '../../../scripts/pack.mjs';
+import { ownerIsGone, processStartTime, PROCESS_START_TOLERANCE_MS } from '../../../lib/runtime/process/owner.js';
 import { PROMPT } from '../../app/memory-ports.js';
 import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
 
 const fakeCli = fileURLToPath(new URL('../../fixtures/minimax/fake-mcode.mjs', import.meta.url));
+const workerObserver = new URL('../../fixtures/minimax/observe-workers.mjs', import.meta.url).href;
 const ledgerCore = fileURLToPath(new URL('../../../node_modules/@evomap/evolver-core', import.meta.url));
 const DRAFT = { ok: true, status: 'draft', distill_id: 'native-hook-draft', quality: { ok: true, score: 6 }, gene: { type: 'Gene', asset_id: `sha256:${'1'.repeat(64)}` }, capsule: { type: 'Capsule', asset_id: `sha256:${'2'.repeat(64)}` } };
 
@@ -44,10 +46,12 @@ async function fixture(t) {
   writeFileSync(join(data, 'config.yaml'), 'defaultModel: custom_provider:second/model-b\n');
   const originalConfig = readFileSync(join(data, 'config.yaml'), 'utf8');
   const log = join(proxy.env.HOME, 'mcode.jsonl');
+  const workers = join(proxy.env.HOME, 'workers.jsonl');
+  writeFileSync(workers, '');
   writeFileSync(join(bin, 'mcode.cmd'), `@echo off\r\n"%FAKE_MINIMAX_NODE%" "${fakeCli}" %*\r\n`);
   writeFileSync(join(bin, 'mcode'), `#!/usr/bin/env node\nimport(${JSON.stringify(new URL('../../fixtures/minimax/fake-mcode.mjs', import.meta.url).href)});\n`); chmodSync(join(bin, 'mcode'), 0o755);
   const system = Object.fromEntries(['SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'].filter(key => proxy.env[key]).map(key => [key, proxy.env[key]]));
-  const env = { ...system, HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, PLUGIN_ROOT: plugin, PLUGIN_DATA: state, MINIMAX_DATA_DIR: data, MAVIS_DATA_DIR: data, FAKE_MINIMAX_NODE: process.execPath, FAKE_MINIMAX_LOG: log, PATH: [bin, dirname(process.execPath)].join(delimiter) };
+  const env = { ...system, HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, PLUGIN_ROOT: plugin, PLUGIN_DATA: state, MINIMAX_DATA_DIR: data, MAVIS_DATA_DIR: data, FAKE_MINIMAX_NODE: process.execPath, FAKE_MINIMAX_LOG: log, PATH: [bin, dirname(process.execPath)].join(delimiter), NODE_OPTIONS: `--import=${workerObserver}`, FAKE_MINIMAX_WORKERS: workers, FAKE_MINIMAX_WORKER_ENTRY: realpathSync(join(plugin, 'bin/worker.mjs')) };
   delete env.EVOLVER_RECALL; delete env.EVOLVER_AUTO_DISTILL;
   const hooks = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8')).hooks;
   const base = { session_id: 's1', turn_id: 't1', cwd: project, model: 'model-a' };
@@ -61,6 +65,23 @@ async function fixture(t) {
     return JSON.parse(result.stdout);
   };
   const read = (name, fallback) => existsSync(join(state, name)) ? JSON.parse(readFileSync(join(state, name), 'utf8')) : fallback;
+  const stopWorkers = () => until(() => {
+    const started = readFileSync(workers, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    let settled = true;
+    for (const { pid, startedAt } of started) {
+      if (ownerIsGone(pid)) continue;
+      const birth = processStartTime(pid);
+      if (birth === null) {
+        if (ownerIsGone(pid)) continue;
+        throw new Error('Could not verify the fixture worker identity');
+      }
+      if (Math.abs(birth - startedAt) > PROCESS_START_TOLERANCE_MS) continue;
+      try { process.kill(pid); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+      settled = false;
+    }
+    return settled;
+  });
   const calls = () => existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) : [];
   const check = async (exit) => {
     const actual = await run(process.execPath, ['-e', `process.exit(${exit})`], { env, cwd: project });
@@ -77,7 +98,9 @@ async function fixture(t) {
   };
   t.after(async () => {
     try {
-      await until(() => !existsSync(join(state, 'minimax-outbox.lock')));
+      // A local ledger load can still own HOME before it ever takes the outbox lock.
+      assert.ok(readFileSync(workers, 'utf8').trim(), 'the fixture must observe its detached workers');
+      await stopWorkers();
     } finally {
       db.close();
       try { await closeProxyWhenSettled(proxy); }
