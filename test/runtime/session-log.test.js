@@ -27,7 +27,7 @@ function fixture(t, overrides = {}) {
     ...overrides,
   };
   const reader = recordReaderOf(declaration, {});
-  return { home, project, agent, wire, decoded, reader, sessionId: `${reader.scope}:session` };
+  return { home, project, agent, wire, decoded, declaration, reader, sessionId: `${reader.scope}:session` };
 }
 
 const line = (value) => `${JSON.stringify(value)}\n`;
@@ -109,4 +109,20 @@ test('a tail window that opens on a line start keeps that line, and a header cro
   writeFileSync(f.wire, crossing + line({ b: 'w'.repeat(tailBytes - 50) }));
   const records = f.reader(f.sessionId, '1').records;
   assert.equal(records[0].type, 'metadata', 'a header the tail window cuts is read from the head');
+});
+
+test('a log home that moves after the reader started is not read under the old home\'s scope', (t) => {
+  const f = fixture(t);
+  writeFileSync(f.wire, line({}));
+  let home = f.home;
+  const other = `${f.home}-other`;
+  const reader = recordReaderOf({ ...f.declaration, root: () => home }, {});
+  const sessionId = `${reader.scope}:session`;
+  assert.ok(reader(sessionId, '0'));
+  mkdirSync(join(other, 'sessions/workspace/session/agents/main'), { recursive: true });
+  writeFileSync(join(other, 'workspaces.json'), JSON.stringify({ workspaces: { workspace: { root: f.project } } }));
+  writeFileSync(join(other, 'sessions/workspace/session/agents/main/wire.jsonl'), line({}));
+  t.after(() => rmSync(other, { recursive: true, force: true }));
+  home = other;
+  assert.equal(reader(sessionId, '0'), null);
 });
