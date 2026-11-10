@@ -56,6 +56,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
 | MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | ZCode CLI / Desktop | Supported locally on Windows | `hosts/zcode`, native hooks; installs `dist/zcode` |
+| Step Code CLI 0.1.7 | Draft, Windows | `hosts/stepcode`, a native resident extension; installs `dist/stepcode` |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -156,6 +157,10 @@ injections, undelivered reports), so nothing is lost on the way over.
   covers native verification and private distillation with a standalone CLI bundle.
 - **ZCode Desktop on Windows:** add the packed `dist/zcode` folder as a local marketplace in Settings → Plugins.
   Install and enable `evolver-plugin` from that marketplace, then start a new session.
+- **Step Code CLI 0.1.7 on Windows (draft):** build `dist/stepcode` with `npm run pack`, then run
+  `step install ./dist/stepcode` and start a new session. This uses Step's native extension interface.
+  Read the [Step Code adapter guide](hosts/stepcode/dist/README.md) for foreground verification requirements
+  and the native double Ctrl-C cleanup limitation before trying this draft.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
