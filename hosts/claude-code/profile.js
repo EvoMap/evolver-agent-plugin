@@ -42,6 +42,7 @@ export default defineProfile({
     projectDir: (payload) => text(payload.cwd) || null,
     isIgnored: (payload) => Boolean(payload.agent_id),
     model: (payload) => text(payload.model) || null,
+    agentVersion: (payload) => text(payload.agent_version) || null,
   },
   reply: {
     context: (strategy) => (strategy ? { append: strategy } : {}),

@@ -101,6 +101,23 @@ async function fixTurn(c) {
   return injected;
 }
 
+test('every Proxy request names Cursor, the version it reported and this plugin, and a later event without the version still does', async () => {
+  await chat('s-client').prompt(PROMPT);
+  const project = join(proxy.env.HOME, 'project');
+  await hook('beforeSubmitPrompt', {
+    conversation_id: 's-client-2', session_id: 's-client-2', generation_id: 'g-1', hook_event_name: 'beforeSubmitPrompt',
+    model: 'claude-4.5-sonnet', workspace_roots: [project], prompt: PROMPT, attachments: [], composer_mode: 'agent',
+  });
+  assert.equal(fetches().length, 2);
+  const { version } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+  const expected = {
+    'x-evomap-client-agent': 'cursor', 'x-evomap-client-agent-version': '3.27.6',
+    'x-evomap-client-plugin': '@evomap/evolver-agent-plugin', 'x-evomap-client-plugin-version': version,
+  };
+  assert.ok(proxy.requests.length > 0);
+  for (const request of proxy.requests) assert.deepEqual(request.client, expected, request.path);
+});
+
 test('a recalled strategy rides beforeSubmitPrompt as additional_context with continue, recalled by the prompt text', async () => {
   const answer = await chat('s-recall').prompt(PROMPT);
   assert.equal(answer.continue, true);
