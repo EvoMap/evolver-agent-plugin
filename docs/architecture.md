@@ -349,17 +349,21 @@ scripts/               pack.mjs, publish-tag.sh
 ## Indexed native sessions and isolated ACP completion
 
 Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 and Desktop 1.2.1 on Windows.
-Both local clients use the same Kimi profile and managed plugin. The profile declares the native workspace/session
-layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked, replaced, malformed or partial
-records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
-using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer
-hint. A detached native monitor catches terminal writes after the last hook; recovery reads those records before
-orphan abort reporting. Turn number, session epoch and owner guards keep a late observer with its original turn.
-Background checks remain unknown until matching native task metadata settles them. Other hosts retain their
-existing transcript/tool-result adapters; Kimi subagents and concurrent prompts are outside this v1 contract.
+Both local clients use the same Kimi profile and managed plugin. Kimi uses the same late-terminal mechanism as
+ZCode (`turnEnd.statusRecord` with `confirmCompletion`): only the host's own terminal status admits a turn's
+evidence. Its status record is the session log rather than a database: the profile declares the workspace/session
+layout and a decoder, and `runtime/session-log` reads a bounded head and tail of the JSONL log, refusing linked,
+replaced, malformed or partial records. Because Kimi names a turn only once it runs, its `TurnStarted` hook maps to
+the canonical `turnStart` event, which binds the open turn's id when the announced prompt is the one the turn opened
+with, and schedules the shared turn monitor; `Stop`, `StopFailure`, `Interrupt` and `Notification` schedule it again.
+A row carries the turn's `record` and `answer` from the log (hook tool output is truncated), and the monitor, the next
+prompt's `closeUnfinishedTurn`, the session end and `recoverNativeTurns` judge the turn on it. A background check
+still running when the turn ended keeps the row `pending`: the turn is not verified until its task metadata settles
+the check. Kimi subagents and concurrent prompts are outside this v1 contract.
 
-The optional ModelRunner `capture` port records the selected alias, provider, upstream model, effort and a
-credential/config binding before recall returns. The `acp` runner revalidates that binding before creating one
+The `acp` ModelRunner follows the `configStamp` + `turnEnd.modelOf` contract: the stamp hashes the configuration and
+every credential it names, and the turn's route (alias, upstream model, protocol, effort) comes from the log's model
+requests. The runner checks the stamp and route again before creating one
 private session and sending one prompt. It uses a private HOME and a selected-only TOML config; the credential is
 passed in an environment variable. The private agent has no tools/subagents, project hooks, user plugins or MCP
 servers. ACP success, the native/provider terminal, exact route and native process closure must agree. A separate
@@ -370,12 +374,10 @@ after native exit or stop. It reports proof separately from native output. Scrat
 the job does not contain processes created by an external broker outside the descendant tree.
 
 When a captured route is unavailable or has changed, preflight preserves the candidate for seven days from the
-first block. The person can retry after restoring the original binding. A repeat block keeps the original
-deadline. A verified turn with a missing or unmatched binding is cleared on the first distill without
-calling the model or Proxy. A new verified turn can capture its own binding. Ordinary model and protocol failures
-keep the existing retry policy.
+first block. The person can retry after restoring the original configuration and account. A repeat block keeps the
+original deadline. Ordinary model and protocol failures keep the existing retry policy.
 The `kimi.com` managed route reads the current access token and device identity from the exact native profile.
-It binds both to the snapshot, preserves the native provider family separately from its transport, and passes
+Both are part of the stamp; it preserves the native provider family separately from its transport, and passes
 only the access token in the private child's environment. It does not manage login or refresh.
 Draft publication still uses the shared explicit command and Proxy contract. Other regions, clients and native
 acceptance on each target OS are separate gates, not inferred from fixture tests.

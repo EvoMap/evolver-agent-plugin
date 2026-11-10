@@ -21,9 +21,12 @@ const validResult = (result) => result && typeof result === 'object' && typeof r
 const pathOf = (input, cwd) => text(input?.path)
   && (isAbsolute(input.path) ? input.path : text(cwd) && isAbsolute(cwd) ? resolve(cwd, input.path) : null);
 
-/** Only discovers fixed task IDs; caller chooses a bounded file under the known session root. */
-export function taskIdsOf(records = [], payload = {}) {
-  const ids = [taskId(payload.task_id)];
+// The newest turns' tasks are the ones a turn still waiting for its end can name; older ones are past their end.
+const MAX_TASKS = 64;
+
+/** Only discovers fixed task IDs; the reader chooses a bounded file under the known session root. */
+export function taskIdsOf(records = []) {
+  const ids = [];
   for (const record of records.filter(main)) {
     const event = record.type === 'context.append_loop_event' ? record.event : null;
     if (event?.type === 'tool.call' && event.name === 'TaskOutput') ids.push(taskId(event.args?.task_id));
@@ -31,7 +34,7 @@ export function taskIdsOf(records = [], payload = {}) {
       ids.push(taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(event.result?.output))?.[1]));
     }
   }
-  return [...new Set(ids.filter(Boolean))];
+  return [...new Set(ids.filter(Boolean))].slice(-MAX_TASKS);
 }
 
 function callsOf(records, turnId) {
@@ -118,105 +121,44 @@ function conflictingIdentity(records) {
   return false;
 }
 
-function admissionOf(prompt, payload) {
-  if (payload.hook_event_name !== 'TurnStarted' || payload.origin_kind !== 'user'
-      || nativeTurnIdOf(payload.turn_id) !== nativeTurnIdOf(prompt.turnId)
-      || (payload.prompt_id !== undefined && payload.prompt_id !== prompt.promptId)
-      || !Number.isSafeInteger(prompt.time) || !Array.isArray(prompt.input)) return null;
-  const parts = prompt.input
-    .filter((part) => part?.type === 'text' && part.meta?.source !== 'user prompt submit hook')
-    .map((part) => text(part.text));
-  if (!parts.length || !text(payload.prompt).trim() || parts.join('').trim() !== text(payload.prompt).trim()) {
-    return null;
-  }
-  return { prompt: parts.join('\n').trim(), time: prompt.time };
+const STATUSES = { completed: 'completed', failed: 'failed', cancelled: 'aborted', interrupted: 'aborted' };
+
+function routeOf(turn) {
+  const requests = turn.filter(main).filter((item) => item.type === 'llm.request');
+  const routes = new Set(requests.map((item) => JSON.stringify([item.modelAlias, item.model, item.provider, item.thinkingEffort])));
+  const request = requests.at(-1);
+  if (routes.size !== 1 || !text(request?.modelAlias)) return null;
+  return {
+    alias: request.modelAlias, model: text(request.model) || null, protocol: text(request.provider) || null,
+    effort: text(request.thinkingEffort) || null,
+  };
 }
 
-/** Decode only the main agent's supported native wire; native turn zero is a real identity. */
-export function decodeNativeFacts(records = [], tasks = [], payload = {}, context = {}) {
-  const schema = records.find((record) => record.type === 'metadata')?.protocol_version ?? context.schemaVersion;
-  const schemaSupported = schema === '1.5';
-  const binding = records.findLast((record) => record.type === 'profile.bind' && main(record));
-  const modelHint = binding && text(binding.modelAlias)
-    ? { alias: binding.modelAlias, effort: text(binding.thinkingEffort) || null }
-    : context.modelHint ?? null;
-  const empty = {
-    status: schemaSupported ? 'ok' : 'unsupported',
-    schemaSupported,
-    schemaVersion: schemaSupported ? schema : null,
-    bind: null, terminal: null, modelHint, record: null, notes: [], toolTurnId: null,
-  };
-  if (!schemaSupported) return empty;
-  const boundTurn = nativeTurnIdOf(context.turnId);
-  const wanted = boundTurn ?? nativeTurnIdOf(payload.turn_id);
-  const prompts = records.filter(promptOf).filter((record) => wanted !== null
-    ? nativeTurnIdOf(record.turnId) === wanted
-    : context.after ? record.$offset >= context.after.offset : true);
-  const unique = new Map(prompts.map((record) => [`${nativeTurnIdOf(record.turnId)}:${record.promptId}`, record]));
-  if (unique.size !== 1 || (payload.hook_event_name === 'UserPromptSubmit' && wanted === null && !context.after)) {
-    return empty;
-  }
-  const prompt = [...unique.values()][0];
-  const turnId = nativeTurnIdOf(prompt.turnId);
-  const start = records.indexOf(prompt);
-  const turnBinding = records.slice(0, start + 1).findLast((record) => record.type === 'profile.bind' && main(record));
-  const boundModelHint = turnBinding && text(turnBinding.modelAlias)
-    ? { alias: turnBinding.modelAlias, effort: text(turnBinding.thinkingEffort) || null }
-    : context.modelHint ?? null;
-  const next = records.findIndex(
-    (record, index) => index > start && promptOf(record) && nativeTurnIdOf(record.turnId) !== turnId,
-  );
+/**
+ * A turn's status row from the main agent's supported wire: `accepted` while it runs, its terminal status once it
+ * ended, `pending` while a background check it started still runs, and its record, answer and model route from the log
+ * alone (hook tool output is truncated). Null for no unique user turn of that id, or contradictory records. Native
+ * turn zero is a real identity.
+ */
+export function turnStatusOf(records = [], { turnId: wanted, tasks = [], projectDir } = {}) {
+  const turnId = nativeTurnIdOf(wanted);
+  if (turnId === null || records.find((record) => record.type === 'metadata')?.protocol_version !== '1.5') return null;
+  const prompts = records.filter(promptOf).filter((record) => nativeTurnIdOf(record.turnId) === turnId);
+  if (new Set(prompts.map((record) => record.promptId)).size !== 1) return null;
+  const start = records.indexOf(prompts[0]);
+  const next = records.findIndex((record, index) => index > start && promptOf(record) && nativeTurnIdOf(record.turnId) !== turnId);
   const turn = records.slice(start, next === -1 ? undefined : next);
   const isTerminal = (item) => item.type === 'turn.ended' && main(item) && nativeTurnIdOf(item.turnId) === turnId;
-  let ended = turn.findLast(isTerminal);
-  // A bound turn can finish late. Keep the untagged model requests within its original prompt boundary.
-  if (boundTurn !== null && next !== -1) {
-    for (const item of records.slice(next)) {
-      if (!isTerminal(item)) continue;
-      if ((ended && ended.reason !== item.reason) || (item.reason === 'completed' && item.error)) {
-        return { ...empty, status: 'partial' };
-      }
-      ended ??= item;
-    }
-  }
-  if (conflictingIdentity(turn) || (ended?.reason === 'completed' && ended.error)) {
-    return { ...empty, status: 'partial' };
-  }
-  const notes = notesOf(turn, tasks, turnId, payload.cwd ?? context.projectDir);
-  const pendingVerification = notes.some((note) => note.running && isVerificationCommand(note.command));
-  // The indexed wire gives one note per call, so it can retain the order of unfinished checks locally.
+  const ended = records.slice(start).filter(isTerminal);
+  if (new Set(ended.map((item) => item.reason)).size > 1 || conflictingIdentity(turn)
+      || ended.some((item) => item.reason === 'completed' && item.error)) return null;
+  const notes = notesOf(turn, tasks, turnId, projectDir);
   const record = turnRecordOf(notes.map(
     (note) => note.running ? { ...note, running: false, exit: null, output: '', failed: null } : note,
   ));
   record.answer = answerOf(turn, turnId);
-  const requests = turn.filter(main).filter((item) => item.type === 'llm.request');
-  const request = requests.at(-1);
-  const routes = new Set(
-    requests.map((item) => JSON.stringify([item.modelAlias, item.model, item.provider, item.thinkingEffort])),
-  );
-  const terminalHint = routes.size === 1 && request && text(request.modelAlias)
-    ? {
-      alias: request.modelAlias,
-      effort: text(request.thinkingEffort) || null,
-      model: text(request.model) || null,
-      protocol: text(request.provider) || null,
-    }
-    : null;
-  const terminal = ended && ['completed', 'failed', 'cancelled', 'interrupted'].includes(ended.reason)
-    ? { turnId, reason: ended.reason, answer: record.answer, modelHint: terminalHint }
-    : null;
-  const hookCalls = records.filter(main).filter((item) => item.type === 'context.append_loop_event'
-    && item.event?.type === 'tool.call' && item.event.toolCallId === payload.tool_call_id);
-  const hookTurns = [...new Set(hookCalls.map((item) => nativeTurnIdOf(item.event.turnId)).filter((id) => id !== null))];
-  const toolTurnId = hookTurns.length === 1
-    ? hookTurns[0]
-    : payload.hook_event_name === 'PreToolUse' && nativeTurnIdOf(context.turnId) !== null ? turnId : null;
-  const admission = prompts.length === 1 && next === -1 ? admissionOf(prompt, payload) : null;
-  return {
-    ...empty,
-    modelHint: boundModelHint,
-    bind: { turnId, promptId: prompt.promptId, origin: 'user', mark: prompt.$offset ?? null },
-    ...(admission && { admission }), terminal, record, notes, pendingVerification, toolTurnId,
-  };
-
+  const terminal = STATUSES[ended[0]?.reason];
+  const checking = notes.some((note) => note.running && isVerificationCommand(note.command));
+  const status = !terminal ? 'accepted' : terminal === 'completed' && checking ? 'pending' : terminal;
+  return { status, record, answer: record.answer, model: routeOf(turn) };
 }

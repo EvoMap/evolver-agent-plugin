@@ -472,8 +472,7 @@ test('a correction crossing a draft write takes back only that draft: earlier dr
     let replacement;
     if (replace) await update((drafts) => drafts.map((draft) => {
       if (draft.id !== DRAFTED.distill_id) return draft;
-      const [source] = draftSourcesOf(draft);
-      replacement = { ...draft, title: 'Concurrent method', sourceRange: { ...draft.sourceRange, turns: [{ ...source, turn: source.turn + 1 }] } };
+      replacement = { ...draft, title: 'Concurrent method', sourceCandidate: { ...draft.sourceCandidate, turn: draft.sourceCandidate.turn + 1 } };
       return replacement;
     }));
     await correct(ports);
@@ -929,7 +928,7 @@ test('a command run can be stopped: its signal reaches the evolver CLI', async (
 test('a correction marked while the model answers stops the distillation before its request is sent', async () => {
   let ports;
   const made = await fixedSession({ model: modelAnswering(IR, async () => {
-    const [{ turn, sessionEpoch }] = (await ports.candidates.read()).s1.turns;
+    const { turns: [{ turn }], sessionEpoch } = (await ports.candidates.read()).s1;
     await ports.draftCorrections.mark('s1', turn, sessionEpoch);
   }) });
   ports = made.ports;

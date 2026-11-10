@@ -42,6 +42,38 @@ function managedAccess(provider, providerId, endpoint, env) {
   };
 }
 
+function endpointOf(provider) {
+  try {
+    const url = new URL(provider.base_url);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+    return url.href.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function credentialOf(provider, providerId, endpoint, env) {
+  if (provider.oauth !== undefined) return managedAccess(provider, providerId, endpoint, env);
+  const key = text(provider.api_key);
+  const keyEnv = text(provider.api_key_env);
+  if (Boolean(key) === Boolean(keyEnv) || (keyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyEnv))) return null;
+  const value = key ?? text(env[keyEnv]);
+  if (!value || /[\x00-\x1f\x7f]/.test(value)) return null;
+  return { kind: 'api-key', ...(keyEnv ? { env: keyEnv } : { value }) };
+}
+
+/** Every credential the configuration names, so a captured route's stamp changes with any account it could reach. */
+export function credentialsOf(config, env = {}) {
+  if (!object(config?.providers)) return [];
+  return Object.entries(config.providers).flatMap(([providerId, provider]) => {
+    const endpoint = object(provider) ? endpointOf(provider) : null;
+    const credential = endpoint && credentialOf(provider, providerId, endpoint, env);
+    return credential ? [credential] : [];
+  });
+}
+
 /** Keep the selected account and transport; never fall back to another credential or endpoint. */
 export function selectRoute(config, hint, env = {}) {
   const alias = text(hint?.alias);
@@ -65,28 +97,9 @@ export function selectRoute(config, hint, env = {}) {
       && (!Number.isSafeInteger(model.max_output_size) || model.max_output_size < 1)) return null;
   if (model.adaptive_thinking !== undefined && typeof model.adaptive_thinking !== 'boolean') return null;
   if (model.support_efforts !== undefined && !strings(model.support_efforts)) return null;
-  let endpoint;
-  try {
-    const url = new URL(provider.base_url);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-      return null;
-    }
-    endpoint = url.href.replace(/\/$/, '');
-  } catch {
-    return null;
-  }
-  let credential;
-  if (provider.oauth !== undefined) {
-    credential = managedAccess(provider, providerId, endpoint, env);
-    if (!credential) return null;
-  } else {
-    const key = text(provider.api_key);
-    const keyEnv = text(provider.api_key_env);
-    if (Boolean(key) === Boolean(keyEnv) || (keyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyEnv))) return null;
-    const value = key ?? text(env[keyEnv]);
-    if (!value || /[\x00-\x1f\x7f]/.test(value)) return null;
-    credential = { kind: 'api-key', ...(keyEnv ? { env: keyEnv } : { value }) };
-  }
+  const endpoint = endpointOf(provider);
+  const credential = endpoint && credentialOf(provider, providerId, endpoint, env);
+  if (!credential) return null;
   const thinking = supportsThinking(model);
   const effort = text(hint?.effort) ?? (thinking ? null : 'off');
   // Native models without named levels expose the binary thinking toggle.
@@ -132,6 +145,18 @@ export function prepareRoute(selected, { home, credentialEnv }) {
       KIMI_DISABLE_CRON: '1',
     },
   };
+}
+
+/**
+ * The route a turn ran on, from its session log's model requests (`row.model`), when the configuration stamp it began
+ * with (`started`) is the one it ended with (`closed`).
+ */
+export function modelOf(row, started, closed) {
+  if (!started || !closed) return { unavailable: 'credential_missing' };
+  if (started !== closed) return { unavailable: 'route_changed' };
+  const { alias, model, protocol, effort } = row?.model ?? {};
+  if (![alias, model, protocol].every(text)) return { unavailable: 'route_unresolved' };
+  return { selection: { alias, model, protocol, effort: text(effort) }, configDigest: started };
 }
 
 /** ACP's end_turn alone is insufficient: cross-check the owned private session's native evidence. */
@@ -190,6 +215,7 @@ export const headlessKimi = Object.freeze({
     parseConfig: parse,
     serializeConfig: stringify,
     select: selectRoute,
+    credentials: credentialsOf,
   },
   prepare: prepareRoute,
   sessionConfig: (snapshot, selected) => supportsThinking(selected.model)

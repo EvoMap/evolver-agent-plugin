@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
-import { declarationFor } from '../fixtures/acp/declaration.mjs';
+import { capturedModel, declarationFor } from '../fixtures/acp/declaration.mjs';
 import { CHILD_FILE, guardianFile, OWNER_FILE, START_FILE } from '../../lib/runtime/process/acp-child.js';
 import { windowsJobExecutable } from '../../lib/runtime/process/windows-job.js';
 
@@ -46,27 +46,32 @@ function promptStarted(dir) {
   try { return JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8')).promptStarted === true; } catch { return false; }
 }
 
-test('an ACP route snapshot binds the selected configuration and credential without retaining the key', async t => {
+test('an ACP configuration stamp covers the configuration and its credential without retaining the key', async t => {
   const { runner, config } = fixture(t);
   assert.ok(runner, 'the declaration supplies the model port');
-  const selected = await runner.capture({ alias: 'route-a' });
-  assert.equal(selected.alias, 'route-a');
-  assert.equal(selected.model, 'fixture-model');
-  assert.equal(selected.providerId, 'fixture');
-  assert.equal(selected.protocol, 'openai');
-  assert.match(selected.configRevision, /^[a-f0-9]{64}$/);
-  assert.match(selected.binding, /^[a-f0-9]{64}$/);
-  assert.equal(JSON.stringify(selected).includes(SECRET), false);
+  assert.equal(runner.capture, true);
+  const stamp = runner.configStamp();
+  assert.match(stamp, /^[a-f0-9]{64}$/);
+  assert.equal(runner.configStamp(), stamp);
   writeFileSync(config, readFileSync(config, 'utf8').replace(SECRET, 'different-fixture-key'));
-  const changed = await runner.capture({ alias: 'route-a' });
-  assert.notEqual(changed.binding, selected.binding);
+  assert.notEqual(runner.configStamp(), stamp);
+});
+
+test('a model captured without a stamp or route cannot run', async t => {
+  const { runner, dir } = fixture(t);
+  await assert.rejects(runner.complete({ unavailable: 'route_changed' }, 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+  await assert.rejects(runner.complete(null, 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'route_unresolved' });
+  const model = capturedModel(runner, { alias: 'route-a' });
+  await assert.rejects(runner.complete({ ...model, selection: { ...model.selection, model: 'other-model' } }, 'candidate'),
+    { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
+  assert.equal(existsSync(join(dir, 'receipt.json')), false);
 });
 
 test('an ACP completion selects the captured route, uses a private credential environment and closes before cleanup', async t => {
   const { runner, dir, declaration } = fixture(t);
   const args = declaration.args(), extras = ['', 'path with spaces', 'trailing slash\\', 'embedded "quote"', 'đường dẫn'];
   declaration.args = () => [...args, ...extras];
-  const snapshot = await runner.capture({ alias: 'route-a' });
+  const snapshot = capturedModel(runner, { alias: 'route-a' });
   const answer = await runner.complete(snapshot, 'the private candidate digest', AbortSignal.timeout(10_000));
   assert.equal(answer.answer, 'answer: the private candidate digest');
   const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
@@ -83,7 +88,7 @@ test('a native root exiting normally cannot leave its stdio-ignored descendant a
   const { runner, dir } = fixture(t, 'exit-descendant');
   const file = join(dir, 'receipt.json');
   try {
-    const result = await runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000));
+    const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000));
     assert.equal(result.answer, 'answer: candidate');
     const receipt = JSON.parse(readFileSync(file, 'utf8'));
     assert.equal(receipt.descendantReady, true);
@@ -107,7 +112,7 @@ test('a native root exiting normally cannot leave its stdio-ignored descendant a
 
 test('an ACP completion rejects an incomplete trailing frame before accepting native success', async t => {
   const { runner, dir } = fixture(t, 'trailing-frame');
-  const snapshot = await runner.capture({ alias: 'route-a' });
+  const snapshot = capturedModel(runner, { alias: 'route-a' });
   await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(10_000)));
   const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
   assert.equal(existsSync(receipt.home), false);
@@ -115,25 +120,25 @@ test('an ACP completion rejects an incomplete trailing frame before accepting na
 
 test('an ACP completion rejects a late update belonging to another session', async t => {
   const { runner } = fixture(t, 'late-session');
-  const snapshot = await runner.capture({ alias: 'route-a' });
+  const snapshot = capturedModel(runner, { alias: 'route-a' });
   await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(10_000)));
 });
 
 test('an ACP completion rejects answer chunks sent after the prompt response', async t => {
   const { runner } = fixture(t, 'late-chunk');
-  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
 });
 
 test('a changed configuration or account binding blocks before any native request', async t => {
   const { runner, dir, config, env } = fixture(t);
   const original = readFileSync(config, 'utf8');
-  const snapshot = runner.capture({ alias: 'route-a' });
+  const snapshot = capturedModel(runner, { alias: 'route-a' });
   writeFileSync(config, original.replace('example.invalid', 'other.invalid'));
   await assert.rejects(runner.complete(snapshot, 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
   assert.equal(existsSync(join(dir, 'receipt.json')), false);
   writeFileSync(config, '[provider]\nendpoint="https://example.invalid/v1"\nkey_env="FIXTURE_ACCOUNT_KEY"\n');
   env.FIXTURE_ACCOUNT_KEY = SECRET;
-  const envSnapshot = runner.capture({ alias: 'route-a' });
+  const envSnapshot = capturedModel(runner, { alias: 'route-a' });
   env.FIXTURE_ACCOUNT_KEY = 'a-different-fixture-account';
   await assert.rejects(runner.complete(envSnapshot, 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
   assert.equal(existsSync(join(dir, 'receipt.json')), false);
@@ -142,16 +147,18 @@ test('a changed configuration or account binding blocks before any native reques
   nativeClosed(dir);
 });
 
-test('invalid native config yields a typed sanitized preflight error', t => {
+test('invalid native config yields no stamp and a typed sanitized preflight error', async t => {
   const { runner, config, dir } = fixture(t);
+  const model = capturedModel(runner, { alias: 'route-a' });
   writeFileSync(config, `[provider]\nkey = "${SECRET}"\ninvalid = [\n`);
-  assert.throws(() => runner.capture({ alias: 'route-a' }), error => {
+  assert.equal(runner.configStamp(), null);
+  await assert.rejects(runner.complete({ ...model, configDigest: 'stale' }, 'candidate'), error => {
     assert.equal(error.code, 'MODEL_UNAVAILABLE');
     assert.equal(error.message.includes(SECRET), false);
     return true;
   });
   writeFileSync(config, '#'.repeat(1024 * 1024 + 1));
-  assert.throws(() => runner.capture({ alias: 'route-a' }), { code: 'MODEL_UNAVAILABLE' });
+  assert.equal(runner.configStamp(), null);
   assert.equal(existsSync(join(dir, 'receipt.json')), false);
 });
 
@@ -172,7 +179,7 @@ test('an owner exiting before fork does not block a fresh ACP completion', async
   assert.equal(origin, createHash('sha256').update(config).digest('hex'));
   assert.equal(existsSync(join(home, CHILD_FILE)), false);
 
-  const result = await runner.complete(runner.capture({ alias: 'route-a' }), 'fresh candidate');
+  const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'fresh candidate');
   assert.equal(result.answer, 'answer: fresh candidate');
   nativeClosed(dir);
   assert.equal(existsSync(home), false, 'the abandoned prelaunch scratch was removed');
@@ -185,11 +192,11 @@ test('orphan recovery rejects missing or malformed child receipts after launch w
   const ownerPid = 2147483647;
   assert.throws(() => process.kill(ownerPid, 0));
   writeFileSync(join(orphan, OWNER_FILE), JSON.stringify({ nonce: 'a'.repeat(32), ownerPid, origin: createHash('sha256').update(config).digest('hex') }));
-  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
   assert.equal(existsSync(orphan), true);
   for (const content of ['{incomplete', JSON.stringify({ nonce: 'a'.repeat(32) }), JSON.stringify({ nonce: 'b'.repeat(32), guardianPid: ownerPid, nativePid: ownerPid })]) {
     writeFileSync(join(orphan, CHILD_FILE), content);
-    await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
+    await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
     assert.equal(existsSync(orphan), true);
   }
   assert.equal(existsSync(join(dir, 'receipt.json')), false, 'a fresh native process was not started');
@@ -201,7 +208,7 @@ test('orphan recovery ignores a matching scratch marker with a nonpositive owner
   t.after(() => rmSync(orphan, { recursive: true, force: true }));
   const origin = createHash('sha256').update(config).digest('hex');
   writeFileSync(join(orphan, OWNER_FILE), JSON.stringify({ nonce: 'd'.repeat(32), ownerPid: 0, origin }));
-  assert.equal((await runner.complete(runner.capture({ alias: 'route-a' }), 'candidate')).answer, 'answer: candidate');
+  assert.equal((await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate')).answer, 'answer: candidate');
   assert.equal(existsSync(orphan), true);
 });
 
@@ -215,12 +222,12 @@ test('orphan recovery removes only a matching receipt with proof all owned proce
   const receipt = { nonce, guardianPid: dead, nativePid: dead };
   if (process.platform === 'win32') {
     writeFileSync(join(orphan, CHILD_FILE), JSON.stringify(receipt));
-    await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
+    await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'unsafe_runtime' });
     assert.equal(existsSync(orphan), true, 'dead root PIDs alone cannot prove a Windows job is empty');
     Object.assign(receipt, { helperPid: dead, jobEmpty: true });
   }
   writeFileSync(join(orphan, CHILD_FILE), JSON.stringify(receipt));
-  assert.equal((await runner.complete(runner.capture({ alias: 'route-a' }), 'candidate')).answer, 'answer: candidate');
+  assert.equal((await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate')).answer, 'answer: candidate');
   assert.equal(existsSync(orphan), false);
   nativeClosed(dir);
 });
@@ -228,7 +235,7 @@ test('orphan recovery removes only a matching receipt with proof all owned proce
 test('cancelling a pending completion waits for its owned native process before removing scratch', async t => {
   const { runner, dir } = fixture(t, 'hang');
   const controller = new AbortController();
-  const result = runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal);
+  const result = runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', controller.signal);
   const rejection = assert.rejects(result, { code: 'ABORT_ERR' });
   await until(() => promptStarted(dir));
   controller.abort();
@@ -252,7 +259,7 @@ test('cancelling after native completion during cleanup rejects the answer after
     return facts;
   };
 
-  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
   assert.equal(cancelledDuringCleanup, true);
   nativeClosed(dir);
 });
@@ -303,7 +310,7 @@ test('a late stop preserves the closed guardian result without signaling the for
 test('a stalled POSIX guardian retains ownership until it can stop the native group', { skip: process.platform === 'win32' }, async (t) => {
   const { runner, dir } = fixture(t, 'hang');
   const controller = new AbortController();
-  const completion = runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal);
+  const completion = runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', controller.signal);
   const rejection = assert.rejects(completion, { code: 'ACP_CLEANUP_FAILED' });
   await until(() => promptStarted(dir));
   const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
@@ -378,7 +385,7 @@ test('an abrupt Windows guardian death kills the whole job but retains scratch w
 test('hard-killing the exact Windows job keeper reaps native processes through kill-on-close', { skip: process.platform !== 'win32' }, async t => {
   const { runner, dir } = fixture(t, 'hang');
   const controller = new AbortController();
-  const completion = runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal);
+  const completion = runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', controller.signal);
   const rejected = assert.rejects(completion, { code: 'ACP_CLEANUP_FAILED' });
   try {
     const job = await activeFixtureJob(dir, process.pid);
@@ -416,13 +423,13 @@ try {
 
 test('the captured thinking choice must match native evidence even when the native default is high', async t => {
   const { runner, dir } = fixture(t, 'ignore-effort');
-  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000)));
   nativeClosed(dir);
 });
 
 test('ACP selects thinking off explicitly instead of inheriting the native high default', async t => {
   const { runner, dir } = fixture(t);
-  assert.equal((await runner.complete(runner.capture({ alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000))).answer, 'answer: candidate');
+  assert.equal((await runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000))).answer, 'answer: candidate');
   nativeClosed(dir);
 });
 
@@ -430,7 +437,7 @@ test('ACP rejects failed, unverified, truncated or unsafe native completions and
   for (const mode of ['native-error', 'missing-provider-finish', 'wrong-model', 'tools-loaded', 'native-tool-call', 'missing-proof', 'truncated-proof', 'wrong-session', 'length-cutoff', 'duplicate-response', 'nonzero-exit', 'client-request', 'tool-update', 'output-limit', 'combined-output-limit']) {
     await t.test(mode, async t => {
       const { runner, dir } = fixture(t, mode);
-      await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
+      await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
       nativeClosed(dir);
     });
   }
@@ -439,7 +446,7 @@ test('ACP rejects failed, unverified, truncated or unsafe native completions and
 test('a request deadline cancels the native completion and its inherited descendant', async t => {
   const { runner, dir } = fixture(t, 'hang');
   const controller = new AbortController();
-  const rejection = assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
+  const rejection = assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', controller.signal), { code: 'ABORT_ERR' });
   await until(() => promptStarted(dir));
   const deadline = setTimeout(() => controller.abort(), 500);
   try { await rejection; } finally { clearTimeout(deadline); }
@@ -452,7 +459,7 @@ test('a 500 ms startup abort sends no native prompt and leaves no scratch', asyn
   let home;
   declaration.prepare = (selected, context) => { home = context.home; return prepare(selected, context); };
   const runner = modelRunnerOf(declaration, env);
-  await assert.rejects(runner.complete(runner.capture({ alias: 'route-a' }), 'candidate', AbortSignal.timeout(500)), { code: 'ABORT_ERR' });
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(500)), { code: 'ABORT_ERR' });
   assert.ok(home);
   assert.equal(existsSync(home), false);
   const file = join(dir, 'receipt.json');

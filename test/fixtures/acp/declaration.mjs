@@ -2,6 +2,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'smol-toml';
 
+const credentialOf = (data) => data.provider.key_env
+  ? { kind: 'api-key', env: data.provider.key_env }
+  : { kind: 'api-key', value: data.provider.key };
+
+/** The model a turn's end captures for the fixture route, as a host's `turnEnd.modelOf` would. */
+export const capturedModel = (runner, { alias, effort = null }) => ({
+  selection: { alias, model: 'fixture-model', protocol: 'openai', effort }, configDigest: runner.configStamp(),
+});
+
 export function declarationFor(config, receipt, mode = '') {
   return {
     kind: 'acp', command: () => process.execPath,
@@ -12,8 +21,9 @@ export function declarationFor(config, receipt, mode = '') {
       serializeConfig: JSON.stringify,
       select: (data, hint) => ({
         route: { alias: hint.alias, providerId: 'fixture', model: 'fixture-model', protocol: 'openai', endpoint: data.provider.endpoint, ...(hint.effort ? { effort: hint.effort } : {}) },
-        credential: data.provider.key_env ? { kind: 'api-key', env: data.provider.key_env } : { kind: 'api-key', value: data.provider.key },
+        credential: credentialOf(data),
       }),
+      credentials: (data) => [credentialOf(data)],
     },
     sessionConfig: snapshot => snapshot.effort ? [{ id: 'thinking', value: snapshot.effort }] : [],
     prepare: (selected, { credentialEnv }) => ({
