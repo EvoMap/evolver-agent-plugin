@@ -8,6 +8,7 @@ import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropEx
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { TASKS } from '../../lib/app/ports.js';
+import { draftSourcesOf } from '../../lib/distill.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { BLOCKED_ROUTE_TTL_MS, EPISODE_QUIET_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/range.js';
 import { memoryPorts } from './memory-ports.js';
@@ -421,12 +422,13 @@ test('a correction after its turn was distilled removes that turn\'s draft and m
     await before(ports);
     await fixTurn(ports, 's1');
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted', name);
-    const [{ sourceCandidate }] = await ports.drafts.read();
-    assert.deepEqual([sourceCandidate.turn, sourceCandidate.sessionEpoch === undefined], [turn, turn === 5], name);
+    const [draft] = await ports.drafts.read();
+    const [source] = draftSourcesOf(draft);
+    assert.deepEqual([source.turn, source.sessionEpoch === undefined], [turn, turn === 5], name);
     await after(ports);
     await correct(ports);
     assert.deepEqual(await ports.drafts.read(), [], name);
-    assert.equal(await ports.draftCorrections.has('s1', turn, sourceCandidate.sessionEpoch), true, name);
+    assert.equal(await ports.draftCorrections.has('s1', turn, source.sessionEpoch), true, name);
   }
 });
 
@@ -470,7 +472,8 @@ test('a correction crossing a draft write takes back only that draft: earlier dr
     let replacement;
     if (replace) await update((drafts) => drafts.map((draft) => {
       if (draft.id !== DRAFTED.distill_id) return draft;
-      replacement = { ...draft, title: 'Concurrent method', sourceCandidate: { ...draft.sourceCandidate, turn: draft.sourceCandidate.turn + 1 } };
+      const [source] = draftSourcesOf(draft);
+      replacement = { ...draft, title: 'Concurrent method', sourceRange: { ...draft.sourceRange, turns: [{ ...source, turn: source.turn + 1 }] } };
       return replacement;
     }));
     await correct(ports);
@@ -921,4 +924,26 @@ test('a command run can be stopped: its signal reaches the evolver CLI', async (
   const controller = new AbortController();
   await runCommand(ports, { sessionId: 's1', name: 'evolver-run', args: '--loop', signal: controller.signal });
   assert.equal(seen, controller.signal);
+});
+
+test('a correction marked while the model answers stops the distillation before its request is sent', async () => {
+  let ports;
+  const made = await fixedSession({ model: modelAnswering(IR, async () => {
+    const [{ turn, sessionEpoch }] = (await ports.candidates.read()).s1.turns;
+    await ports.draftCorrections.mark('s1', turn, sessionEpoch);
+  }) });
+  ports = made.ports;
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'dropped');
+  assert.deepEqual(distills(made.requests), []);
+});
+
+test('an agent is neither asked for nor can post a Gene for work below the explicit gate', async () => {
+  const { ports, requests } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT });
+  await turnOf(ports, 's1', { steps: [['fail', 'npm test'], ['edit', '/proj/a.js'], ['fail', 'npm test']] });
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  assert.equal(asked.agentGene, undefined);
+  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
+  assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor })).status, 'dropped');
+  assert.deepEqual(distills(requests), []);
 });
