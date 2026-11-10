@@ -11,7 +11,7 @@ import { pack, packedHosts, packSpecOf } from '../scripts/pack.mjs';
 const PUBLISH = fileURLToPath(new URL('../scripts/publish-tag.sh', import.meta.url));
 const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const posix = { skip: process.platform === 'win32' && 'bash script' };
-const MANIFEST = /(?:^|\/)(?:plugin|marketplace|package)\.json$/;
+const MANIFEST = /(?:^|\/)(?:kimi\.plugin|plugin|marketplace|package)\.json$/;
 
 function scratch(t) {
   const root = mkdtempSync(join(tmpdir(), 'evolver-release-'));
@@ -32,13 +32,19 @@ test('packing with a version stamps it into every manifest a packed host reads',
 
 test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, publish, then the GitHub Release', () => {
   assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /needs: \[test, windows-minimax\]\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  publish:'));
-  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\n\s+runs-on: windows-latest\n/);
+  assert.match(workflow, /needs: \[test, windows-minimax\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  const kimi = workflow.slice(workflow.indexOf('  windows-kimi:'), workflow.indexOf('  publish:'));
+  assert.match(kimi, /if: github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.match(kimi, /runs-on: windows-latest/);
+  assert.match(kimi, /node: \[22, 26\]/);
+  assert.match(kimi, /run: npm run test:kimi/);
+  assert.match(kimi, /run: npm run pack/);
+  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  windows-kimi:'));
+  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\r?\n\s+runs-on: windows-latest\r?\n/);
   assert.match(windows, /node: \[22, 26\]/);
   assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
-  const steps = ['--version=$GITHUB_REF_NAME', 'publish-tag.sh "$GITHUB_REF_NAME" release', 'gh release create'].map((step) => publish.indexOf(step));
+  const steps = ['run: npm ci', '--version=$GITHUB_REF_NAME', 'publish-tag.sh "$GITHUB_REF_NAME" release', 'gh release create'].map((step) => publish.indexOf(step));
   assert.ok(steps.every((at, index) => at > 0 && (index === 0 || at > steps[index - 1])), steps.join(','));
 });
 

@@ -103,7 +103,7 @@ function copyModule(file, out, includesVendor) {
 }
 
 const VERSION_FIELD = /("version"\s*:\s*")[^"]*(")/g;
-const isManifest = (target) => /(?:^|\/)(?:plugin|marketplace|package)\.json$/.test(target);
+const isManifest = (target) => /(?:^|\/)(?:kimi\.plugin|plugin|marketplace|package)\.json$/.test(target);
 
 // A release names its version once, in its tag: every manifest the host reads its version from gets it here.
 function stampVersion(out, targets, version) {

@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,6 +73,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
     rmSync(home, { recursive: true, force: true });
     throw error;
   }
+  const cleanup = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
   return {
     get requests() {
       if (failure) throw failure;
@@ -84,7 +86,12 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       stop();
       endWaiters(home);
       // A detached worker the hooks started can still be writing its state here after the request a test waits on.
-      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      rmSync(home, cleanup);
+    },
+    closeAsync: async () => {
+      stop();
+      endWaiters(home);
+      await rm(home, cleanup);
     },
   };
 }
@@ -92,7 +99,7 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
 /** A detached hook worker can still finish a state write after the Proxy received its last request. */
 export async function closeProxyWhenSettled(proxy) {
   for (let attempt = 0; ; attempt++) {
-    try { return proxy.close(); }
+    try { return await proxy.closeAsync(); }
     catch (error) {
       if (attempt === 19 || !['ENOTEMPTY', 'EPERM', 'EBUSY'].includes(error.code)) throw error;
       await new Promise(resolve => setTimeout(resolve, 100));

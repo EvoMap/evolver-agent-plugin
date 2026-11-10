@@ -65,6 +65,23 @@ Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in 
 
 ## Adding a host
 
+Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows for the main agent in local sessions
+with an API/BYOK provider. It also resolves the managed `kimi.com` route with an existing access token. Live managed inference
+requires separate acceptance. Its native
+root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
+`KIMI_CODE_HOME` and changes only its owned native registration. Native config, credentials and Evolver state
+(`KIMI_CODE_HOME/evolver`) stay outside the package; unregistering retains managed bytes. Other client types,
+subagents, parallel prompts and other OAuth regions require separate native acceptance.
+
+Kimi's `UserPromptSubmit` returns `{ message }` to the model. Tool hooks observe native evidence and never promise
+inline failed-check context. Stop is a hint rather than a terminal verdict: wire/task records reconcile lifecycle
+and verification, with dead-owner recovery when a session has no end event. Session ids include the native-home
+scope. Commands use `node <plugin>/bin/command.mjs kimi <command>` from a terminal, without prompt interception.
+Distillation captures provider/model/account identity from the native session and uses a private ACP profile with
+no user/project hooks, plugins, MCP or skills; missing or changed route identity keeps the candidate for retry.
+Windows packed hooks have passed with a loopback fixture provider/Proxy, including native turn-zero evidence,
+process ownership and normal cleanup. macOS packed acceptance and real-account acceptance are separate gates; see
+[`kimi/dist/README.md`](kimi/dist/README.md).
 MiniMax Code's local adapter uses the hook defaults for `session_id`, `turn_id`, prompt and additional context.
 Native `details.execution.exitCode` is verification evidence; missing or unfinished shell results count as no check.
 State lives in `PLUGIN_DATA`. Its native shell-form hooks use `owner: 'parent'`; on Windows a bounded CIM snapshot
