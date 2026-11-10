@@ -126,3 +126,12 @@ test('a log home that moves after the reader started is not read under the old h
   home = other;
   assert.equal(reader(sessionId, '0'), null);
 });
+
+test('a task the log names many times counts once toward the task limit', (t) => {
+  const f = fixture(t, { taskIds: () => Array(100).fill('task'), tasksDir: (dir) => join(dir, 'agents', 'main', 'tasks') });
+  writeFileSync(f.wire, line({}));
+  mkdirSync(join(f.agent, 'tasks'));
+  writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'task', status: 'running' }));
+  assert.ok(f.reader(f.sessionId, '0'));
+  assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'running' }]);
+});
