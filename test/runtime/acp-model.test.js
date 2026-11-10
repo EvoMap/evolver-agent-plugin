@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
-import { capturedModel, declarationFor } from '../fixtures/acp/declaration.mjs';
+import { capturedModel, COMPLETION_BUDGET_MS, declarationFor } from '../fixtures/acp/declaration.mjs';
 import { CHILD_FILE, guardianFile, OWNER_FILE, START_FILE } from '../../lib/runtime/process/acp-child.js';
 import { windowsJobExecutable } from '../../lib/runtime/process/windows-job.js';
 
@@ -72,7 +72,7 @@ test('an ACP completion selects the captured route, uses a private credential en
   const args = declaration.args(), extras = ['', 'path with spaces', 'trailing slash\\', 'embedded "quote"', 'đường dẫn'];
   declaration.args = () => [...args, ...extras];
   const snapshot = capturedModel(runner, { alias: 'route-a' });
-  const answer = await runner.complete(snapshot, 'the private candidate digest', AbortSignal.timeout(10_000));
+  const answer = await runner.complete(snapshot, 'the private candidate digest', AbortSignal.timeout(COMPLETION_BUDGET_MS));
   assert.equal(answer.answer, 'answer: the private candidate digest');
   const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
   assert.equal(receipt.hasPrivateCredential, true);
@@ -88,7 +88,7 @@ test('a native root exiting normally cannot leave its stdio-ignored descendant a
   const { runner, dir } = fixture(t, 'exit-descendant');
   const file = join(dir, 'receipt.json');
   try {
-    const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000));
+    const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS));
     assert.equal(result.answer, 'answer: candidate');
     const receipt = JSON.parse(readFileSync(file, 'utf8'));
     assert.equal(receipt.descendantReady, true);
@@ -113,7 +113,7 @@ test('a native root exiting normally cannot leave its stdio-ignored descendant a
 test('an ACP completion rejects an incomplete trailing frame before accepting native success', async t => {
   const { runner, dir } = fixture(t, 'trailing-frame');
   const snapshot = capturedModel(runner, { alias: 'route-a' });
-  await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS)));
   const receipt = JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8'));
   assert.equal(existsSync(receipt.home), false);
 });
@@ -121,12 +121,12 @@ test('an ACP completion rejects an incomplete trailing frame before accepting na
 test('an ACP completion rejects a late update belonging to another session', async t => {
   const { runner } = fixture(t, 'late-session');
   const snapshot = capturedModel(runner, { alias: 'route-a' });
-  await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(snapshot, 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS)));
 });
 
 test('an ACP completion rejects answer chunks sent after the prompt response', async t => {
   const { runner } = fixture(t, 'late-chunk');
-  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS)));
 });
 
 test('a changed configuration or account binding blocks before any native request', async t => {
@@ -143,7 +143,7 @@ test('a changed configuration or account binding blocks before any native reques
   await assert.rejects(runner.complete(envSnapshot, 'candidate'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
   assert.equal(existsSync(join(dir, 'receipt.json')), false);
   env.FIXTURE_ACCOUNT_KEY = SECRET;
-  assert.equal((await runner.complete(envSnapshot, 'candidate', AbortSignal.timeout(10_000))).answer, 'answer: candidate');
+  assert.equal((await runner.complete(envSnapshot, 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS))).answer, 'answer: candidate');
   nativeClosed(dir);
 });
 
@@ -423,13 +423,13 @@ try {
 
 test('the captured thinking choice must match native evidence even when the native default is high', async t => {
   const { runner, dir } = fixture(t, 'ignore-effort');
-  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000)));
+  await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS)));
   nativeClosed(dir);
 });
 
 test('ACP selects thinking off explicitly instead of inheriting the native high default', async t => {
   const { runner, dir } = fixture(t);
-  assert.equal((await runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(10_000))).answer, 'answer: candidate');
+  assert.equal((await runner.complete(capturedModel(runner, { alias: 'route-a', effort: 'off' }), 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS))).answer, 'answer: candidate');
   nativeClosed(dir);
 });
 
@@ -437,7 +437,7 @@ test('ACP rejects failed, unverified, truncated or unsafe native completions and
   for (const mode of ['native-error', 'missing-provider-finish', 'wrong-model', 'tools-loaded', 'native-tool-call', 'missing-proof', 'truncated-proof', 'wrong-session', 'length-cutoff', 'duplicate-response', 'nonzero-exit', 'client-request', 'tool-update', 'output-limit', 'combined-output-limit']) {
     await t.test(mode, async t => {
       const { runner, dir } = fixture(t, mode);
-      await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(10_000)));
+      await assert.rejects(runner.complete(capturedModel(runner, { alias: 'route-a' }), 'candidate', AbortSignal.timeout(COMPLETION_BUDGET_MS)));
       nativeClosed(dir);
     });
   }

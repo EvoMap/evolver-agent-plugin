@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
-import { capturedModel, declarationFor } from '../fixtures/acp/declaration.mjs';
+import { capturedModel, COMPLETION_BUDGET_MS, declarationFor } from '../fixtures/acp/declaration.mjs';
 
 test('a transient receipt replacement refusal does not crash the native fixture before its prompt completes', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-acp-receipt-'));
@@ -28,7 +28,7 @@ syncBuiltinESMExports();
   const declaration = declarationFor(config, receipt), args = declaration.args;
   declaration.args = () => ['--import', pathToFileURL(preload).href, ...args()];
   const runner = modelRunnerOf(declaration, process.env);
-  const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'receipt regression', AbortSignal.timeout(10_000));
+  const result = await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'receipt regression', AbortSignal.timeout(COMPLETION_BUDGET_MS));
   assert.equal(result.answer, 'answer: receipt regression');
   const native = JSON.parse(readFileSync(receipt, 'utf8'));
   assert.equal(native.promptStarted, true);
