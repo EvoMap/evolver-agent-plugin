@@ -16,7 +16,9 @@ const workspacesOf = (index) => index?.version === 1 && isObject(index.workspace
   ? Object.entries(index.workspaces).map(([id, workspace]) => [id, workspace?.root]) : null;
 const promptReply = (message, event) => message && event === 'UserPromptSubmit' ? { message } : {};
 const reasons = { completed: 'answer', failed: 'error', cancelled: 'aborted', interrupted: 'aborted' };
-const terminalOf = context => context?.nativeFacts?.status === 'ok' && context.nativeFacts.schemaSupported ? context.nativeFacts.terminal : null;
+const terminalOf = (context) => context?.nativeFacts?.status === 'ok' && context.nativeFacts.schemaSupported
+  ? context.nativeFacts.terminal
+  : null;
 
 export default defineProfile({
   name: 'kimi', label: 'Kimi Code',
@@ -28,9 +30,11 @@ export default defineProfile({
   payload: kimiPayload,
   native: {
     events: ['TurnStarted', 'Stop', 'StopFailure', 'Interrupt', 'TaskStarted', 'Notification'],
-    root: kimiHomeOf, workspaceIndex: 'workspaces.json', workspacesOf, sessionDir: (workspaceId, sessionId) => join('sessions', workspaceId, sessionId),
+    root: kimiHomeOf, workspaceIndex: 'workspaces.json', workspacesOf,
+    sessionDir: (workspaceId, sessionId) => join('sessions', workspaceId, sessionId),
+
     logFile: 'agents/main/wire.jsonl', sessionId: nativeSessionIdOf, projectDir: projectDirOf,
-    reference: payload => ({ session_id: nativeSessionIdOf(payload), cwd: projectDirOf(payload) }),
+    reference: (payload) => ({ session_id: nativeSessionIdOf(payload), cwd: projectDirOf(payload) }),
     tasksRoot: (env, sessionDir) => join(sessionDir, 'agents', 'main', 'tasks'),
     taskIds: taskIdsOf, decode: decodeNativeFacts,
   },
@@ -48,5 +52,5 @@ export default defineProfile({
   drainWindowsHandles: true,
   model: headlessKimi,
   stateDir: stateDirOf,
-  settingsFile: env => join(stateDirOf(env), 'kimi-settings.json'),
+  settingsFile: (env) => join(stateDirOf(env), 'kimi-settings.json'),
 });
