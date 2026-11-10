@@ -36,6 +36,7 @@ export default defineProfile({
     // SessionStart carries no cwd; the host sets the project in every hook's environment.
     projectDir: (payload, context) => (typeof payload.cwd === 'string' && payload.cwd) || context?.env?.CODEBUDDY_PROJECT_DIR || null,
     model: (payload, context) => modelOf(latestTurnOf(context)),
+    agentVersion: (payload) => (typeof payload.version === 'string' ? payload.version : null),
   },
   evidence: {
     toolNote: () => null,

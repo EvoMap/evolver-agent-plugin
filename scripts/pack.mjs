@@ -147,6 +147,7 @@ export function pack(host, out, { version = null } = {}) {
   if (!existsSync(path.join(out, 'package.json'))) writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(MODULE_PACKAGE, null, 2)}\n`);
   for (const [target, fields] of Object.entries(spec.patch ?? {})) patchJson(path.join(out, target), fields);
   if (version) stampVersion(out, Object.keys(spec.root ?? {}), version);
+  if (version) patchJson(path.join(out, 'package.json'), { version });
   writeFileSync(path.join(out, PACKED_MARK), `${host}\n`);
   return files;
 }

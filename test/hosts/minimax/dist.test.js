@@ -42,7 +42,7 @@ test('the native packed manifest loads only this host and shell hooks fit MiniMa
     assert.equal(hooks.UserPromptSubmit[0].hooks[0].timeout * 1000, profile.budgets.prompt);
     for (const file of ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs', 'hosts/minimax/profile.js', 'lib/runtime/process/windows.js']) assert.ok(existsSync(join(dir, file)), file);
     for (const file of ['.claude-plugin', '.mcp.json', 'hosts/workbuddy', 'skills', 'node_modules', 'test', 'acceptance', '.git', 'config.yaml']) assert.equal(existsSync(join(dir, file)), false, file);
-    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')), { private: true, type: 'module' });
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')), { private: true, type: 'module', version: '1.2.3' });
     const inspect = folder => {
       for (const name of readdirSync(folder)) {
         const file = join(folder, name), stat = lstatSync(file);

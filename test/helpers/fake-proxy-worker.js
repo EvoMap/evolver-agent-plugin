@@ -11,7 +11,8 @@ const server = createServer((request, response) => {
   request.on('data', (chunk) => { body += chunk; });
   request.on('end', () => {
     const parsed = body ? JSON.parse(body) : undefined;
-    requests.postMessage({ method: request.method, path: request.url, body: parsed });
+    const client = Object.fromEntries(Object.entries(request.headers).filter(([name]) => name.startsWith('x-evomap-client-')));
+    requests.postMessage({ method: request.method, path: request.url, body: parsed, ...(Object.keys(client).length > 0 && { client }) });
     const answer = request.url === '/asset/fetch' ? { assets: fetched(parsed) }
       : request.url === '/recipe/search' ? recipeSearchAnswer(recipes, parsed)
       : request.url === '/proxy/status' ? status

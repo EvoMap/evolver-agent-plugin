@@ -118,10 +118,12 @@ async function post($: EngineInterface, options: PluginOptions, path: string, bo
   return postTo($, await relayOf($, options, await $.clock.now()), path, body)
 }
 
-async function sessionFields($: EngineInterface): Promise<{ session_id: string; cwd: string }> {
+async function sessionFields($: EngineInterface): Promise<{ session_id: string; cwd: string; agent_version?: string }> {
   const cwd = await $.session.cwd()
   const stat = await $.fs.stat(cwd, { resolve: true }).catch(() => undefined)
-  return { session_id: await $.session.id(), cwd: stat?.realPath ?? cwd }
+  const release = await quietly(Promise.resolve().then(() => $.session.version()))
+  const agentVersion = release?.base ?? release?.version
+  return { session_id: await $.session.id(), cwd: stat?.realPath ?? cwd, ...(agentVersion ? { agent_version: agentVersion } : {}) }
 }
 
 async function raise($: EngineInterface, options: PluginOptions, hostEvent: string, fields: Record<string, unknown> = {}): Promise<Answer> {
