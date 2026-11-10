@@ -108,7 +108,7 @@ function appServer(f) {
       const { id, method, params } = JSON.parse(line);
       assert.equal(method, 'workspace/generateText');
       assert.deepEqual(params.tools, []);
-      assert.equal(params.workspace.workspacePath, cwd);
+      assert.equal(fs.realpathSync(params.workspace.workspacePath), cwd);
       assert.equal(process.env.EVOLVER_HEADLESS, '1');
       assert.equal(process.env.ZCODE_PLUGIN_DATA, undefined);
       assert.equal(process.env.ZCODE_CLI_PATH, undefined);

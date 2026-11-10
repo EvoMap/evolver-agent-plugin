@@ -168,17 +168,16 @@ injections, undelivered reports), so nothing is lost on the way over.
   package, not published to npm yet); remove the old `evolver-opencode-plugin` first, or every reuse is reported
   twice.
 - **DeepSeek Harness:** each dsh profile loads its own plugins; for every profile you use (`dsh-tui`, `web`,
-  `headless`), remove the standalone `@evomap/dsh-evolver` first, then add `dist/dsh` from the `release` branch, and
+  `headless`), remove the standalone `@evomap/dsh-evolver` first, then add the new one from npm, and
   restart dsh:
 
   ```bash
   dsh plugin --profile dsh-tui remove @evomap/dsh-evolver
-  dsh plugin --profile dsh-tui add -w "github:EvoMap/evolver-agent-plugin#release&path:dist/dsh"
+  dsh plugin --profile dsh-tui add -w @evomap/dsh-evolver@latest
   ```
 
-  In dsh's own plugin screen, paste `github:EvoMap/evolver-agent-plugin#release&path:dist/dsh` rather than the
-  repository URL: the repository root is not a dsh plugin. The folder is the `@evomap/dsh-evolver` package (shown in
-  dsh as `evolver-plugin`), not on npm yet.
+  Each release publishes `dist/dsh` to npm as `@evomap/dsh-evolver` (shown in dsh as `evolver-plugin`), replacing
+  the standalone plugin of that name.
 - **An MCP client without hooks:** in a checkout, `npm ci` (the server needs the MCP SDK), then register
   `node <checkout>/bin/mcp.mjs mcp-generic` as an stdio MCP server.
 
