@@ -34,7 +34,7 @@ jobs:
   # The Windows MiniMax suite gates a release, not every PR or push.
   windows-minimax:
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: [self-hosted, Windows, X64, evox-gcp-win]
+    runs-on: windows-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -71,6 +71,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
       - run: node scripts/pack.mjs all dist "--version=$GITHUB_REF_NAME"
       - run: scripts/publish-tag.sh "$GITHUB_REF_NAME" release
         env:
@@ -78,6 +79,20 @@ jobs:
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      # npm refuses a version it already holds, so a re-run of a released tag skips the publish. Provenance needs a
+      # GitHub-hosted runner, and this job runs on the org's own.
+      - name: Publish @evomap/dsh-evolver to npm
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dist_tag=latest
+          [[ "$version" == *-* ]] && dist_tag=next
+          if npm view "@evomap/dsh-evolver@$version" version > /dev/null 2>&1; then
+            echo "@evomap/dsh-evolver@$version is already on npm."
+          else
+            npm publish dist/dsh --access public --tag "$dist_tag"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

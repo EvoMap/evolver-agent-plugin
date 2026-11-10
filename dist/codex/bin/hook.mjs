@@ -5,4 +5,4 @@
 import { runHookProcess } from '../lib/channels/hook/runner.js';
 
 const [agent, hostEvent] = process.argv.slice(2);
-await runHookProcess(agent, hostEvent);
+await runHookProcess(agent, hostEvent, { startedAt: performance.timeOrigin });
