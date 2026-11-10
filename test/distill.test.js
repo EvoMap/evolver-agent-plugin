@@ -108,3 +108,19 @@ test('the list says how to publish or discard', () => {
   assert.equal(draftsListText([]), 'No distilled drafts are waiting.');
   assert.match(draftsListText([{ id: 'abcdef1234567890', title: 'T', summary: 'S' }]), /1\. T \(abcdef123456\) — S\n.*publish <number>.*discard <number>/);
 });
+
+test('a turn judged again out of a host-model range keeps the range\'s model, base and snapshot', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number, head: { root: '/repo', head: `h${number}` } });
+  const base = { root: '/repo', head: 'h1' };
+  const range = { at: 1, sessionEpoch: 1, base, project: { ...base, diff: 'd' }, model: 'model-x', turns: [turn(1), turn(2)] };
+  for (const removed of [1, 2]) {
+    const { s } = withoutWorkTurn({ s: range }, 's', removed);
+    assert.deepEqual([s.model, s.base, s.project, s.turns.map(({ turn }) => turn)], ['model-x', base, range.project, [3 - removed]]);
+  }
+});
+
+test('a range claimed again by another process is no longer the one a distillation read', () => {
+  const read = { at: 1, changedAt: 1, sessionEpoch: 1, claimedBy: 10, turns: [{ turn: 1, prompt: 'p', steps: [], answer: '', at: 1 }] };
+  assert.equal(isCurrentRange({ s: read }, 's', read), true);
+  assert.equal(isCurrentRange({ s: { ...read, claimedBy: 11 } }, 's', read), false);
+});

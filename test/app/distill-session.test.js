@@ -925,3 +925,25 @@ test('a command run can be stopped: its signal reaches the evolver CLI', async (
   await runCommand(ports, { sessionId: 's1', name: 'evolver-run', args: '--loop', signal: controller.signal });
   assert.equal(seen, controller.signal);
 });
+
+test('a correction marked while the model answers stops the distillation before its request is sent', async () => {
+  let ports;
+  const made = await fixedSession({ model: modelAnswering(IR, async () => {
+    const [{ turn, sessionEpoch }] = (await ports.candidates.read()).s1.turns;
+    await ports.draftCorrections.mark('s1', turn, sessionEpoch);
+  }) });
+  ports = made.ports;
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'dropped');
+  assert.deepEqual(distills(made.requests), []);
+});
+
+test('an agent is neither asked for nor can post a Gene for work below the explicit gate', async () => {
+  const { ports, requests } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT });
+  await turnOf(ports, 's1', { steps: [['fail', 'npm test'], ['edit', '/proj/a.js'], ['fail', 'npm test']] });
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  assert.equal(asked.agentGene, undefined);
+  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
+  assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor })).status, 'dropped');
+  assert.deepEqual(distills(requests), []);
+});
