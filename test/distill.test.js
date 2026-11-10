@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange, withoutExpiredLeftovers, withoutWorkTurn } from '../lib/distill/range.js';
+import { isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
 import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
@@ -100,4 +100,13 @@ test('a work turn\'s stored route binding never reaches the calibration corpus',
     gate: { passed: true, reason: null, workTurns: 1, episodes: 1 }, kind: 'fix', session: { record: [], userPrompt: '', finalAnswer: '' }, now: 2,
   });
   assert.equal(JSON.stringify(entry).includes('modelBinding'), false);
+});
+
+test('a late turn or correction of an older session epoch leaves the newer epoch\'s range alone', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number });
+  const newer = { s: { at: 20, changedAt: 20, sessionEpoch: 20, turns: [turn(1)] } };
+  assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 10 }), undefined);
+  assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 10 }), undefined);
+  assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 40 }).s.sessionEpoch, 40);
+  assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 20 }).s.turns[0].correction, 'no, still failing');
 });
