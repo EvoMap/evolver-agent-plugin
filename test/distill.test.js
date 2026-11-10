@@ -102,11 +102,12 @@ test('a work turn\'s stored route binding never reaches the calibration corpus',
   assert.equal(JSON.stringify(entry).includes('modelBinding'), false);
 });
 
-test('a late turn or correction of an older session epoch leaves the newer epoch\'s range alone', () => {
+test('a late turn, removal or correction of an older session epoch leaves the newer epoch\'s range alone', () => {
   const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number });
   const newer = { s: { at: 20, changedAt: 20, sessionEpoch: 20, turns: [turn(1)] } };
   assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 10 }), undefined);
   assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 10 }), undefined);
+  assert.equal(withoutWorkTurn(newer, 's', 1, { sessionEpoch: 10 }), undefined);
   assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 40 }).s.sessionEpoch, 40);
   assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 20 }).s.turns[0].correction, 'no, still failing');
 });
