@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
+import { baseFor, isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
 import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
@@ -121,4 +121,11 @@ test('a turn judged again after a later one joined keeps the range\'s newer rout
   });
   assert.deepEqual([s.model, s.project, s.pid, s.blocked], ['route-b', newer, 2, range.blocked]);
   assert.equal(s.turns.find(({ turn }) => turn === 1).answer, 'judged again');
+});
+
+test('a turn of another session epoch takes its diff from its own HEAD, not the old range\'s base', () => {
+  const range = { at: 1, sessionEpoch: 10, base: { root: '/repo', head: 'old' }, turns: [{ turn: 1, head: { root: '/repo', head: 'old' } }] };
+  const workTurn = { turn: 1, head: { root: '/repo', head: 'new' } };
+  assert.deepEqual(baseFor({ s: range }, 's', workTurn, { sessionEpoch: 20 }), workTurn.head);
+  assert.deepEqual(baseFor({ s: range }, 's', workTurn, { sessionEpoch: 10 }), range.base);
 });
