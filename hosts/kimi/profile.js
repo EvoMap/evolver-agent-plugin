@@ -11,6 +11,9 @@ import { kimiPayload } from './payload.js';
 import { kimiHomeOf, nativeSessionIdOf, projectDirOf, stateDirOf } from './paths.js';
 import { decodeNativeFacts, taskIdsOf } from './transcript.js';
 
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const workspacesOf = (index) => index?.version === 1 && isObject(index.workspaces)
+  ? Object.entries(index.workspaces).map(([id, workspace]) => [id, workspace?.root]) : null;
 const promptReply = (message, event) => message && event === 'UserPromptSubmit' ? { message } : {};
 const reasons = { completed: 'answer', failed: 'error', cancelled: 'aborted', interrupted: 'aborted' };
 const terminalOf = context => context?.nativeFacts?.status === 'ok' && context.nativeFacts.schemaSupported ? context.nativeFacts.terminal : null;
@@ -25,7 +28,8 @@ export default defineProfile({
   payload: kimiPayload,
   native: {
     events: ['TurnStarted', 'Stop', 'StopFailure', 'Interrupt', 'TaskStarted', 'Notification'],
-    root: kimiHomeOf, workspaceIndex: 'workspaces.json', sessionId: nativeSessionIdOf, projectDir: projectDirOf, agent: 'main',
+    root: kimiHomeOf, workspaceIndex: 'workspaces.json', workspacesOf, sessionDir: (workspaceId, sessionId) => join('sessions', workspaceId, sessionId),
+    logFile: 'agents/main/wire.jsonl', sessionId: nativeSessionIdOf, projectDir: projectDirOf,
     reference: payload => ({ session_id: nativeSessionIdOf(payload), cwd: projectDirOf(payload) }),
     tasksRoot: (env, sessionDir) => join(sessionDir, 'agents', 'main', 'tasks'),
     taskIds: taskIdsOf, decode: decodeNativeFacts,

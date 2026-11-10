@@ -15,7 +15,9 @@ function fixture(t) {
   const agent = join(home, 'sessions/workspace/session/agents/main'); mkdirSync(agent, { recursive: true });
   const wire = join(agent, 'wire.jsonl');
   const declaration = { root: () => home, workspaceIndex: 'workspaces.json', sessionId: p => p.session_id,
-    projectDir: p => p.cwd, agent: 'main', decode: (records, tasks, payload, context) => ({ records, tasks, context }) };
+    workspacesOf: (index) => Object.entries(index.workspaces).map(([id, { root }]) => [id, root]),
+    sessionDir: (workspaceId, sessionId) => join('sessions', workspaceId, sessionId), logFile: 'agents/main/wire.jsonl',
+    projectDir: p => p.cwd, decode: (records, tasks, payload, context) => ({ records, tasks, context }) };
   return { home, project, wire, declaration, payload: { session_id: 'session', cwd: project } };
 }
 

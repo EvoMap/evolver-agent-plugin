@@ -131,5 +131,5 @@ export const headlessKimi = Object.freeze({
   config: { source: env => join(kimiHomeOf(env), 'config.toml'), parseConfig: parse, serializeConfig: stringify, select: selectRoute },
   prepare: prepareRoute,
   sessionConfig: (snapshot, selected) => supportsThinking(selected.model) ? [{ id: 'thinking', value: snapshot.effort }] : [],
-  facts: { root: home => join(home, 'kimi-home'), decode: completionFacts },
+  facts: { root: home => join(home, 'kimi-home'), logName: 'wire.jsonl', decode: completionFacts },
 });

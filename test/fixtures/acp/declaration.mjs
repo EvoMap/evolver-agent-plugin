@@ -20,6 +20,6 @@ export function declarationFor(config, receipt, mode = '') {
       files: { 'fixture.json': { format: 'config', value: { ...selected.route, credentialEnv, mode } } },
       env: { FIXTURE_RECEIPT: receipt },
     }),
-    facts: { root: home => join(home, 'records'), decode: records => records.at(-1) },
+    facts: { root: home => join(home, 'records'), logName: 'wire.jsonl', decode: records => records.at(-1) },
   };
 }
