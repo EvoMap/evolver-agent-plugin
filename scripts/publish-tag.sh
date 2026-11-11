@@ -6,8 +6,9 @@
 #        node scripts/pack.mjs all dist --version=vX.Y.Z; the branch defaults to release)
 # Publishes the tag a maintainer pushed on main: one commit more on the release branch, the tagged source plus the
 # packed dist/, and the tag re-pointed at it, in one atomic push. The hosts install from that branch, so nothing on
-# main names a version. A tag already published is left alone, a tag off main or older than the release is refused,
-# and the push only replaces the tag the maintainer pushed.
+# main names a version. A tag already published is left alone while it is the newest release, whether run from its
+# source or its published commit; a tag off main or older than the release is refused, and the push only replaces
+# the tag the maintainer pushed.
 
 set -euo pipefail
 
@@ -25,7 +26,34 @@ if [ ! -d dist ]; then
   exit 1
 fi
 
-if git cat-file -e "$source_commit:dist" 2>/dev/null; then
+pushed="$(git ls-remote --exit-code origin "refs/tags/$tag" | cut -f1)"
+git fetch --quiet origin "refs/tags/$tag"
+published="$(git rev-parse 'FETCH_HEAD^{commit}')"
+
+parents=()
+listed=0
+git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null || listed=$?
+if [ "$listed" -eq 0 ]; then
+  git fetch --quiet origin "refs/heads/$branch"
+  previous="$(git rev-parse FETCH_HEAD)"
+  previous_source="$(git log -1 --format=%B "$previous" | sed -n 's/^main at \([0-9a-f]\{40\}\).*/\1/p')"
+  parents=(-p "$previous")
+elif [ "$listed" -ne 2 ]; then
+  echo "Could not list origin's branches (git exit $listed)." >&2
+  exit "$listed"
+fi
+
+# A retry must not make an older tag the npm latest after a newer Git release.
+if git cat-file -e "$published:dist" 2>/dev/null; then
+  if [ "$listed" -eq 0 ] && [ "$published" != "$previous" ]; then
+    echo "$tag is older than what $branch holds ($previous): a release only moves forward." >&2
+    exit 1
+  fi
+  published_source="$(git log -1 --format=%B "$published" | sed -n 's/^main at \([0-9a-f]\{40\}\).*/\1/p')"
+  if [ "$source_commit" != "$published" ] && [ "$source_commit" != "$published_source" ]; then
+    echo "$tag already publishes $published_source; it cannot publish $source_commit." >&2
+    exit 1
+  fi
   echo "$tag already holds dist/: it is published."
   exit 0
 fi
@@ -35,24 +63,9 @@ if ! git merge-base --is-ancestor "$source_commit" FETCH_HEAD; then
   echo "$tag points at $source_commit, which is not on main: only main is released." >&2
   exit 1
 fi
-
-pushed="$(git ls-remote --exit-code origin "refs/tags/$tag" | cut -f1)"
-
-parents=()
-listed=0
-git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null || listed=$?
-if [ "$listed" -eq 0 ]; then
-  git fetch --quiet origin "refs/heads/$branch"
-  previous="$(git rev-parse FETCH_HEAD)"
-  previous_source="$(git log -1 --format=%B "$previous" | sed -n 's/^main at \([0-9a-f]\{40\}\).*/\1/p')"
-  if [ -n "$previous_source" ] && [ "$previous_source" != "$source_commit" ] && git merge-base --is-ancestor "$source_commit" "$previous_source"; then
-    echo "$tag is older than what $branch holds ($previous_source): a release only moves forward." >&2
-    exit 1
-  fi
-  parents=(-p "$previous")
-elif [ "$listed" -ne 2 ]; then
-  echo "Could not list origin's branches (git exit $listed)." >&2
-  exit "$listed"
+if [ "$listed" -eq 0 ] && [ -n "$previous_source" ] && [ "$previous_source" != "$source_commit" ] && git merge-base --is-ancestor "$source_commit" "$previous_source"; then
+  echo "$tag is older than what $branch holds ($previous_source): a release only moves forward." >&2
+  exit 1
 fi
 
 index="$(mktemp)"
