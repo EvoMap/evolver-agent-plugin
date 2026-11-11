@@ -3,26 +3,16 @@
 
 import { isAbsolute, resolve } from 'node:path';
 
-const factsOf = (context) => context?.nativeFacts?.status === 'ok' && context.nativeFacts.schemaSupported
-  ? context.nativeFacts
-  : null;
-
-export function editedFilesOf(payload, context = {}) {
-  const facts = factsOf(context);
-  if (payload.hook_event_name !== 'PreToolUse' || !['Write', 'Edit'].includes(payload.tool_name)
-      || facts?.toolTurnId == null) return [];
+export function editedFilesOf(payload) {
+  if (payload.hook_event_name !== 'PreToolUse' || !['Write', 'Edit'].includes(payload.tool_name)) return [];
   const file = payload.tool_input?.path;
   if (typeof file !== 'string' || !file || file.includes('\0')) return [];
-  return isAbsolute(file)
-    ? [file]
-    : typeof payload.cwd === 'string' && isAbsolute(payload.cwd) ? [resolve(payload.cwd, file)] : [];
-
+  if (isAbsolute(file)) return [file];
+  return typeof payload.cwd === 'string' && isAbsolute(payload.cwd) ? [resolve(payload.cwd, file)] : [];
 }
 
 export const kimiEvidence = Object.freeze({
-  // Kimi truncates hook tool_output. Only correlated native wire/task results can settle evidence.
+  // Kimi truncates hook tool_output: a turn's evidence is read from its session log once the turn ended.
   toolNote: () => null,
   editedFiles: editedFilesOf,
-  turnStart: (payload, context = {}) => context.nativeFacts?.mark ?? null,
-  turnRecord: (payload, context = {}) => factsOf(context)?.record ?? null,
 });

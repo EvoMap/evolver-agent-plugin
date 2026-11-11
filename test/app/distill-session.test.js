@@ -108,6 +108,25 @@ test('a distillation names only the assets injected into the turns it read', asy
   assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id]);
 });
 
+test('a fitted distillation names only assets from the turns the model still reads', async () => {
+  const lastAsset = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
+  const made = memoryPorts({ assets: [ASSET, lastAsset], distillAnswer: DRAFTED, model: modelAnswering(IR) });
+  const steps = [
+    ...Array.from({ length: 56 }, (_, index) => ['run', `fixture-command-${index} ${'x'.repeat(940)}`]),
+    ['pass', 'npm test'],
+  ];
+  for (let turn = 1; turn <= 8; turn++) {
+    await turnOf(made.ports, 's1', { steps, ...(turn === 8 && { prompt: 'what is the weather like' }) });
+  }
+  await endedAndDistilled(made);
+  const [{ body }] = distills(made.requests);
+  const turns = body.record.filter(({ kind }) => kind === 'turn').map(({ text }) => text);
+  assert.ok(!turns.includes('Turn 1'), 'the oldest work was cut to meet the Proxy body limit');
+  assert.ok(turns.includes('Turn 8'));
+  assert.deepEqual(body.reused_asset_ids, [lastAsset.asset_id]);
+  assert.ok(bytesOf(body) <= 256 * 1024);
+});
+
 test('a session ledger that cannot be read leaves out the reused assets, never the distillation', async () => {
   const made = await fixedSession({ model: modelAnswering(IR) });
   await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
@@ -495,8 +514,7 @@ test('a correction crossing a draft write takes back only that draft: earlier dr
     let replacement;
     if (replace) await update((drafts) => drafts.map((draft) => {
       if (draft.id !== DRAFTED.distill_id) return draft;
-      const [source] = draftSourcesOf(draft);
-      replacement = { ...draft, title: 'Concurrent method', sourceRange: { ...draft.sourceRange, turns: [{ ...source, turn: source.turn + 1 }] } };
+      replacement = { ...draft, title: 'Concurrent method', sourceCandidate: { ...draft.sourceCandidate, turn: draft.sourceCandidate.turn + 1 } };
       return replacement;
     }));
     await correct(ports);
@@ -952,7 +970,7 @@ test('a command run can be stopped: its signal reaches the evolver CLI', async (
 test('a correction marked while the model answers stops the distillation before its request is sent', async () => {
   let ports;
   const made = await fixedSession({ model: modelAnswering(IR, async () => {
-    const [{ turn, sessionEpoch }] = (await ports.candidates.read()).s1.turns;
+    const { turns: [{ turn }], sessionEpoch } = (await ports.candidates.read()).s1;
     await ports.draftCorrections.mark('s1', turn, sessionEpoch);
   }) });
   ports = made.ports;
@@ -969,4 +987,41 @@ test('an agent is neither asked for nor can post a Gene for work below the expli
   const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
   assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor })).status, 'dropped');
   assert.deepEqual(distills(requests), []);
+});
+
+test('a distillation that throws gives its claim back, so the same live process can try the range again', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const request = made.ports.proxy.request;
+  made.ports.proxy.request = async (...args) => {
+    if (args[1] === '/conversation/distill') throw new Error('the Proxy connection reset');
+    return request(...args);
+  };
+  await assert.rejects(endedAndDistilled(made), /connection reset/);
+  assert.equal((await made.ports.candidates.read()).s1.claimedBy, null);
+  made.ports.proxy.request = request;
+  const [outcome] = await distillDue(made.ports);
+  assert.equal(outcome.status, 'drafted');
+});
+
+test('a model failure is logged without the credential its message carried', async () => {
+  const made = await fixedSession({ model: { complete: async () => { throw new Error('401 for Authorization: Bearer sk-fixture-secret-0123456789abcdef'); } } });
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'model_failed');
+  assert.equal(JSON.stringify([outcome, await made.ports.outcomes.read()]).includes('sk-fixture-secret-0123456789abcdef'), false);
+});
+
+test('a shutdown while the Proxy answers stops the distillation and leaves the range for the next start', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const stopping = new AbortController();
+  made.ports.scheduler = { ...made.ports.scheduler, signal: stopping.signal };
+  made.ports.proxy.request = async (method, path, body, { signal } = {}) => {
+    if (path !== '/conversation/distill') return { ok: true, data: { recorded: true } };
+    stopping.abort();
+    signal.throwIfAborted();
+    return { ok: true, data: DRAFTED };
+  };
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'stopped');
+  const range = (await made.ports.candidates.read()).s1;
+  assert.deepEqual([range.claimedBy, range.turns.length], [null, 1]);
 });
