@@ -254,7 +254,12 @@ test('explicit publication preserves the Proxy receipt and its complete bound bu
   assert.deepEqual(await ports.drafts.read(), []);
 });
 
-test('a successful submit leaves a replacement draft with the same id waiting', async (t) => {
+for (const [change, replace] of [
+  ['a later creation time', (draft) => ({ ...draft, createdAt: draft.createdAt + 1, title: 'Replacement' })],
+  ['a different receipt at the same creation time', (draft) => ({
+    ...draft, publish_receipt: { ...RECEIPT, receiptId: 'replacement-receipt' },
+  })],
+]) test(`a successful submit keeps a same-id draft with ${change}`, async (t) => {
   const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
   const dir = mkdtempSync(join(tmpdir(), 'evolver-draft-replacement-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -262,7 +267,7 @@ test('a successful submit leaves a replacement draft with the same id waiting', 
   ports.drafts = drafts;
   await drafts.update(() => [draft]);
 
-  const replacement = { ...draft, createdAt: draft.createdAt + 1, title: 'Replacement' };
+  const replacement = replace(draft);
   ports.proxy.request = async (method, path, body) => {
     assert.equal(path, '/asset/submit');
     assert.deepEqual(body.assets, draft.assets);
