@@ -533,6 +533,16 @@ process.disconnect();`;
   assert.deepEqual(await exited, [0, null]);
 });
 
+test('a session lifecycle lock that stays held refuses with ELOCKED, so a prompt can open without it', async () => {
+  const { stores: cursor } = stores();
+  let release;
+  const holder = cursor.sessions.withSession('s1', () => new Promise((resolve) => { release = resolve; }));
+  await assert.rejects(cursor.sessions.withSession('s1', () => assert.fail('work must not run')), { code: 'ELOCKED' });
+  assert.equal(await cursor.sessions.withSession('s2', () => 'other session'), 'other session');
+  release();
+  await holder;
+});
+
 test('a correction lock that stays held refuses with ELOCKED, so a hook reports it', async () => {
   const { stores: cursor } = stores();
   let release;
