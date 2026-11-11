@@ -61,6 +61,15 @@ test('native prompt binds turn zero before terminal; Stop hints cannot close it 
   assert.deepEqual(made.sessions.get('session').nativeCursor.mark, { offset: 500, fileId: 'wire' });
 });
 
+test('native finalization preserves an unknown captured owner without probing its own ancestry', async () => {
+  const made = await pending({ owner: null });
+  made.ports.owner.current = () => assert.fail('finalization must use the captured owner');
+  const ended = await reconcileNativeTurn(made.ports, at, facts());
+  assert.equal(ended.ended.isCandidate, true);
+  assert.equal((await made.ports.candidates.read()).session.pid, null);
+  assert.equal(made.queued.length, 1);
+});
+
 test('read errors, partial wire and a native prompt before the pending mark cannot settle a turn', async () => {
   for (const bad of [{ ...facts(), status: 'partial' }, { ...facts(), bind: { ...facts().bind, mark: 50 } }, { ...facts(), mark: { offset: 500, fileId: 'rotated' } }]) {
     const made = await pending();
