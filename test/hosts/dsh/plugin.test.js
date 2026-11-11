@@ -260,8 +260,10 @@ test('a turn no person\'s message opened is recalled for nothing and records not
 
 test('options: proxyPort reaches the Proxy when settings name none, and assetPrimeEnabled: false turns recall off', async (t) => {
   const proxy = await startProxy(t);
-  const { rmSync } = await import('node:fs');
-  rmSync(`${proxy.home}/.evolver/settings.json`);
+  const { writeFileSync } = await import('node:fs');
+  // Still a current Proxy's version: with none, a session start would install the real engine from npm and start
+  // its Proxy on the default port, under whatever home the process has by then.
+  writeFileSync(`${proxy.home}/.evolver/settings.json`, JSON.stringify({ proxy: { version: '2.0.50' } }));
   const dsh = await startDsh({ config: { proxyPort: proxy.port } });
   const agent = await dsh.createAgent();
   const decision = await dsh.preStep(agent, { turn: 1, step: 1, messages: [{ ...DSH.preStep.prompt.messages[0], content: [{ type: 'text', text: PROMPT }] }] });

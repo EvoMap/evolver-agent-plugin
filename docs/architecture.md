@@ -96,7 +96,8 @@ pure rules and never Node; `lib/runtime/` implements the ports and is the only s
 reads files or branches on the platform; `hosts/<host>/` holds data and pure functions, no IO; `bin/` and every
 `hosts/<host>/dist/` are entries that reach the plugin only through a channel; no shared layer names a host. Every
 session id the use cases see is qualified with its host when it leaves (`claude-code:<session>:<turn>`), so task ids
-and ledger cycles say which agent a report came from.
+say which agent a report came from; a local ledger record's cycle is the host's bare session id, and its `platform`
+names the host.
 
 **Profiles.** `defineProfile` completes a host's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events
@@ -149,7 +150,13 @@ Each IR that keeps the IR's shape (fields, counts, `scope.signals` of at most 64
 record) goes to `POST /conversation/distill` as its own request: `ir_version`, `ir`, the same `record`,
 `user_prompt`, `final_answer`, `execution.trace` as `{ command, exit, source }` per check (`ok`, what its output
 said, in place of `exit` when the host gives no exit code, which is never made up), `project` (`{ root, head, diff }`
-with the range's starting commit as `head`, or only `{ diff_omitted }`), `project_dir` and the trigger. The record is
+with the range's starting commit as `head`, or only `{ diff_omitted }`), `project_dir`, the trigger and
+`reused_asset_ids`: the strategies the session's injection ledger booked into the range's turns (a turn of an
+earlier session file with the same number is another turn), `sha256:` ids only, in the order they were injected, at
+most 20, left out when there are none or the session's file cannot be read. A Proxy that knows the field keeps it as
+the Gene's `generation_meta.reused_asset_ids`, so a Gene names the assets the work it was distilled from reused. The
+distiller reads only the body fields it knows, so a Proxy from before the field (2.0.50 and earlier) distills the same
+Gene with or without it and the request never fails over it. The record is
 fitted to the Proxy's 256 KiB before the model reads it (the diff is left out as `too_large` first, then the diff
 lines, then the oldest turns), so the lines an IR cites are the lines sent. The Proxy's answer is `stored`, a draft,
 or refused with a typed `quality.reason` and the `terms` it found; every outcome, the model's skip and a failure are
@@ -316,14 +323,25 @@ scripts/               pack.mjs, publish-tag.sh
   distillation in those projects. An unknown check is a plain command in the distillation record and provides no
   execution trace row; a check whose result is known without an exit code is a check line with no `exit` (and
   `failed: true` when it failed). A native exit code of zero still passes without requiring output.
-  A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. An older Proxy
-  drops `source` and the plugin runs unchanged.
+  A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. Any other report the
+  Hub took is also appended to evolver-core's root events, `value.reuse_hit` for a success and `value.reuse_outcome`
+  (with its `outcome`) otherwise, with `assetId`, `cycleId` (the host's session id), `platform` (the host),
+  `taskId`, `tier` and `stage`, so a reader of the ledger can tell which agent reused what on which evidence.
+  evolver-core's event schema leaves the payload open (2.0.50 and every release before it), so a core that reads
+  none of the four keeps them and records the event as before.
+
+  The Proxy forwards `evidence` whole, and a Hub that does not know `source` refuses the whole report as
+  `validation_error`, which the Proxy passes on as a terminal rejection: on one machine from 5 to 8 November 2026,
+  all 175 Claude Code reports a 2.0.49 Proxy relayed with `source` were refused that way. Such a report goes once
+  more at once, without `source`; that answer settles it, and the outbox keeps the report as last sent, so a retry
+  never carries `source` again.
 - **Report outbox.** Reports are keyed by task id and asset, queued once and retried for 8 days, long enough for a
   retention follow-up a week later. A report counts as delivered once the Hub answers it at all: `recorded`,
   `duplicate_report`, or `eligible: false` (`daily_cap`, `same_owner`, `no_delivery_proof`) are final, so only an
   unreachable Proxy or an unrecorded answer is retried. The Hub counts one turn-end report per node, asset and UTC
   day. A request the Hub refuses as invalid can never succeed: the Proxy marks it `terminal: true` (an older one
-  says `hub 400` or `hub 422`), and the report is settled as rejected and kept out of the local ledger. `hub 404`
+  says `hub 400` or `hub 422`), and the report is settled as rejected and kept out of the local ledger (a
+  `validation_error` of a report with a `source` only once it was refused without it too, above). `hub 404`
   (the Hub may not serve the route yet), `hub 5xx`, 401, 403, 429 and timeouts are retried until the report expires.
 - **Turn numbers** come from a per-session counter, one per turn whatever started it, kept past the session's end:
   a resumed session continues under the same id, and a repeated task id is one the Hub drops as a duplicate.
