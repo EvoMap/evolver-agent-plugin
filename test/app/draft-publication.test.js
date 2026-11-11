@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -252,6 +252,29 @@ test('explicit publication preserves the Proxy receipt and its complete bound bu
   assert.equal(answer.ok, true, answer.text);
   assert.equal(requests.length, 1);
   assert.deepEqual(await ports.drafts.read(), []);
+});
+
+test('a successful submit leaves a replacement draft with the same id waiting', async (t) => {
+  const { ports, draft } = await withDraft({ ...RESULT, publishable: true, publish_receipt: RECEIPT });
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-draft-replacement-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { drafts } = fileStoresOf({ dir, agent: 'testagent' });
+  ports.drafts = drafts;
+  await drafts.update(() => [draft]);
+
+  const replacement = { ...draft, createdAt: draft.createdAt + 1, title: 'Replacement' };
+  ports.proxy.request = async (method, path, body) => {
+    assert.equal(path, '/asset/submit');
+    assert.deepEqual(body.assets, draft.assets);
+    assert.deepEqual(body.publish_receipt, RECEIPT);
+    await drafts.update(() => [replacement]);
+    return { ok: true, data: { message_id: 'submitted-original' } };
+  };
+
+  const answer = await runCommand(ports, { sessionId: 's1', name: 'evolver-drafts', args: 'publish 1' });
+  assert.equal(answer.ok, true, answer.text);
+  assert.match(answer.text, /submitted-original/);
+  assert.deepEqual(await drafts.read(), [replacement]);
 });
 
 test('a Proxy-declared unpublishable draft is retained and explains the trusted verification requirement', async () => {
