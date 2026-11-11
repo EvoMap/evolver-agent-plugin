@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
+import { appendStateLine, readState, takeStateLines, updateState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
 
 const dirs = [];
@@ -73,6 +73,33 @@ test('released turn evidence is immediately recoverable alongside newer appends,
   assert.deepEqual(recovered.notes, [{ command: 'first' }, { command: 'arrived after take' }]);
   await recovered.commit();
   assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
+});
+
+test('turn evidence waits for an earlier take without dropping new appends', async () => {
+  const { stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  const first = await cursor.notes.take('s1', scope);
+  await cursor.notes.append('s1', { command: 'new' }, scope);
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'ELOCKED' });
+  await first.commit();
+  const next = await cursor.notes.take('s1', scope);
+  assert.deepEqual(next.notes, [{ command: 'new' }]);
+  await next.commit();
+});
+
+test('queue takes still consume new appends while an earlier take awaits commit', () => {
+  const { dir } = stores();
+  const target = join(dir, 'queue.jsonl');
+  appendStateLine(target, { report: 'first' });
+  const first = takeStateLines(target);
+  appendStateLine(target, { report: 'next' });
+  const next = takeStateLines(target);
+  assert.deepEqual(first.lines, [{ report: 'first' }]);
+  assert.deepEqual(next.lines, [{ report: 'next' }]);
+  first.commit();
+  next.commit();
+  assert.deepEqual(takeStateLines(target).lines, []);
 });
 
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
