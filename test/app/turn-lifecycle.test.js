@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -706,15 +706,92 @@ test('the current native epoch replaces an older range with its own snapshot bas
   assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
 });
 
-test('a verified native report retries with its original evidence after a local queue failure', async () => {
+for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
+  test(`redelivering a confirmed native turn recovers from a transient ${read} read failure`, async (t) => {
+    const { ports, queued, retained } = memoryPorts();
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-native-read-retry-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+    Object.assign(ports, { sessions, candidates, notes, baseline, confirmTurnCompletion: true, modelForTurn: () => NATIVE_ROUTE });
+    const sessionId = 's1', turnId = 't1';
+    await promptSubmitted(ports, { sessionId, turnId, prompt: PROMPT, ...WAIT });
+    const expectedTurn = await sessions.read(sessionId);
+    let reads = 0;
+    const recordOf = read === 'terminal record' ? () => {
+      if (++reads === 1) throw new Error('temporary read failure');
+      return NATIVE_PASS;
+    } : null;
+    let editedFile;
+    if (!recordOf) {
+      editedFile = join(dir, 'fixture.js');
+      await baseline.remember(sessionId, editedFile, turnId, expectedTurn);
+      const call = { kind: 'shell', command: 'npm test', callId: 'check' };
+      await toolFinished(ports, { sessionId, turnId, note: { ...call, running: true } });
+      await toolFinished(ports, { sessionId, turnId, note: { ...call, exit: 0 } });
+      await toolFinished(ports, { sessionId, turnId, note: { kind: 'answer', text: NATIVE_PASS.answer } });
+      const readFile = fs.readFileSync;
+      const stem = read === 'saved tool notes' ? 'testagent-turn-' : 'testagent-edits-';
+      t.mock.method(fs, 'readFileSync', (file, ...args) => {
+        if (typeof file === 'string' && file.startsWith(dir) && file.includes(stem) && file.endsWith('.taking') && ++reads === 1) {
+          throw Object.assign(new Error('temporary read failure'), { code: 'EACCES' });
+        }
+        return readFile(file, ...args);
+      });
+    }
+    const deliver = () => turnEnded(ports, { sessionId, turnId, reason: 'answer', expectedTurn, recordOf });
+    await assert.rejects(deliver, /temporary read failure/);
+    assert.equal((await sessions.read(sessionId)).open, true);
+    assert.deepEqual(queued, []);
+    assert.deepEqual(await candidates.read(), {});
+
+    const result = await deliver();
+    assert.deepEqual(result?.record.checks, NATIVE_PASS.checks);
+    assert.equal(await deliver(), null);
+    assert.deepEqual(queued.map(({ report }) => [report.task_id, report.outcome]), [['testagent:s1:1', 'success']]);
+    const range = (await candidates.read())[sessionId];
+    assert.deepEqual(range?.model, NATIVE_ROUTE);
+    assert.deepEqual(range?.turns.map(({ turn }) => turn), [1]);
+    assert.equal(retained.length, 1);
+    if (editedFile) assert.equal(retained[0].editedBefore.has(editedFile), true);
+  });
+}
+
+test('a native evidence read failure cannot reopen a turn after a newer prompt', async () => {
+  const { ports, queued } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: PROMPT, ...WAIT });
+  const expectedTurn = await ports.sessions.read('s1');
+  await assert.rejects(end(ports, 's1', { turnId: 'old', expectedTurn, recordOf: async () => {
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: 'A new task', ...WAIT });
+    throw new Error('temporary read failure');
+  } }), /temporary read failure/);
+
+  assert.equal(await end(ports, 's1', { turnId: 'old', expectedTurn, recordOf: () => NATIVE_PASS }), null);
+  const current = await ports.sessions.read('s1');
+  assert.equal(current.turnId, 'new');
+  assert.equal(current.open, true);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(await ports.candidates.read(), {});
+});
+
+test('a verified native report retries with its original evidence and keeps its work after a local queue failure', async (t) => {
   const second = { ...ASSET, asset_id: 'sha256:' + 'b'.repeat(64), signals_match: ['next-fixture'] };
-  const { ports, queued } = memoryPorts({ assets: [ASSET, second] });
+  const { ports, queued, retained } = memoryPorts({ assets: [ASSET, second] });
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-native-queue-retry-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates, notes, baseline, modelForTurn: () => NATIVE_ROUTE });
   ports.confirmTurnCompletion = true;
   await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
   const enqueue = ports.reports.enqueue;
   ports.reports.enqueue = async () => { throw new Error('local queue unavailable'); };
   await assert.rejects(end(ports, 's1', { turnId: 't1', recordOf: () => NATIVE_PASS }), /local queue unavailable/);
   ports.reports.enqueue = enqueue;
+  const range = (await ports.candidates.read()).s1;
+  assert.deepEqual(range?.turns.map(({ turn }) => turn), [1]);
+  assert.deepEqual(range.model, NATIVE_ROUTE);
+  assert.equal((await sessions.read('s1')).open, false);
+  assert.equal(retained.length, 1);
 
   await promptSubmitted(ports, { sessionId: 's1', turnId: 't2', prompt: 'fix the next-fixture retry policy', ...WAIT });
   await end(ports, 's1', { turnId: 't2', reason: 'aborted', recordOf: () => NATIVE_PASS });
