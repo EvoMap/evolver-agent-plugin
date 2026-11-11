@@ -6,7 +6,7 @@ import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { TASKS } from '../../lib/app/ports.js';
-import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, distillSession } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
@@ -17,7 +17,7 @@ import { EPISODE_QUIET_MS } from '../../lib/distill/range.js';
 import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
 import { contentHashOf, fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
-import { fixTurn } from './work-turns.js';
+import { DRAFTED, IR, fixTurn, modelAnswering } from './work-turns.js';
 
 const WAIT = { waitMs: 5_000 };
 const nativePassingCheck = JSON.parse(readFileSync(new URL('../fixtures/node-spec-passing-errors.json', import.meta.url), 'utf8'));
@@ -641,6 +641,42 @@ test('a prompt waits until session and range cleanup finish before opening a new
   const resumed = await next;
   const session = await ports.sessions.read('s1');
   assert.deepEqual([session.open, session.turn, session.turnId], [true, resumed.turn, 'next']);
+});
+
+test('late session cleanup cannot close a replacement range after a prompt bypasses the held lifecycle lock', async (t) => {
+  const { ports } = memoryPorts({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-fallback-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  const closingRange = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const updateCandidates = ports.candidates.update;
+  ports.candidates.update = async (...args) => {
+    ports.candidates.update = updateCandidates;
+    closingRange.resolve();
+    await resume.promise;
+    return updateCandidates(...args);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await closingRange.promise;
+  try {
+    const next = await promptSubmitted(ports, { sessionId: 's1', prompt: 'continue the repair', turnId: 'next', ...WAIT });
+    assert.equal(next.skipped.code, 'ELOCKED');
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'stored');
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'edit', paths: ['/proj/lib/next.js'] } });
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'shell', command: 'npm test', exit: 0 } });
+    await end(ports, 's1', { turnId: 'next', model: 'model-x' });
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [next.turn]);
+  } finally {
+    resume.resolve();
+    await ending;
+  }
+  const current = (await ports.candidates.read()).s1;
+  assert.notEqual(current.closed, true);
+  assert.equal((await ports.sessions.read('s1')).turnId, 'next');
 });
 
 test('a note that raced past the open-turn check is still kept out of the next turn', async () => {
