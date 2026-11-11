@@ -59,7 +59,8 @@ const lines = () => {
     take: async (key) => {
       const taken = byKey.get(key) ?? [];
       byKey.delete(key);
-      return { lines: taken, commit: async () => {} };
+      const release = () => byKey.set(key, [...taken, ...(byKey.get(key) ?? [])]);
+      return { lines: taken, commit: async () => {}, release };
     },
     clear: async (key) => byKey.delete(key),
   };
@@ -102,8 +103,8 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
       append: (id, note, scope) => notes.append(evidenceKey(id, scope), note),
       read: (id, scope) => notes.read(evidenceKey(id, scope)),
       take: async (id, scope) => {
-        const { lines: taken, commit } = await notes.take(evidenceKey(id, scope));
-        return { notes: taken, commit };
+        const { lines: taken, commit, release } = await notes.take(evidenceKey(id, scope));
+        return { notes: taken, commit, release };
       },
       clear: (id, scope) => notes.clear(evidenceKey(id, scope)),
     },
