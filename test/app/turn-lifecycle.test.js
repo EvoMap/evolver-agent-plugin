@@ -569,6 +569,29 @@ test('a session end delayed before closing its turn cannot close a resumed turn'
   assert.notEqual((await ports.candidates.read()).s1.closed, true);
 });
 
+test('a session end delayed while closing an open turn cannot close the turn a resumed prompt opened', async () => {
+  const { ports } = memoryPorts();
+  await verifiedTurn(ports, 's1');
+  const closing = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const updateSession = ports.sessions.update;
+  ports.sessions.update = async (...args) => {
+    ports.sessions.update = updateSession;
+    closing.resolve();
+    await resume.promise;
+    return updateSession(...args);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await closing.promise;
+  await closeUnfinishedTurn(ports, { sessionId: 's1', projectDir: '/proj' });
+  const next = await promptSubmitted(ports, { sessionId: 's1', prompt: 'continue the repair', turnId: 'next', ...WAIT });
+  resume.resolve();
+  await ending;
+
+  const session = await ports.sessions.read('s1');
+  assert.deepEqual([session.open, session.turn, session.turnId], [true, next.turn, 'next']);
+});
+
 test('a prompt waits until session and range cleanup finish before opening a new turn', async (t) => {
   const { ports } = memoryPorts();
   const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-fence-'));
