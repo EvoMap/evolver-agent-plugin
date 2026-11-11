@@ -68,14 +68,15 @@ Evolver's Proxy/Hub account are separate.
 
 Verification keeps native task exit codes when available. Foreground Bash results
 without an exit code need a supported passing summary; silent output alone cannot
-verify work. Pending background checks block distillation, including recovery.
+verify work. A turn whose background check still runs when it ends stays pending; it
+is verified only once the check's task record settles it before the turn is closed.
 
 Private distillation profiles exclude user/project hooks, plugins, MCP servers and
 skills. The selected credential goes to the native process through its environment.
 For `kimi.com` OAuth, the private profile contains the selected provider, model and
 device ID; it has no OAuth token file or refresh credential. Expired or changed
-credentials keep the range blocked. A range can use only one captured provider
-and account binding. Start a new session to accumulate work under a new binding.
+credentials keep the range blocked. A range can use only one captured provider,
+model and configuration. Start a new session to accumulate work under a new one.
 
 On Windows, ACP completion uses a Job Object with kill-on-close. It starts the
 native CLI inside the job and waits for the job to empty before deleting scratch,

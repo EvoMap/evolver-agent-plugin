@@ -7,7 +7,7 @@ import { test } from 'node:test';
 
 import { pack } from '../../../scripts/pack.mjs';
 
-const EVENTS = ['SessionStart', 'UserPromptSubmit', 'TurnStarted', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Interrupt', 'SessionEnd', 'TaskStarted', 'Notification'];
+const EVENTS = ['SessionStart', 'UserPromptSubmit', 'TurnStarted', 'PreToolUse', 'Stop', 'StopFailure', 'Interrupt', 'SessionEnd', 'Notification'];
 
 test('the Kimi bundle carries a native flat hook manifest and self-contained channel entries', t => {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-kimi-pack-'));
