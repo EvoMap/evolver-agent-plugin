@@ -91,13 +91,24 @@ test('unsupported schemas and foreign agents do not supply evidence', () => {
   assert.equal(status([meta, { ...prompt(0), origin: { kind: 'cron' } }]), null);
 });
 
-test('fixed task discovery rejects paths and does not inspect arbitrary output paths', () => {
-  const records = [event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: 'bash-task' } }), event({ type: 'tool.result', result: { output: 'task_id: bash-task\nstatus: running' } }), event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: '../outside' } })];
-  assert.deepEqual(taskIdsOf(records), ['bash-task']);
-  const many = Array.from({ length: 70 }, (_, index) => event({ type: 'tool.call', name: 'TaskOutput', args: { task_id: `task-${index}` } }));
-  const ids = taskIdsOf([...many, many[0]]);
+test('fixed task discovery reads only background tasks the requested turn started and rejects paths', () => {
+  const bash = (id, task, turnId = '0') => [
+    event({ type: 'tool.call', uuid: `call-${id}`, toolCallId: `tool-${id}`, turnId, name: 'Bash', args: { command: 'npm test' } }),
+    event({ type: 'tool.result', parentUuid: `call-${id}`, toolCallId: `tool-${id}`, result: { output: `task_id: ${task}\nstatus: running`, durationMs: 1 } }),
+  ];
+  const records = [
+    ...bash(0, 'bash-task'),
+    ...bash(1, '../outside'),
+    ...bash(2, 'foreign-task', '1'),
+    event({ type: 'tool.call', uuid: 'read-uuid', toolCallId: 'read-call', turnId: '0', name: 'TaskOutput', args: { task_id: 'read-task' } }),
+    event({ type: 'tool.result', result: { output: 'task_id: unrelated-task\nstatus: running' } }),
+  ];
+  assert.deepEqual(taskIdsOf(records, { turnId: '0' }), ['bash-task']);
+  assert.deepEqual(taskIdsOf(records, { turnId: '1' }), ['foreign-task']);
+  const many = Array.from({ length: 70 }, (_, index) => bash(index, `task-${index}`)).flat();
+  const ids = taskIdsOf([...many, ...bash(70, 'task-0')], { turnId: '0' });
   assert.equal(ids.length, 64);
-  assert.equal(ids.at(-1), 'task-0', 'a task the newest turn names again is kept');
+  assert.equal(ids.at(-1), 'task-0', 'a task named again by a later call is kept');
 });
 
 test('duplicate native events do not duplicate checks and mismatched results remain unknown', () => {
