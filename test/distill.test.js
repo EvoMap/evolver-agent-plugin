@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { baseFor, isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
+import { baseFor, isCurrentRange, settledRange, withClosedRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
 import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
@@ -17,6 +17,21 @@ test('settling what a distillation read cannot touch a range made at the same ti
     assert.equal(settledRange({ s: current }, 's', read, { consume: true, now: 2_000 }), undefined, name);
     assert.equal(isCurrentRange({ s: current }, 's', current), true, name);
   }
+});
+
+test('session cleanup closes only the range it observed, including legacy session epochs', () => {
+  const read = { at: 1_000, sessionEpoch: 1, turns: [{ turn: 1, prompt: 'p', steps: [], answer: '', at: 1_000 }] };
+  assert.equal(withClosedRange({ s: read }, 's', read).s.closed, true);
+  for (const replacement of [
+    { ...read, at: 2_000 },
+    { ...read, sessionEpoch: 2 },
+    { ...read, turns: [{ ...read.turns[0], turn: 2 }] },
+  ]) {
+    assert.equal(withClosedRange({ s: replacement }, 's', read), undefined);
+  }
+  assert.equal(withClosedRange({ s: read }, 's', null), undefined);
+  const { sessionEpoch, ...legacy } = read;
+  assert.equal(withClosedRange({ s: legacy }, 's', legacy).s.closed, true);
 });
 
 const RESULT = {
