@@ -21,17 +21,17 @@ const validResult = (result) => result && typeof result === 'object' && typeof r
 const pathOf = (input, cwd) => text(input?.path)
   && (isAbsolute(input.path) ? input.path : text(cwd) && isAbsolute(cwd) ? resolve(cwd, input.path) : null);
 
-// The newest turns' tasks are the ones a turn still waiting for its end can name; older ones are past their end.
+// Only the requested turn's tasks can affect its evidence.
 const MAX_TASKS = 64;
 
 /** Only discovers fixed task IDs; the reader chooses a bounded file under the known session root. */
-export function taskIdsOf(records = []) {
+export function taskIdsOf(records = [], { turnId } = {}) {
   const ids = [];
-  for (const record of records.filter(main)) {
-    const event = record.type === 'context.append_loop_event' ? record.event : null;
-    if (event?.type === 'tool.call' && event.name === 'TaskOutput') ids.push(taskId(event.args?.task_id));
-    if (event?.type === 'tool.result') {
-      ids.push(taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(event.result?.output))?.[1]));
+  for (const call of callsOf(records, nativeTurnIdOf(turnId))) {
+    if (call.name === 'TaskOutput') ids.push(taskId(call.args?.task_id));
+    if (call.name === 'Bash') {
+      const result = resultOf(records, call);
+      ids.push(taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(result?.output))?.[1]));
     }
   }
   const newestLast = [...new Set(ids.filter(Boolean).reverse())].reverse();

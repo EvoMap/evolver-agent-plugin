@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { taskIdsOf, turnStatusOf } from '../../hosts/kimi/transcript.js';
+
 import { recordReaderOf } from '../../lib/runtime/records.js';
 
 function fixture(t, overrides = {}) {
@@ -136,4 +138,33 @@ test('a task the log names many times counts once toward the task limit', (t) =>
   writeFileSync(join(f.agent, 'tasks', 'task.json'), JSON.stringify({ taskId: 'task', status: 'running' }));
   assert.ok(f.reader(f.sessionId, '0'));
   assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'running' }]);
+});
+
+test('a damaged task of an earlier turn does not hide a later completed turn', (t) => {
+  const f = fixture(t, {
+    taskIds: taskIdsOf, tasksDir: (dir) => join(dir, 'agents', 'main', 'tasks'), decode: turnStatusOf,
+  });
+  const prompt = (turnId) => ({ type: 'turn.prompt', agentId: 'main', turnId, promptId: `prompt-${turnId}`, origin: { kind: 'user' } });
+  const event = (value) => ({ type: 'context.append_loop_event', agentId: 'main', event: value });
+  const records = [
+    { type: 'metadata', protocol_version: '1.5' },
+    prompt(0),
+    event({ type: 'tool.call', uuid: 'old-call', turnId: '0', toolCallId: 'old-check', name: 'Bash', args: { command: 'npm test', run_in_background: true } }),
+    event({ type: 'tool.result', parentUuid: 'old-call', toolCallId: 'old-check', result: { output: 'task_id: old-task\nstatus: running', durationMs: 1 } }),
+    { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' },
+    prompt(1),
+    event({ type: 'tool.call', uuid: 'current-call', turnId: '1', toolCallId: 'current-check', name: 'Bash', args: { command: 'npm test' } }),
+    event({ type: 'tool.result', parentUuid: 'current-call', toolCallId: 'current-check', result: { output: '# pass 1\n# fail 0', durationMs: 1 } }),
+    { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' },
+  ];
+  writeFileSync(f.wire, records.map(line).join(''));
+  mkdirSync(join(f.agent, 'tasks'));
+  const taskFile = join(f.agent, 'tasks', 'old-task.json');
+  writeFileSync(taskFile, JSON.stringify({ taskId: 'old-task', kind: 'process', parentToolCallId: 'old-check', command: 'npm test', status: 'completed', exitCode: 0 }));
+  assert.equal(f.reader(f.sessionId, '1').status, 'completed');
+  writeFileSync(taskFile, '{');
+  assert.equal(f.reader(f.sessionId, '0'), null, 'the requested turn still requires its own task to be readable');
+  const current = f.reader(f.sessionId, '1');
+  assert.equal(current?.status, 'completed');
+  assert.deepEqual(current.record.checks, [{ command: 'npm test', exit: null, failed: false }]);
 });
