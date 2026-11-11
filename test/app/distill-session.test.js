@@ -848,6 +848,27 @@ test('with no headless model, distilling now hands the agent the IR prompt, and 
   assert.equal((await ports.drafts.read()).length, 0);
 });
 
+test('a failed background range releases the unrun ranges so the same process can retry', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  const { ports, requests } = made;
+  await fixTurn(ports, 's2');
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  const updateCorpus = ports.corpus.update;
+  ports.corpus.update = async () => { throw new Error('corpus write denied'); };
+
+  await assert.rejects(distillDue(ports), /corpus write denied/);
+  ports.corpus.update = updateCorpus;
+
+  const pending = await ports.candidates.read();
+  assert.deepEqual([pending.s1.claimedBy, pending.s2.claimedBy], [null, null]);
+  assert.deepEqual([pending.s1.attempts, pending.s2.attempts], [0, 0]);
+  assert.deepEqual((await distillDue(ports)).map(({ status }) => status), ['stored', 'stored']);
+  assert.deepEqual(await ports.candidates.read(), {});
+  assert.deepEqual(distills(requests).map(({ body }) => body.session_id), ['testagent:s1', 'testagent:s2']);
+  assert.deepEqual(await distillDue(ports), []);
+});
+
 test('a draft write failure releases the claim so the same process can retry', async () => {
   const { ports } = await fixedSession({ distillAnswer: DRAFTED });
   const asked = await distillSession(ports, { sessionId: 's1' });
