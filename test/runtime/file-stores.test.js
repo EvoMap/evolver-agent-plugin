@@ -60,7 +60,7 @@ test('evidence generations keep turns and epochs apart without changing legacy c
   assert.deepEqual([...(await cursor.baseline.take('s1')).before.keys()], ['/legacy.js']);
 });
 
-test('released turn evidence is immediately recoverable alongside newer appends', async () => {
+test('released turn evidence is immediately recoverable alongside newer appends, and pruning keeps it', async () => {
   const { stores: cursor } = stores();
   const scope = { sessionEpoch: 10, turn: 1 };
   await cursor.notes.append('s1', { command: 'first' }, scope);
@@ -68,6 +68,7 @@ test('released turn evidence is immediately recoverable alongside newer appends'
   await cursor.notes.append('s1', { command: 'arrived after take' }, scope);
   first.release();
 
+  cursor.prune();
   const recovered = await cursor.notes.take('s1', scope);
   assert.deepEqual(recovered.notes, [{ command: 'first' }, { command: 'arrived after take' }]);
   await recovered.commit();
