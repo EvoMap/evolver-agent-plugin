@@ -9,13 +9,10 @@
     { "event": "UserPromptSubmit", "command": "node bin/hook.mjs kimi UserPromptSubmit", "timeout": 10 },
     { "event": "TurnStarted", "command": "node bin/hook.mjs kimi TurnStarted", "timeout": 3 },
     { "event": "PreToolUse", "command": "node bin/hook.mjs kimi PreToolUse", "timeout": 3 },
-    { "event": "PostToolUse", "command": "node bin/hook.mjs kimi PostToolUse", "timeout": 3 },
-    { "event": "PostToolUseFailure", "command": "node bin/hook.mjs kimi PostToolUseFailure", "timeout": 3 },
     { "event": "Stop", "command": "node bin/hook.mjs kimi Stop", "timeout": 3 },
     { "event": "StopFailure", "command": "node bin/hook.mjs kimi StopFailure", "timeout": 3 },
     { "event": "Interrupt", "command": "node bin/hook.mjs kimi Interrupt", "timeout": 3 },
     { "event": "SessionEnd", "command": "node bin/hook.mjs kimi SessionEnd", "timeout": 3 },
-    { "event": "TaskStarted", "command": "node bin/hook.mjs kimi TaskStarted", "timeout": 3 },
     { "event": "Notification", "command": "node bin/hook.mjs kimi Notification", "timeout": 3 }
   ]
 }

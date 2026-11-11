@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -15,18 +15,20 @@ import { transcripts } from '../../../lib/runtime/transcripts.js';
 import { PROMPT } from '../../app/memory-ports.js';
 import { IR } from '../../app/work-turns.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
+import { useProcessHome } from '../../helpers/process-home.js';
 
 const DRAFT = { ok: true, status: 'draft', distill_id: 'minimax-draft', quality: { ok: true, score: 6 }, gene: { type: 'Gene', asset_id: `sha256:${'1'.repeat(64)}` }, capsule: { type: 'Capsule', asset_id: `sha256:${'2'.repeat(64)}` } };
 
 async function fixture({ failFirst = false } = {}) {
   const proxy = await fakeProxy({ distillAnswer: DRAFT });
+  const home = useProcessHome(proxy.env.HOME);
   const project = join(proxy.env.HOME, 'project'); mkdirSync(project);
   const file = join(project, 'fixture.txt'); writeFileSync(file, 'before');
   const host = spawn(process.execPath, ['-e', 'setInterval(()=>{},60000)'], { windowsHide: true, stdio: 'ignore' });
   await once(host, 'spawn');
   let owner = host.pid, calls = 0, skew = 0;
   const nativeData = join(proxy.env.HOME, 'native');
-  const env = { ...proxy.env, MINIMAX_DATA_DIR: nativeData, PLUGIN_DATA: join(nativeData, 'v2', 'plugin-data', 'hooks', 'evolver-plugin') };
+  const env = { ...proxy.env, ...home.env, MINIMAX_DATA_DIR: nativeData, PLUGIN_DATA: join(nativeData, 'v2', 'plugin-data', 'hooks', 'evolver-plugin') };
   const { ports } = environmentFor({ profile, env, lifetime: RESIDENT, runBackground: runBackgroundTasks, overrides: {
     owner: { current: () => owner, self: () => process.pid, isGone: ownerIsGone },
     clock: { now: () => Date.now() + skew, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
@@ -54,11 +56,24 @@ async function fixture({ failFirst = false } = {}) {
   const close = async () => {
     await idle(); ports.scheduler.stop();
     if (host.exitCode === null && host.signalCode === null) { const ended = once(host, 'close'); host.kill(); await ended; }
+    home.restore();
     proxy.close();
   };
   const advance = (ms) => { skew += ms; };
-  return { proxy, ports, hook, idle, fixedError, killHost, close, advance, calls: () => calls };
+  const ledgerEvents = () => readFileSync(home.rootEventsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  return { proxy, ports, hook, idle, fixedError, killHost, close, advance, ledgerEvents, calls: () => calls };
 }
+
+test('the reuse a verified turn reports reaches the ledger under the fixture home, naming its host and evidence', async () => {
+  const f = await fixture();
+  try {
+    await f.fixedError();
+    const reuses = f.ledgerEvents().filter(({ type }) => type === 'value.reuse_hit');
+    assert.deepEqual(reuses.map(({ payload }) => payload), [
+      { assetId: `sha256:${'a'.repeat(64)}`, cycleId: 's1', platform: 'minimax', taskId: 'minimax:s1:1', tier: 'L1', stage: 'immediate' },
+    ]);
+  } finally { await f.close(); }
+});
 
 test('a dead native owner is recovered without SessionEnd, distilled once and kept as an unpublished draft', async () => {
   const f = await fixture();

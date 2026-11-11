@@ -2,7 +2,7 @@ import childProcess from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { modelRunnerOf } from '../../../lib/runtime/model-executor.js';
-import { declarationFor } from './declaration.mjs';
+import { capturedModel, declarationFor } from './declaration.mjs';
 
 if (process.argv[5] === 'kill-guardian') {
   const fork = childProcess.fork;
@@ -21,5 +21,5 @@ if (process.argv[5] === 'exit-before-fork') {
   };
 }
 const runner = modelRunnerOf(declaration, process.env);
-try { await runner.complete(runner.capture({ alias: 'route-a' }), 'disposable fixture'); }
+try { await runner.complete(capturedModel(runner, { alias: 'route-a' }), 'disposable fixture'); }
 catch { process.exitCode = 1; }

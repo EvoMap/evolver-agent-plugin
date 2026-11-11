@@ -73,10 +73,10 @@ root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a version
 (`KIMI_CODE_HOME/evolver`) stay outside the package; unregistering retains managed bytes. Other client types,
 subagents, parallel prompts and other OAuth regions require separate native acceptance.
 
-Kimi's `UserPromptSubmit` returns `{ message }` to the model. Tool hooks observe native evidence and never promise
-inline failed-check context. Stop is a hint rather than a terminal verdict: wire/task records reconcile lifecycle
-and verification, with dead-owner recovery when a session has no end event. Session ids include the native-home
-scope. Commands use `node <plugin>/bin/command.mjs kimi <command>` from a terminal, without prompt interception.
+Kimi's `UserPromptSubmit` returns `{ message }` to the model. Like ZCode it waits for the native terminal record
+before using completed work, here read from the session log (`wire.jsonl` and task metadata): `TurnStarted` binds the
+turn's native id and starts the shared turn monitor, Stop and the other lifecycle hooks only restart it, and dead-owner
+recovery closes a turn whose session has no end event. Session ids include the native-home scope. Commands use `node <plugin>/bin/command.mjs kimi <command>` from a terminal, without prompt interception.
 Distillation captures provider/model/account identity from the native session and uses a private ACP profile with
 no user/project hooks, plugins, MCP or skills; missing or changed route identity keeps the candidate for retry.
 Windows packed hooks have passed with a loopback fixture provider/Proxy, including native turn-zero evidence,
