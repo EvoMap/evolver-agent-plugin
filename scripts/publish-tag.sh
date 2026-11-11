@@ -6,8 +6,9 @@
 #        node scripts/pack.mjs all dist --version=vX.Y.Z; the branch defaults to release)
 # Publishes the tag a maintainer pushed on main: one commit more on the release branch, the tagged source plus the
 # packed dist/, and the tag re-pointed at it, in one atomic push. The hosts install from that branch, so nothing on
-# main names a version. A tag already published is left alone, a tag off main or older than the release is refused,
-# and the push only replaces the tag the maintainer pushed.
+# main names a version. A tag already published is left alone while it is the newest release, whether run from its
+# source or its published commit; a tag off main or older than the release is refused, and the push only replaces
+# the tag the maintainer pushed.
 
 set -euo pipefail
 
