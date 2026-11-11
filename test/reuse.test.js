@@ -12,6 +12,7 @@ import {
   correctionReportOf,
   deliverPending,
   deliveryOf,
+  postPending,
   immediateReportOf,
   reportedReuseOf,
   retentionReportOf,
@@ -142,7 +143,7 @@ test('evidence-bearing reports are recorded locally once; tier none and a trial 
   const control = { report: { asset_id: 'sha256:a', withheld_id: 'wh-1', task_id: 'claude-code:s1:3', passed: true, platform: 'claude-code' }, sessionId: 'claude-code:s1', path: '/asset/trial-control' };
   const outbox = withQueued({}, [{ report: verified, sessionId: 'claude-code:s1' }, { report: immediate({ turn: 5 }), sessionId: 'claude-code:s1' }, control], NOW);
   await deliverPending(sinks, await deliverPending(sinks, outbox, NOW), NOW);
-  assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1' }]);
+  assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'failed', sessionId: 'claude-code:s1', taskId: 'claude-code:s1:4', tier: 'L1', stage: 'immediate' }]);
   assert.deepEqual(sinks.posts.map(({ path }) => path), ['/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control', '/asset/reuse-result', '/asset/reuse-result', '/asset/trial-control']);
   assert.deepEqual(sinks.posts[2].body, control.report);
 });
@@ -157,7 +158,7 @@ test('a sent report retries a pre-write local failure without posting to the Hub
   const up = ledgers();
   const recorded = await deliverPending(up, sent, NOW + 1);
   assert.equal(up.posts.length, 0);
-  assert.deepEqual(up.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1' }]);
+  assert.deepEqual(up.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1', taskId: 'claude-code:s1:4', tier: 'L1', stage: 'immediate' }]);
   assert.equal(Object.values(recorded)[0].sentAt, NOW, 'the original Hub delivery time stays intact');
   assert.equal(Object.values(recorded)[0].localAt, NOW + 1);
   await deliverPending(up, recorded, NOW + 2);
@@ -235,7 +236,19 @@ test('a ledger path blocked by a directory retries locally after the path is rep
   assert.equal(sinks.posts.length, 1);
   const entries = new events.Ingestor({ path }).readAllStrict();
   assert.deepEqual(entries.map(({ type, payload }) => ({ type, payload })), [
-    { type: 'value.reuse_hit', payload: { assetId: ASSET.assetId, cycleId: 'claude-code:s1' } },
+    { type: 'value.reuse_hit', payload: { assetId: ASSET.assetId, cycleId: 'claude-code:s1', taskId: 'claude-code:s1:4', tier: 'L1', stage: 'immediate' } },
+  ]);
+});
+
+test('a ledger record names the host, task, tier and stage of the reuse, and a negative verdict its outcome', async (t) => {
+  useTemporaryLedger(t);
+  const record = { assetId: ASSET.assetId, sessionId: 's1', platform: 'claude-code', taskId: 'claude-code:s1:4:retention', tier: 'L2', stage: 'retention' };
+  assert.equal(await recordReuseLocally({ ...record, outcome: 'failed' }), true);
+  assert.equal(await recordReuseLocally({ ...record, outcome: 'success', platform: '', tier: undefined }), true);
+  const entries = new events.Ingestor({ path: events.rootEventsPath() }).readAllStrict();
+  assert.deepEqual(entries.map(({ type, payload }) => ({ type, payload })), [
+    { type: 'value.reuse_outcome', payload: { assetId: ASSET.assetId, cycleId: 's1', outcome: 'failed', platform: 'claude-code', taskId: 'claude-code:s1:4:retention', tier: 'L2', stage: 'retention' } },
+    { type: 'value.reuse_hit', payload: { assetId: ASSET.assetId, cycleId: 's1', taskId: 'claude-code:s1:4:retention', stage: 'retention' } },
   ]);
 });
 
@@ -351,4 +364,79 @@ test('a reuse that cannot be judged is exposure only, without the unused penalty
   assert.deepEqual(report.evidence, { tier: 'none', applied: 'partial', source: 'observed', aborted: false, stage: 'immediate' });
   assert.match(report.reason, /applied: unknown/);
   assert.equal(immediate({ applied: 'unknown', checks: [{ command: 'npm test', failed: false }] }).evidence.tier, 'none');
+});
+
+const withSource = () => verified();
+const refusedForSource = { ok: true, data: { recorded: false, terminal: true, reason: 'validation_error', status: 400 } };
+
+/** A Hub that answers each post in turn with the next of `answers`, the last one from then on. */
+function answering(answers) {
+  const sinks = ledgers();
+  let index = 0;
+  return {
+    ...sinks,
+    proxyFetch: async (method, path, body) => {
+      sinks.posts.push({ method, path, body: structuredClone(body) });
+      const answer = answers[Math.min(index++, answers.length - 1)];
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  };
+}
+
+test('a report the Hub refuses as invalid for its evidence source goes once more without it, and that answer settles it', async () => {
+  const sinks = answering([refusedForSource, { ok: true, data: { recorded: true } }]);
+  const outbox = await deliverPending(sinks, queuedOne(withSource()), NOW);
+  const [entry] = Object.values(outbox);
+  assert.equal(sinks.posts.length, 2);
+  assert.equal(sinks.posts[0].body.evidence.source, 'observed');
+  const { source, ...evidence } = withSource().evidence;
+  assert.deepEqual(sinks.posts[1].body, { ...withSource(), evidence });
+  assert.equal(entry.sentAt, NOW);
+  assert.equal(entry.rejectedAt, undefined);
+  assert.equal(entry.report.evidence.source, undefined, 'the outbox keeps the report as last sent');
+  assert.deepEqual(sinks.rejections, []);
+  assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1', taskId: 'claude-code:s1:4', tier: 'L1', stage: 'immediate' }]);
+});
+
+test('a report refused again without its source is settled as rejected and never sent a third time', async () => {
+  const sinks = answering([refusedForSource]);
+  const outbox = await deliverPending(sinks, queuedOne(withSource()), NOW);
+  const [entry] = Object.values(outbox);
+  assert.equal(entry.rejectedAt, NOW);
+  assert.deepEqual(entry.rejection, { reason: 'validation_error', status: 400 });
+  assert.deepEqual(sinks.rejections, [{ taskId: 'claude-code:s1:4', assetId: 'sha256:a', verdict: 'rejected', reason: 'validation_error', status: 400 }]);
+  await deliverPending(sinks, outbox, NOW + 1);
+  assert.equal(sinks.posts.length, 2);
+  assert.deepEqual(sinks.locals, []);
+});
+
+test('a resend without source that cannot reach the Hub is retried without source, as one post', async () => {
+  const sinks = answering([refusedForSource, { ok: false, error: 'timed out' }, { ok: true, data: { recorded: true } }]);
+  const retried = await deliverPending(sinks, queuedOne(withSource()), NOW);
+  assert.equal(Object.values(retried)[0].sentAt, undefined);
+  const sent = await deliverPending(sinks, retried, NOW + 1);
+  assert.equal(sinks.posts.length, 3);
+  assert.equal(sinks.posts[2].body.evidence.source, undefined);
+  assert.equal(Object.values(sent)[0].sentAt, NOW + 1);
+});
+
+test('only a validation_error of a report that carries a source is resent', async () => {
+  const unsourced = correctionReportOf(reportedReuseOf(verified()), 'correction');
+  const plain = answering([refusedForSource]);
+  await deliverPending(plain, queuedOne(unsourced), NOW);
+  assert.equal(plain.posts.length, 1);
+
+  const other = answering([{ ok: true, data: { recorded: false, terminal: true, reason: 'invalid_evidence', status: 400 } }]);
+  await deliverPending(other, queuedOne(withSource()), NOW);
+  assert.equal(other.posts.length, 1);
+});
+
+test('the Hub delivery alone (no local record) resends a source refusal too', async () => {
+  const sinks = answering([refusedForSource, { ok: true, data: { recorded: true } }]);
+  const outbox = await postPending(sinks, queuedOne(withSource()), NOW);
+  assert.equal(sinks.posts.length, 2);
+  assert.equal(Object.values(outbox)[0].sentAt, NOW);
+  assert.equal(Object.values(outbox)[0].report.evidence.source, undefined);
+  assert.deepEqual(sinks.locals, []);
 });
