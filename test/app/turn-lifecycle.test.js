@@ -458,6 +458,17 @@ test('a turn end that cannot queue its reports leaves the injections unreported 
   assert.equal(sessionOfStored(stored).settling, null, 'the next prompt does not wait for an end that failed');
 });
 
+test('a turn end that cannot queue its reports keeps no retention for reuses a later end reports again', async () => {
+  const { ports, retained } = memoryPorts();
+  await verifiedTurn(ports, 's1');
+  await beforeEdit(ports, { sessionId: 's1', file: '/proj/lib/redis.js' });
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async () => { throw new Error('killed'); };
+  await assert.rejects(end(ports, 's1'), /killed/);
+  ports.reports.enqueue = enqueue;
+  assert.deepEqual(retained, []);
+});
+
 test('a turn whose work tree cannot be read still joins the range, without its project', async () => {
   for (const project of [{ snapshot: async () => { throw new Error('git failed'); } }, undefined]) {
     const { ports } = memoryPorts();
