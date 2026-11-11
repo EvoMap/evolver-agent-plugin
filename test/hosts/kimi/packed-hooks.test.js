@@ -75,7 +75,7 @@ async function fixture(t, clientType = 'kimi_code_cli') {
     await hook('SessionEnd');
     // Delivery acknowledgement precedes lock release; owned detached workers use this HOME as their cwd.
     await until(() => !existsSync(join(state, 'kimi-outbox.lock'))
-      && (!existsSync(join(state, 'native-monitors')) || readdirSync(join(state, 'native-monitors')).length === 0));
+      && (!existsSync(join(state, 'kimi-turn-monitors')) || readdirSync(join(state, 'kimi-turn-monitors')).length === 0));
   };
   return { proxy, plugin, home, project, state, wire, append, hook, command, read, config };
 }
@@ -93,7 +93,7 @@ test('packed CLI prompt hooks return Kimi message context, ignore unsupported cl
   assert.equal(answer.decision, undefined, 'v1 never intercepts or blocks the native prompt');
   assert.equal(answer.hookSpecificOutput, undefined, 'Kimi consumes its own message response schema');
   f.append({ type: 'turn.prompt', agentId: 'main', turnId: 0, promptId: 'first-prompt', origin: { kind: 'user' }, input: [{ type: 'text', text: PROMPT }] });
-  await f.hook('TurnStarted', { turn_id: 0, prompt_id: 'first-prompt' });
+  await f.hook('TurnStarted', { turn_id: 0, prompt_id: 'first-prompt', prompt: PROMPT, origin_kind: 'user' });
   f.append({ type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'cancelled' });
   await f.hook('Notification');
   const off = await f.command('evolver-config', 'recall', 'off');
@@ -103,7 +103,7 @@ test('packed CLI prompt hooks return Kimi message context, ignore unsupported cl
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] }), {});
   assert.equal(f.proxy.requests.filter(item => item.path === '/asset/fetch').length, recalls);
   f.append({ type: 'turn.prompt', agentId: 'main', turnId: 1, promptId: 'second-prompt', origin: { kind: 'user' }, input: [{ type: 'text', text: PROMPT }] });
-  await f.hook('TurnStarted', { turn_id: 1, prompt_id: 'second-prompt' });
+  await f.hook('TurnStarted', { turn_id: 1, prompt_id: 'second-prompt', prompt: PROMPT, origin_kind: 'user' });
   f.append({ type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'cancelled' });
   await f.hook('Notification');
   assert.equal(readFileSync(join(f.home, 'config.toml'), 'utf8'), f.config);
@@ -113,12 +113,12 @@ test('packed CLI prompt hooks return Kimi message context, ignore unsupported cl
 for (const [client, clientType] of [
   ['CLI', 'kimi_code_cli'],
   ['Desktop', 'kimi_code_desktop'],
-]) test(`packed ${client} observers wait for native terminal evidence before confirming turn zero or queuing reuse`, async t => {
+]) test(`packed ${client} hooks wait for the session log's terminal before confirming turn zero or queuing reuse`, async t => {
   const f = await fixture(t, clientType);
   await f.hook('SessionStart');
   assert.match((await f.hook('UserPromptSubmit', { prompt: [{ type: 'text', text: PROMPT }] })).message, /maxRetriesPerRequest/);
   f.append({ type: 'turn.prompt', agentId: 'main', turnId: 0, promptId: 'prompt-zero', origin: { kind: 'user' }, input: [{ type: 'text', text: PROMPT }] });
-  await f.hook('TurnStarted', { turn_id: 0, prompt_id: 'prompt-zero' });
+  await f.hook('TurnStarted', { turn_id: 0, prompt_id: 'prompt-zero', prompt: PROMPT, origin_kind: 'user' });
   const file = join(f.project, 'fixture.js'); writeFileSync(file, 'export const retries = 1;\n');
   const edit = { tool_call_id: 'edit-call', tool_name: 'Edit', tool_input: { path: file } };
   await f.hook('PreToolUse', edit);
@@ -129,8 +129,7 @@ for (const [client, clientType] of [
     { type: 'context.append_loop_event', agentId: 'main', event: { type: 'tool.call', uuid: 'check-uuid', toolCallId: 'check-call', turnId: '0', name: 'Bash', args: { command: 'node --test' } } },
     { type: 'context.append_loop_event', agentId: 'main', event: { type: 'tool.result', parentUuid: 'check-uuid', toolCallId: 'check-call', result: { output: '# pass 1\n# fail 0', durationMs: 1, isError: false } } },
   );
-  assert.deepEqual(await f.hook('PostToolUse', { tool_call_id: 'check-call', tool_name: 'Bash', tool_input: { command: 'node --test' }, tool_output: 'truncated observer text' }), {});
-  assert.deepEqual(await f.hook('Stop'), {});
+  assert.deepEqual(await f.hook('Stop', { turn_id: 0 }), {});
   assert.deepEqual(f.read('kimi-distill-ranges.json'), {});
   assert.equal(f.proxy.requests.some(item => item.path === '/asset/reuse-result'), false);
   f.append(
@@ -139,11 +138,11 @@ for (const [client, clientType] of [
     { type: 'context.append_loop_event', agentId: 'main', event: { type: 'step.end', uuid: 'final-step', turnId: '0', finishReason: 'end_turn', providerFinishReason: 'completed' } },
     { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' },
   );
-  await f.hook('Notification');
+  await f.hook('Notification', { turn_id: 0 });
   const candidate = await until(() => Object.values(f.read('kimi-distill-ranges.json'))[0]);
   assert.deepEqual(candidate.turns.map(({ turn }) => turn), [1], 'native turn zero is the first internal turn');
-  assert.equal(candidate.model.alias, 'route-a');
-  assert.equal(candidate.model.model, 'fixture-model');
+  assert.deepEqual(candidate.model.selection, { alias: 'route-a', model: 'fixture-model', protocol: 'openai', effort: 'off' });
+  assert.match(candidate.model.configDigest, /^[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(candidate).includes('fixture-not-a-real-key'), false);
   await until(() => f.proxy.requests.find(item => item.path === '/asset/reuse-result'));
   await f.hook('Notification'); await f.hook('SessionEnd');

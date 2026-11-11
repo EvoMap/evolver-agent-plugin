@@ -96,7 +96,8 @@ pure rules and never Node; `lib/runtime/` implements the ports and is the only s
 reads files or branches on the platform; `hosts/<host>/` holds data and pure functions, no IO; `bin/` and every
 `hosts/<host>/dist/` are entries that reach the plugin only through a channel; no shared layer names a host. Every
 session id the use cases see is qualified with its host when it leaves (`claude-code:<session>:<turn>`), so task ids
-and ledger cycles say which agent a report came from.
+say which agent a report came from; a local ledger record's cycle is the host's bare session id, and its `platform`
+names the host.
 
 **Profiles.** `defineProfile` completes a host's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events
@@ -149,7 +150,13 @@ Each IR that keeps the IR's shape (fields, counts, `scope.signals` of at most 64
 record) goes to `POST /conversation/distill` as its own request: `ir_version`, `ir`, the same `record`,
 `user_prompt`, `final_answer`, `execution.trace` as `{ command, exit, source }` per check (`ok`, what its output
 said, in place of `exit` when the host gives no exit code, which is never made up), `project` (`{ root, head, diff }`
-with the range's starting commit as `head`, or only `{ diff_omitted }`), `project_dir` and the trigger. The record is
+with the range's starting commit as `head`, or only `{ diff_omitted }`), `project_dir`, the trigger and
+`reused_asset_ids`: the strategies the session's injection ledger booked into the range's turns (a turn of an
+earlier session file with the same number is another turn), `sha256:` ids only, in the order they were injected, at
+most 20, left out when there are none or the session's file cannot be read. A Proxy that knows the field keeps it as
+the Gene's `generation_meta.reused_asset_ids`, so a Gene names the assets the work it was distilled from reused. The
+distiller reads only the body fields it knows, so a Proxy from before the field (2.0.50 and earlier) distills the same
+Gene with or without it and the request never fails over it. The record is
 fitted to the Proxy's 256 KiB before the model reads it (the diff is left out as `too_large` first, then the diff
 lines, then the oldest turns), so the lines an IR cites are the lines sent. The Proxy's answer is `stored`, a draft,
 or refused with a typed `quality.reason` and the `terms` it found; every outcome, the model's skip and a failure are
@@ -316,14 +323,25 @@ scripts/               pack.mjs, publish-tag.sh
   distillation in those projects. An unknown check is a plain command in the distillation record and provides no
   execution trace row; a check whose result is known without an exit code is a check line with no `exit` (and
   `failed: true` when it failed). A native exit code of zero still passes without requiring output.
-  A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. An older Proxy
-  drops `source` and the plugin runs unchanged.
+  A tier `none` report counts as exposure only on the Hub and is not written to the local ledger. Any other report the
+  Hub took is also appended to evolver-core's root events, `value.reuse_hit` for a success and `value.reuse_outcome`
+  (with its `outcome`) otherwise, with `assetId`, `cycleId` (the host's session id), `platform` (the host),
+  `taskId`, `tier` and `stage`, so a reader of the ledger can tell which agent reused what on which evidence.
+  evolver-core's event schema leaves the payload open (2.0.50 and every release before it), so a core that reads
+  none of the four keeps them and records the event as before.
+
+  The Proxy forwards `evidence` whole, and a Hub that does not know `source` refuses the whole report as
+  `validation_error`, which the Proxy passes on as a terminal rejection: on one machine from 5 to 8 November 2026,
+  all 175 Claude Code reports a 2.0.49 Proxy relayed with `source` were refused that way. Such a report goes once
+  more at once, without `source`; that answer settles it, and the outbox keeps the report as last sent, so a retry
+  never carries `source` again.
 - **Report outbox.** Reports are keyed by task id and asset, queued once and retried for 8 days, long enough for a
   retention follow-up a week later. A report counts as delivered once the Hub answers it at all: `recorded`,
   `duplicate_report`, or `eligible: false` (`daily_cap`, `same_owner`, `no_delivery_proof`) are final, so only an
   unreachable Proxy or an unrecorded answer is retried. The Hub counts one turn-end report per node, asset and UTC
   day. A request the Hub refuses as invalid can never succeed: the Proxy marks it `terminal: true` (an older one
-  says `hub 400` or `hub 422`), and the report is settled as rejected and kept out of the local ledger. `hub 404`
+  says `hub 400` or `hub 422`), and the report is settled as rejected and kept out of the local ledger (a
+  `validation_error` of a report with a `source` only once it was refused without it too, above). `hub 404`
   (the Hub may not serve the route yet), `hub 5xx`, 401, 403, 429 and timeouts are retried until the report expires.
 - **Turn numbers** come from a per-session counter, one per turn whatever started it, kept past the session's end:
   a resumed session continues under the same id, and a repeated task id is one the Hub drops as a duplicate.
@@ -349,17 +367,21 @@ scripts/               pack.mjs, publish-tag.sh
 ## Indexed native sessions and isolated ACP completion
 
 Kimi Code's profile uses wire protocol 1.5 for CLI 2.4.1 and Desktop 1.2.1 on Windows.
-Both local clients use the same Kimi profile and managed plugin. The profile declares the native workspace/session
-layout; `runtime/native-facts` owns bounded filesystem reads and refuses linked, replaced, malformed or partial
-records. The driver opens a logical turn before the host admits its native turn. `app/native-turn` binds the two
-using the captured byte/file boundary, then closes only the matched main-user terminal. `Stop` is an observer
-hint. A detached native monitor catches terminal writes after the last hook; recovery reads those records before
-orphan abort reporting. Turn number, session epoch and owner guards keep a late observer with its original turn.
-Background checks remain unknown until matching native task metadata settles them. Other hosts retain their
-existing transcript/tool-result adapters; Kimi subagents and concurrent prompts are outside this v1 contract.
+Both local clients use the same Kimi profile and managed plugin. Kimi uses the same late-terminal mechanism as
+ZCode (`turnEnd.statusRecord` with `confirmCompletion`): only the host's own terminal status admits a turn's
+evidence. Its status record is the session log rather than a database: the profile declares the workspace/session
+layout and a decoder, and `runtime/session-log` reads a bounded head and tail of the JSONL log, refusing linked,
+replaced, malformed or partial records. Because Kimi names a turn only once it runs, its `TurnStarted` hook maps to
+the canonical `turnStart` event, which binds the open turn's id when the announced prompt is the one the turn opened
+with, and schedules the shared turn monitor; `Stop`, `StopFailure`, `Interrupt` and `Notification` schedule it again.
+A row carries the turn's `record` and `answer` from the log (hook tool output is truncated), and the monitor, the next
+prompt's `closeUnfinishedTurn`, the session end and `recoverNativeTurns` judge the turn on it. A background check
+still running when the turn ended keeps the row `pending`: the turn is not verified until its task metadata settles
+the check. Kimi subagents and concurrent prompts are outside this v1 contract.
 
-The optional ModelRunner `capture` port records the selected alias, provider, upstream model, effort and a
-credential/config binding before recall returns. The `acp` runner revalidates that binding before creating one
+The `acp` ModelRunner follows the `configStamp` + `turnEnd.modelOf` contract: the stamp hashes the configuration and
+every credential it names, and the turn's route (alias, upstream model, protocol, effort) comes from the log's model
+requests. The runner checks the stamp and route again before creating one
 private session and sending one prompt. It uses a private HOME and a selected-only TOML config; the credential is
 passed in an environment variable. The private agent has no tools/subagents, project hooks, user plugins or MCP
 servers. ACP success, the native/provider terminal, exact route and native process closure must agree. A separate
@@ -370,12 +392,10 @@ after native exit or stop. It reports proof separately from native output. Scrat
 the job does not contain processes created by an external broker outside the descendant tree.
 
 When a captured route is unavailable or has changed, preflight preserves the candidate for seven days from the
-first block. The person can retry after restoring the original binding. A repeat block keeps the original
-deadline. A verified turn with a missing or unmatched binding is cleared on the first distill without
-calling the model or Proxy. A new verified turn can capture its own binding. Ordinary model and protocol failures
-keep the existing retry policy.
+first block. The person can retry after restoring the original configuration and account. A repeat block keeps the
+original deadline. Ordinary model and protocol failures keep the existing retry policy.
 The `kimi.com` managed route reads the current access token and device identity from the exact native profile.
-It binds both to the snapshot, preserves the native provider family separately from its transport, and passes
+Both are part of the stamp; it preserves the native provider family separately from its transport, and passes
 only the access token in the private child's environment. It does not manage login or refresh.
 Draft publication still uses the shared explicit command and Proxy contract. Other regions, clients and native
 acceptance on each target OS are separate gates, not inferred from fixture tests.

@@ -29,6 +29,10 @@ after(() => scratch.forEach((dir) => rmSync(dir, { recursive: true, force: true 
 
 let profileDir = null;
 
+// A session start raised while a test ends checks the engine after its Proxy and home are gone; only a stopped plugin
+// keeps that check from installing the real engine and starting its Proxy under the process's own home.
+const loaded = new Set();
+
 /** A dsh profile with the packed folder linked in, the way `dsh plugin --profile <p> add -w <folder>` leaves it. */
 export function packedProfile() {
   if (profileDir) return profileDir;
@@ -68,7 +72,8 @@ export async function startProxy(t, options = {}) {
   Object.assign(process.env, { HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME });
   delete process.env.EVOMAP_PROXY_PORT;
   delete process.env.EVOLVER_RECALL;
-  t.after(() => {
+  t.after(async () => {
+    await Promise.all([...loaded].map((dsh) => dsh.dispose()));
     for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
     proxy.close();
   });
@@ -194,7 +199,10 @@ export async function startDsh({ config = {}, llm = fakeLlm() } = {}) {
     event(agent, type, data) {
       emit('session/event', agent.session, { type, data });
     },
-    dispose: async () => Promise.all(disposers.map((dispose) => dispose?.())),
+    dispose: async () => {
+      if (!loaded.delete(dsh)) return;
+      await Promise.all(disposers.map((dispose) => dispose?.()));
+    },
     /** Resolves once every host event raised so far for the agent's session was handled: they are handled in order. */
     settled: (agent) => dsh.tool(agent, { name: 'todo_write', arguments: { todos: [] }, result: { isError: false, content: [] } }),
     disposeSession(agent) {
@@ -221,6 +229,7 @@ export async function startDsh({ config = {}, llm = fakeLlm() } = {}) {
       return steps;
     },
   };
+  loaded.add(dsh);
   return dsh;
 }
 

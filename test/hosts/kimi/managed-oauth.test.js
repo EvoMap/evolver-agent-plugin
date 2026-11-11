@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { headlessKimi } from '../../../hosts/kimi/model.js';
+import { headlessKimi, modelOf } from '../../../hosts/kimi/model.js';
 import { modelRunnerOf } from '../../../lib/runtime/model-executor.js';
 
 const ACCESS = 'fixture-coding-access-only';
 const REFRESH = 'fixture-refresh-never-copied';
 const DEVICE = '01234567-89ab-4def-8123-456789abcdef';
-const HINT = { alias: 'kimi-code/k3', effort: 'high' };
+const ROUTE = { alias: 'kimi-code/k3', model: 'k3', protocol: 'openai', effort: 'high' };
 
 function fixture(t) {
   const profile = mkdtempSync(join(tmpdir(), 'evolver-kimi-oauth-'));
@@ -42,23 +42,24 @@ default_effort = "high"
   const starts = [];
   const env = { HOME: profile, USERPROFILE: profile, KIMI_CODE_HOME: profile };
   const runner = modelRunnerOf({ ...headlessKimi, command: () => { starts.push(true); return null; } }, env);
-  return { config, device, tokenFile, setToken, starts, runner };
+  const captured = () => modelOf({ model: ROUTE }, runner.configStamp(), runner.configStamp());
+  return { config, device, tokenFile, setToken, starts, runner, captured };
 }
 
-test('a current managed Kimi credential binds the exact route without exposing bearer, refresh or device', t => {
+test('a current managed Kimi credential stamps the exact route without exposing bearer, refresh or device', t => {
   const f = fixture(t), original = readFileSync(f.tokenFile);
-  const model = f.runner.capture(HINT);
-  assert.deepEqual([model.providerId, model.providerType, model.protocol, model.model, model.effort],
-    ['managed:kimi-code', 'kimi', 'openai', 'k3', 'high']);
+  const model = f.captured();
+  assert.deepEqual(model.selection, ROUTE);
+  assert.match(model.configDigest, /^[a-f0-9]{64}$/);
   for (const privateValue of [ACCESS, REFRESH, DEVICE]) assert.equal(JSON.stringify(model).includes(privateValue), false);
   assert.deepEqual(readFileSync(f.tokenFile), original);
   assert.deepEqual(f.starts, []);
 });
 
 test('rotated or expired access credentials and changed device identity block before native launch', async t => {
-  const f = fixture(t), model = f.runner.capture(HINT);
+  const f = fixture(t), model = f.captured();
   f.setToken({ refresh_token: 'different-unused-refresh' });
-  assert.deepEqual(f.runner.capture(HINT), model, 'an unused refresh token is never bound');
+  assert.deepEqual(f.captured(), model, 'an unused refresh token is never stamped');
   f.setToken({ access_token: 'different-access-token' });
   await assert.rejects(f.runner.complete(model, 'fixture'), { code: 'MODEL_UNAVAILABLE', reason: 'route_changed' });
   f.setToken();
