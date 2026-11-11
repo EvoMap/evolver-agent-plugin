@@ -84,9 +84,13 @@ claude plugin marketplace update evolver-agent-plugin && claude plugin update ev
 
 Claude Code updates an installed plugin only when its version changes. A release is one tag on `main`,
 `git tag vX.Y.Z && git push origin vX.Y.Z`, with no file to edit: CI tests, packs with that version stamped into
-every host's manifest, moves `release` one commit on, points the tag there and opens a GitHub Release. A failed
-release changes nothing; delete the tag, fix, and push it again. To
-try a local build, `npm run pack` and add `<checkout>/dist/claude-code` as the marketplace.
+every host's manifest, moves `release` one commit on, points the tag there, publishes the dsh npm package and opens
+a GitHub Release. These are separate publication stages. The publish job's summary reports each stage's result, and
+completed stages remain available if a later stage fails. Fix the reported failure and rerun the failed workflow
+jobs on the same tag while it is the current release. The Git stage reuses its published commit; npm and GitHub
+skip releases they already hold. A newer release stops older tags from resuming and replacing npm latest.
+A source fix for an npm version already published needs a new version. To try a local build, `npm run pack` and
+add `<checkout>/dist/claude-code` as the marketplace.
 
 
 ## Install (other hosts)

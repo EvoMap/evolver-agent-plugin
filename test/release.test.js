@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -32,9 +32,9 @@ test('packing with a version stamps it into every manifest a packed host reads',
 
 test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, publish, then the GitHub Release', () => {
   assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /needs: \[test, windows-minimax\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(workflow, /needs: \[test, windows-minimax, windows-kimi\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   const kimi = workflow.slice(workflow.indexOf('  windows-kimi:'), workflow.indexOf('  publish:'));
-  assert.match(kimi, /if: github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.match(kimi, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'/);
   assert.match(kimi, /runs-on: windows-latest/);
   assert.match(kimi, /node: \[22, 26\]/);
   assert.match(kimi, /run: npm run test:kimi/);
@@ -88,7 +88,11 @@ test('a tag on main moves the release branch one commit on and points the tag th
   assert.match(git(origin, 'log', '-1', '--format=%B', released), new RegExp(`main at ${first}`));
   assert.equal(git(origin, 'rev-parse', 'refs/heads/main'), first, 'main is untouched');
 
+  assert.match(publishTag(work, 'v1.0.0'), /already holds dist\/: it is published/);
+  assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), released, 'retrying the original source preserves the Git stage');
+
   const second = commitOnMain(work, 'two');
+  assert.throws(() => publishTag(work, 'v1.0.0'), /already publishes.*cannot publish/);
   tagAndPack(work, 'v1.0.1');
   publishTag(work, 'v1.0.1');
   const next = git(origin, 'rev-parse', 'refs/heads/release');
@@ -100,6 +104,23 @@ test('a tag on main moves the release branch one commit on and points the tag th
   git(work, 'checkout', '--quiet', 'v1.0.1');
   assert.match(publishTag(work, 'v1.0.1'), /already holds dist\/: it is published/);
   assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), next, 'a re-run moves nothing');
+});
+
+test('an older published tag cannot resume after a newer release, from its source or its packed checkout', posix, (t) => {
+  const { origin, work } = releaseRepo(t);
+  commitOnMain(work, 'one source');
+  tagAndPack(work, 'v1.0.0');
+  publishTag(work, 'v1.0.0');
+  const older = git(origin, 'rev-parse', 'refs/heads/release');
+  tagAndPack(work, 'v1.0.1');
+  publishTag(work, 'v1.0.1');
+  const current = git(origin, 'rev-parse', 'refs/heads/release');
+  assert.throws(() => publishTag(work, 'v1.0.0'), /older than what release holds/);
+  rmSync(join(work, 'dist'), { recursive: true });
+  git(work, 'checkout', '--quiet', older);
+  assert.throws(() => publishTag(work, 'v1.0.0'), /older than what release holds/);
+  assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), current);
+  assert.equal(git(origin, 'rev-parse', 'v1.0.0^{commit}'), older);
 });
 
 test('a tag off main, older than the release, or not vX.Y.Z is refused and moves nothing', posix, (t) => {
@@ -122,3 +143,82 @@ test('a tag off main, older than the release, or not vX.Y.Z is refused and moves
   assert.throws(() => publishTag(work, 'nightly'), /not a release tag/);
   assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), released);
 });
+
+function publicationRun(name) {
+  const block = workflow.split(`      - name: ${name}\n`)[1]?.split('\n      - ')[0];
+  assert.ok(block, `publication step ${name} exists`);
+  const afterRun = block.split('\n        run: ')[1];
+  assert.ok(afterRun, `publication step ${name} runs a command`);
+  const [first, ...rest] = afterRun.split('\n');
+  if (first !== '|') return first;
+  const lines = [];
+  for (const line of rest) {
+    if (!line.startsWith('          ')) break;
+    lines.push(line.slice(10));
+  }
+  return lines.join('\n');
+}
+
+for (const failedStage of ['npm', 'github']) {
+  test(`a release interrupted at ${failedStage} reports partial publication and resumes its completed stages`, posix, (t) => {
+    const { origin, work } = releaseRepo(t);
+    const source = commitOnMain(work, 'release fixture');
+    tagAndPack(work, 'v1.0.0');
+    mkdirSync(join(work, 'scripts'));
+    copyFileSync(PUBLISH, join(work, 'scripts', 'publish-tag.sh'));
+    const bin = join(work, 'stub-bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'npm'), `#!/usr/bin/env bash
+case "$1" in
+  view) test -f "$RELEASE_TEST_ROOT/npm-published";;
+  publish)
+    echo npm >> "$RELEASE_TEST_ROOT/attempts"
+    [ "$FAIL_STAGE" != npm ] || exit 1
+    touch "$RELEASE_TEST_ROOT/npm-published";;
+  *) exit 1;;
+esac
+`, { mode: 0o755 });
+    writeFileSync(join(bin, 'gh'), `#!/usr/bin/env bash
+case "$1 $2" in
+  'release view') test -f "$RELEASE_TEST_ROOT/github-published";;
+  'release create')
+    echo github >> "$RELEASE_TEST_ROOT/attempts"
+    [ "$FAIL_STAGE" != github ] || exit 1
+    touch "$RELEASE_TEST_ROOT/github-published";;
+  *) exit 1;;
+esac
+`, { mode: 0o755 });
+    const summary = join(work, 'summary.md');
+    const env = { ...ENV, PATH: `${bin}${delimiter}${process.env.PATH}`, RELEASE_TEST_ROOT: work, GITHUB_REF_NAME: 'v1.0.0', GITHUB_STEP_SUMMARY: summary, RELEASE_TAG: 'v1.0.0' };
+    const stages = [['GIT_RESULT', 'Publish Git bundle'], ['NPM_RESULT', 'Publish @evomap/dsh-evolver to npm'], ['GITHUB_RESULT', 'Publish GitHub Release']];
+    const run = (failure = '') => {
+      const outcomes = { GIT_RESULT: 'skipped', NPM_RESULT: 'skipped', GITHUB_RESULT: 'skipped' };
+      for (const [key, name] of stages) {
+        try {
+          execFileSync('bash', ['-e', '-o', 'pipefail', '-c', publicationRun(name)], { cwd: work, env: { ...env, FAIL_STAGE: failure }, stdio: 'pipe' });
+          outcomes[key] = 'success';
+        } catch {
+          outcomes[key] = 'failure';
+          break;
+        }
+      }
+      execFileSync('bash', ['-e', '-c', publicationRun('Summarize publication')], { cwd: work, env: { ...env, ...outcomes } });
+      return Object.values(outcomes);
+    };
+    assert.match(workflow, /name: Summarize publication\n\s+if: always\(\)/);
+    assert.deepEqual(run(failedStage), failedStage === 'npm' ? ['success', 'failure', 'skipped'] : ['success', 'success', 'failure']);
+    const released = git(origin, 'rev-parse', 'refs/heads/release');
+    assert.equal(git(origin, 'rev-parse', 'v1.0.0^{commit}'), released);
+    assert.equal(git(work, 'rev-parse', 'HEAD'), source, 'the rerun starts at the original source SHA');
+    const report = readFileSync(summary, 'utf8');
+    assert.match(report, /Git bundle \| success/);
+    assert.match(report, failedStage === 'npm' ? /npm package \| failure/ : /GitHub Release \| failure/);
+    assert.match(report, /rerun the failed workflow jobs/);
+    assert.deepEqual(run(), ['success', 'success', 'success']);
+    assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), released, 'the published Git commit is retained');
+    const attempts = readFileSync(join(work, 'attempts'), 'utf8');
+    assert.deepEqual(run(), ['success', 'success', 'success']);
+    assert.equal(readFileSync(join(work, 'attempts'), 'utf8'), attempts, 'existing npm and GitHub releases are reused');
+    assert.equal(git(origin, 'rev-parse', 'refs/heads/release'), released);
+  });
+}
