@@ -140,7 +140,7 @@ test('a task the log names many times counts once toward the task limit', (t) =>
   assert.deepEqual(f.decoded.at(-1).context.tasks, [{ taskId: 'task', status: 'running' }]);
 });
 
-test('a damaged task of an earlier turn does not hide a later completed turn', (t) => {
+test('a damaged task of an earlier turn does not hide a later completed turn, even one that reads its output', (t) => {
   const f = fixture(t, {
     taskIds: taskIdsOf, tasksDir: (dir) => join(dir, 'agents', 'main', 'tasks'), decode: turnStatusOf,
   });
@@ -153,6 +153,8 @@ test('a damaged task of an earlier turn does not hide a later completed turn', (
     event({ type: 'tool.result', parentUuid: 'old-call', toolCallId: 'old-check', result: { output: 'task_id: old-task\nstatus: running', durationMs: 1 } }),
     { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' },
     prompt(1),
+    event({ type: 'tool.call', uuid: 'output-call', turnId: '1', toolCallId: 'old-output', name: 'TaskOutput', args: { task_id: 'old-task' } }),
+    event({ type: 'tool.result', parentUuid: 'output-call', toolCallId: 'old-output', result: { output: 'status: completed', durationMs: 1 } }),
     event({ type: 'tool.call', uuid: 'current-call', turnId: '1', toolCallId: 'current-check', name: 'Bash', args: { command: 'npm test' } }),
     event({ type: 'tool.result', parentUuid: 'current-call', toolCallId: 'current-check', result: { output: '# pass 1\n# fail 0', durationMs: 1 } }),
     { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' },

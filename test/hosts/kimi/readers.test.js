@@ -91,20 +91,22 @@ test('unsupported schemas and foreign agents do not supply evidence', () => {
   assert.equal(status([meta, { ...prompt(0), origin: { kind: 'cron' } }]), null);
 });
 
-test('fixed task discovery reads only the requested turn and rejects paths and unrelated output', () => {
-  const call = (id, task, turnId = '0') => event({
-    type: 'tool.call', uuid: `call-${id}`, toolCallId: `tool-${id}`, turnId, name: 'TaskOutput', args: { task_id: task },
-  });
+test('fixed task discovery reads only background tasks the requested turn started and rejects paths', () => {
+  const bash = (id, task, turnId = '0') => [
+    event({ type: 'tool.call', uuid: `call-${id}`, toolCallId: `tool-${id}`, turnId, name: 'Bash', args: { command: 'npm test' } }),
+    event({ type: 'tool.result', parentUuid: `call-${id}`, toolCallId: `tool-${id}`, result: { output: `task_id: ${task}\nstatus: running`, durationMs: 1 } }),
+  ];
   const records = [
-    call(0, 'bash-task'),
-    call(1, '../outside'),
-    call(2, 'foreign-task', '1'),
+    ...bash(0, 'bash-task'),
+    ...bash(1, '../outside'),
+    ...bash(2, 'foreign-task', '1'),
+    event({ type: 'tool.call', uuid: 'read-uuid', toolCallId: 'read-call', turnId: '0', name: 'TaskOutput', args: { task_id: 'read-task' } }),
     event({ type: 'tool.result', result: { output: 'task_id: unrelated-task\nstatus: running' } }),
   ];
   assert.deepEqual(taskIdsOf(records, { turnId: '0' }), ['bash-task']);
   assert.deepEqual(taskIdsOf(records, { turnId: '1' }), ['foreign-task']);
-  const many = Array.from({ length: 70 }, (_, index) => call(index, `task-${index}`));
-  const ids = taskIdsOf([...many, call(70, 'task-0')], { turnId: '0' });
+  const many = Array.from({ length: 70 }, (_, index) => bash(index, `task-${index}`)).flat();
+  const ids = taskIdsOf([...many, ...bash(70, 'task-0')], { turnId: '0' });
   assert.equal(ids.length, 64);
   assert.equal(ids.at(-1), 'task-0', 'a task named again by a later call is kept');
 });
