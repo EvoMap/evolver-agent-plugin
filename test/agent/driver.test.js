@@ -129,6 +129,20 @@ test('a correction whose draft lock stays held still opens its turn and recalls,
   assert.equal(await made.ports.draftCorrections.has('s1', 1, session.sessionEpoch), true);
 });
 
+test('a prompt whose session lifecycle lock stays held still opens its turn and recalls, and reports the lock', async () => {
+  const made = memoryPorts();
+  const { driver } = driverOf(hookProfile(), made);
+  const held = Object.assign(new Error('Timed out waiting for the session lifecycle lock. Please retry.'), { code: 'ELOCKED' });
+  made.ports.sessions.withSession = async () => { throw held; };
+  const errors = [];
+
+  await driver.handle('UserPromptSubmit', { ...base, prompt: PROMPT }, { onError: (error) => errors.push(error) });
+  assert.deepEqual(errors, [held]);
+  assert.ok(made.requests.length > 0);
+  const session = made.sessions.get('s1');
+  assert.deepEqual([session.turn, session.open], [1, true]);
+});
+
 test('a host whose injection lasts one call gets the open turn\'s strategy again, without a second recall', async () => {
   const made = memoryPorts();
   const { driver, requests } = driverOf(hookProfile({ reply: { lifetime: 'call' }, payload: { turnId: (payload) => payload.turn } }), made);
