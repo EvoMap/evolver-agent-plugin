@@ -11,7 +11,7 @@ import { TASKS } from '../../lib/app/ports.js';
 import { draftSourcesOf } from '../../lib/distill.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { BLOCKED_ROUTE_TTL_MS, EPISODE_QUIET_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/range.js';
-import { memoryPorts } from './memory-ports.js';
+import { ASSET, memoryPorts } from './memory-ports.js';
 import { DRAFTED, IR, changeTurn, fixTurn, modelAnswering, turnOf } from './work-turns.js';
 
 const PROJECT = {
@@ -76,8 +76,9 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.equal((await made.ports.candidates.read()).s1, undefined);
   assert.equal((await made.ports.drafts.read())[0].title, IR.title);
   const [{ body }] = distills(made.requests);
-  assert.deepEqual(Object.keys(body), ['platform', 'session_id', 'trigger', 'ir_version', 'ir', 'record', 'user_prompt', 'final_answer', 'execution', 'project', 'project_dir', 'persist', 'publish', 'distill_usage']);
+  assert.deepEqual(Object.keys(body), ['platform', 'session_id', 'trigger', 'ir_version', 'ir', 'record', 'user_prompt', 'final_answer', 'execution', 'project', 'project_dir', 'reused_asset_ids', 'persist', 'publish', 'distill_usage']);
   assert.deepEqual([body.platform, body.session_id, body.trigger, body.ir_version, body.persist, body.publish, body.project_dir], ['testagent', 'testagent:s1', 'session_end', 'session-gene-ir-v1', true, false, '/proj']);
+  assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id], 'the strategy the turn was recalled');
   assert.deepEqual(body.ir, IR);
   assert.deepEqual(body.record.slice(0, 9), [
     { kind: 'turn', text: 'Turn 1' },
@@ -93,6 +94,28 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.deepEqual([body.user_prompt, body.final_answer, body.project, body.distill_usage], ['fix the flaky redis retries', 'Fixed the retries.', PROJECT, { inputTokens: 10, outputTokens: 5 }]);
   const [kept] = await made.ports.corpus.read();
   assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
+});
+
+test('a distillation names only the assets injected into the turns it read', async () => {
+  const offTopic = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
+  const made = memoryPorts({ assets: [offTopic, ASSET], distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
+  await turnOf(made.ports, 's1', { prompt: 'what is the weather like', answer: 'Sunny.' });
+  await fixTurn(made.ports, 's1');
+  const { injected } = await made.ports.sessions.read('s1');
+  assert.deepEqual([injected[offTopic.asset_id].turn, injected[ASSET.asset_id].turn], [1, 2], 'the answered question was recalled for too');
+  await endedAndDistilled(made);
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id]);
+});
+
+test('a session ledger that cannot be read leaves out the reused assets, never the distillation', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+  made.ports.sessions.read = async () => { throw Object.assign(new Error('Invalid JSON in the session file'), { code: 'EINVALIDSTATE' }); };
+  const [outcome] = await distillDue(made.ports);
+  assert.equal(outcome.status, 'drafted');
+  const [{ body }] = distills(made.requests);
+  assert.equal('reused_asset_ids' in body, false);
 });
 
 test('the record holds every work turn in order: a failed check\'s redacted output tail, the correction, and a diff cut to fit a prompt', async () => {
