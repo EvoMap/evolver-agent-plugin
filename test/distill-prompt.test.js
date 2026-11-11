@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { irPromptOf } from '../lib/distill/ir-prompt.js';
 import { defaultKindOf } from '../lib/distill/kinds.js';
 import { sessionRecordOf } from '../lib/distill/record.js';
-import { distillBodiesOf } from '../lib/distill/request.js';
+import { distillBodiesOf, reusedAssetIdsOf } from '../lib/distill/request.js';
 import { workTurnOf } from '../lib/distill/work-turn.js';
 
 const rangeOf = (records, source = 'observed') => ({
@@ -76,4 +76,42 @@ test('the Proxy body keeps a clean saved snapshot as it was saved: an empty diff
     const range = withSnapshot(diff);
     assert.deepEqual(bodyOf(range).project, range.project, diff);
   }
+});
+
+const assetId = (digit) => `sha256:${String(digit).repeat(64)}`;
+const injectedAt = (turn, at = turn) => ({ turn, injectedAt: at, strategyText: '' });
+
+test('the reused assets of a range are those injected into its turns, valid ids only, in injection order, at most 20', () => {
+  const range = { sessionEpoch: 7, turns: [{ turn: 2 }, { turn: 3, sessionEpoch: 7 }] };
+  const injected = {
+    [assetId(3)]: injectedAt(3, 30),
+    [assetId(1)]: injectedAt(1),
+    [assetId(2)]: injectedAt(2),
+    [assetId(4)]: injectedAt(3, 20),
+    'sha256:step1': injectedAt(2),
+    [`sha256:${'A'.repeat(64)}`]: injectedAt(2),
+    [assetId(5)]: { turn: '2', injectedAt: 1 },
+  };
+  assert.deepEqual(reusedAssetIdsOf({ injected, sessionEpoch: 7 }, range), [assetId(2), assetId(4), assetId(3)]);
+
+  const many = Object.fromEntries(Array.from({ length: 25 }, (_, index) => [`sha256:${index.toString(16).padStart(64, '0')}`, injectedAt(2, 100 - index)]));
+  const kept = reusedAssetIdsOf({ injected: many, sessionEpoch: 7 }, range);
+  assert.equal(kept.length, 20);
+  assert.equal(kept[0], `sha256:${(24).toString(16).padStart(64, '0')}`, 'the earliest injections are kept');
+});
+
+test('a turn of another session epoch reused nothing this session file booked', () => {
+  const injected = { [assetId(1)]: injectedAt(1) };
+  assert.deepEqual(reusedAssetIdsOf({ injected, sessionEpoch: 9 }, { sessionEpoch: 7, turns: [{ turn: 1 }] }), []);
+  assert.deepEqual(reusedAssetIdsOf({ injected, sessionEpoch: 9 }, { sessionEpoch: 7, turns: [{ turn: 1, sessionEpoch: 9 }] }), [assetId(1)]);
+  assert.deepEqual(reusedAssetIdsOf({ injected }, { sessionEpoch: 7, turns: [{ turn: 1 }] }), [assetId(1)], 'a ledger from before epochs');
+  assert.deepEqual(reusedAssetIdsOf({}, { turns: [{ turn: 1 }] }), []);
+});
+
+test('a body carries reused_asset_ids only when there are some, on every IR', () => {
+  const session = sessionRecordOf(rangeOf([{ checks: [{ command: 'npm test', exit: 0, failed: false }] }]));
+  const bodies = (reusedAssetIds) => distillBodiesOf({ platform: 'codex', sessionId: 's1', trigger: 'idle', session, irs: [{ title: 'A' }, { title: 'B' }], reusedAssetIds });
+  assert.deepEqual(bodies([assetId(1)]).map((body) => body.reused_asset_ids), [[assetId(1)], [assetId(1)]]);
+  assert.equal('reused_asset_ids' in bodies([])[0], false);
+  assert.equal('reused_asset_ids' in bodies(undefined)[0], false);
 });
