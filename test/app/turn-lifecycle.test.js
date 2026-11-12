@@ -556,8 +556,12 @@ test('a session end waiting on report storage leaves a resumed turn and its evid
   assert.equal((await ports.notes.read('s1', session)).some(({ command }) => command === 'npm test'), true);
 });
 
-test('a candidate snapshot read error does not block queuing cached native reports and controls', async () => {
-  const { ports, queued } = memoryPorts();
+test('a candidate snapshot read error does not block queuing cached native reports and controls', async t => {
+  const { ports, requests } = memoryPorts();
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-delivery-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates, notes, baseline, reports, outbox } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates, notes, baseline, reports, outbox });
   ports.confirmTurnCompletion = true;
   const request = ports.proxy.request;
   ports.proxy.request = async (...args) => {
@@ -577,10 +581,27 @@ test('a candidate snapshot read error does not block queuing cached native repor
   const before = await ports.sessions.read('s1');
   const cached = before.injected[ASSET.asset_id].pendingReport;
   assert.equal(before.pendingControls.length, 1);
+  const readCandidates = ports.candidates.read;
   ports.candidates.read = async () => { throw new Error('candidate storage unavailable'); };
   await assert.rejects(sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' }), /candidate storage unavailable/);
+  const queued = readFileSync(join(dir, 'testagent-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
   assert.deepEqual(queued, [{ report: cached, sessionId: 's1' }, ...before.pendingControls]);
   assert.deepEqual(await ports.sessions.read('s1'), before, 'failed range cleanup does not acknowledge or erase cached reports');
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+  const delivered = () => requests.filter(({ path }) => ['/asset/reuse-result', '/asset/trial-control'].includes(path));
+  const expected = [
+    { path: '/asset/reuse-result', body: cached },
+    { path: '/asset/trial-control', body: before.pendingControls[0].report },
+  ];
+  assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected);
+  ports.candidates.read = readCandidates;
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+  assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected, 'retrying crash-safe queue entries does not resend settled reports or controls');
+  const after = await ports.sessions.read('s1');
+  assert.ok(after.injected[ASSET.asset_id].reportedAt);
+  assert.equal(after.injected[ASSET.asset_id].pendingReport, undefined);
+  assert.deepEqual(after.pendingControls, []);
 });
 
 for (const currentEpoch of [false, true]) test(`session cleanup preserves legacy range provenance (${currentEpoch ? 'new session epoch' : 'adopted legacy session'})`, async t => {
