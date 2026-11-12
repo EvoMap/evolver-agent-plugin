@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 
 import { commandCatalog, hostCommandCatalog, createPluginChannel, isHeadlessRun } from '../../../lib/channels/plugin/adapter.js';
@@ -11,6 +12,7 @@ import { editedFilesOf } from '../tools.js';
 import { stepModel } from './model.js';
 
 const text = (value) => typeof value === 'string' ? value : '';
+const RETRYABLE_STATE_ERRORS = new Set(['ELOCKED', 'ESTATEIO', 'EIO', 'EACCES', 'EBUSY', 'EPERM']);
 const answerOf = (message) => message?.role === 'assistant'
   ? (message.content ?? []).filter((part) => part?.type === 'text').map((part) => text(part.text)).join('\n').trim() : '';
 
@@ -59,20 +61,32 @@ export default function evolverStep(pi) {
     current.calls.clear();
     if (frame === current) frame = null;
   };
-  const finish = async (current, reason) => {
-    if (current.ended) return;
+  const finish = (current, reason, ctx) => {
+    if (current.ended) return current.finished;
     current.ended = true;
-    try {
-      await channel.handle('agent_settled', { sessionId: current.sessionId, cwd: current.cwd,
-        turnId: current.turnId, answer: current.answer, reason, model: current.model });
-    } finally { forget(current); }
+    const payload = { sessionId: current.sessionId, cwd: current.cwd,
+      turnId: current.turnId, answer: current.answer, reason, model: current.model };
+    current.finished = (async () => {
+      try {
+        // Step has no terminal record reader: retain its native proof until transient writes can be retried.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          let failure;
+          await channel.handle('agent_settled', payload, { onError: (error) => { failure = error; } });
+          if (!failure) return;
+          if (!RETRYABLE_STATE_ERRORS.has(failure.code)) break;
+          if (attempt < 2) await delay(50);
+        }
+        notify(ctx, { ok: false, text: 'Evolver could not finish saving this turn. Check the local state directory before continuing.' });
+      } finally { forget(current); }
+    })();
+    return current.finished;
   };
 
   pi.on('session_start', async (_event, ctx) => { await start(ctx); });
   pi.on('before_agent_start', async (event, ctx) => {
     const at = await start(ctx);
     if (!at) return;
-    if (frame) await finish(frame, 'aborted');
+    if (frame) await finish(frame, 'aborted', ctx);
     const command = commandPrompt?.text === event.prompt ? commandPrompt : null;
     if (command) commandPrompt = null;
     const current = { ...at, turnId: randomUUID(), model: await capture(ctx), strategy: '', answer: '',
@@ -128,7 +142,7 @@ export default function evolverStep(pi) {
     const confirmed = !current.aborted && !current.unsupported && current.signals.size > 0 && current.calls.size === 0
       && ctx.isIdle?.() === true && ctx.hasPendingMessages?.() === false && !event.failure
       && current.stopReason === 'stop' && Boolean(current.answer);
-    await finish(current, current.aborted ? 'aborted' : confirmed ? 'answer' : 'error');
+    await finish(current, current.aborted ? 'aborted' : confirmed ? 'answer' : 'error', ctx);
   });
   pi.on('session_shutdown', async (_event, ctx) => {
     if (closing) return;
@@ -136,7 +150,7 @@ export default function evolverStep(pi) {
     commandPrompt = null;
     channel.close();
     model.clear();
-    if (frame) await finish(frame, 'aborted');
+    if (frame) await finish(frame, 'aborted', ctx);
     const at = fields(ctx);
     if (at) await channel.handle('session_shutdown', at);
     await channel.idle();

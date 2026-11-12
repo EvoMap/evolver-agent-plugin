@@ -16,6 +16,8 @@ Use a separate foreground `run_command` or `bash` call for verification. Inline 
 
 Background completion uses the captured native provider, model, thinking level and account. If that route cannot be verified, the candidate waits rather than switching to the current account. It does not run another agent, load tools, or publish assets.
 
+If local turn persistence hits a temporary I/O or lock error, the live extension retries the same terminal evidence up to three times. It keeps the original turn and model route, without running the model or tools again. A new prompt waits for that save to finish. Persistent failures show a notice; recovery after the Step process exits is not guaranteed because this adapter has no native terminal-record reader.
+
 The `/evolver-*` commands expose status, configuration, draft review and explicit publication in the interactive CLI. This draft does not add a Step Code Desktop adapter.
 
 `/evolver-config recall off` and `/evolver-config auto-distill off` save preferences for this Step profile. Environment overrides still take precedence. To remove the extension, run `step remove ./dist/stepcode` with the same installed source path; this does not delete Evolver's profile data.
