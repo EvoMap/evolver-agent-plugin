@@ -556,7 +556,7 @@ test('a session end waiting on report storage leaves a resumed turn and its evid
   assert.equal((await ports.notes.read('s1', session)).some(({ command }) => command === 'npm test'), true);
 });
 
-test('a candidate snapshot read error does not block queuing cached native reports and controls', async t => {
+for (const drainBeforeRetry of [false, true]) test(`a candidate snapshot read error does not block queuing cached native reports and controls (${drainBeforeRetry ? 'drained before retry' : 'retry before drain'})`, async t => {
   const { ports, requests } = memoryPorts();
   const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-delivery-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -587,15 +587,21 @@ test('a candidate snapshot read error does not block queuing cached native repor
   const queued = readFileSync(join(dir, 'testagent-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
   assert.deepEqual(queued, [{ report: cached, sessionId: 's1' }, ...before.pendingControls]);
   assert.deepEqual(await ports.sessions.read('s1'), before, 'failed range cleanup does not acknowledge or erase cached reports');
-  assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
   const delivered = () => requests.filter(({ path }) => ['/asset/reuse-result', '/asset/trial-control'].includes(path));
   const expected = [
     { path: '/asset/reuse-result', body: cached },
     { path: '/asset/trial-control', body: before.pendingControls[0].report },
   ];
-  assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected);
+  if (drainBeforeRetry) {
+    assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+    assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected);
+  } else assert.deepEqual(delivered(), []);
   ports.candidates.read = readCandidates;
   await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  if (!drainBeforeRetry) {
+    const retried = readFileSync(join(dir, 'testagent-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    assert.deepEqual(retried, [...queued, ...queued], 'the first drain receives both copies of each crash-safe queue entry');
+  }
   assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
   assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected, 'retrying crash-safe queue entries does not resend settled reports or controls');
   const after = await ports.sessions.read('s1');
