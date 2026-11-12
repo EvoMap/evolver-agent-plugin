@@ -8,8 +8,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
+import { appendStateLine, readState, takeStateLines, updateState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 
 const dirs = [];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -75,6 +76,248 @@ test('released turn evidence is immediately recoverable alongside newer appends,
   assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
 });
 
+test('unknown legacy claim order survives repeated release and reclaims without changing note bytes', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  for (const command of ['first', 'last']) {
+    await cursor.notes.append('s1', { command }, scope);
+    (await cursor.notes.take('s1', scope)).release();
+  }
+  const originals = readdirSync(dir).filter(name => name.endsWith('.taking')).map(name => fs.readFileSync(join(dir, name), 'utf8')).sort();
+  for (const name of readdirSync(dir)) fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const taken = await cursor.notes.take('s1', scope);
+    assert.equal(taken.ordered, false);
+    assert.deepEqual(taken.notes.map(({ command }) => command).sort(), ['first', 'last']);
+    assert.deepEqual(readdirSync(dir).filter(name => name.endsWith('.taking')).map(name => fs.readFileSync(join(dir, name), 'utf8')).sort(), originals);
+    if (attempt === 2) await taken.commit(); else taken.release();
+  }
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('a mixed legacy and numbered claim cannot silently acquire a trusted order', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  (await cursor.notes.take('s1', scope)).release();
+  await cursor.notes.append('s1', { command: 'last' }, scope);
+  (await cursor.notes.take('s1', scope)).release();
+  const [name] = readdirSync(dir).filter(name => name.endsWith('.taking'));
+  fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  const taken = await cursor.notes.take('s1', scope);
+  assert.equal(taken.ordered, false);
+  assert.deepEqual(taken.notes.map(({ command }) => command).sort(), ['first', 'last']);
+  await taken.commit();
+});
+
+test('baseline recovery preserves the first pre-edit hash through repeated claim rotations', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 }, file = join(dir, 'edited.js');
+  writeFileSync(file, 'original');
+  await cursor.baseline.remember('s1', file, null, scope);
+  const first = await cursor.baseline.take('s1', null, scope);
+  const before = first.before.get(file);
+  for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  writeFileSync(file, 'modified');
+  await cursor.baseline.remember('s1', file, null, scope);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const taken = await cursor.baseline.take('s1', null, scope);
+    assert.equal(taken.ordered, true);
+    assert.equal(taken.before.get(file), before);
+    if (attempt === 1) await taken.commit();
+    else for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  }
+});
+
+test('legacy baseline chunks with unknown order do not invent a first pre-edit hash', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  for (const content of ['original', 'modified']) {
+    const file = join(dir, 'edited.js');
+    writeFileSync(file, content);
+    await cursor.baseline.remember('s1', file, null, scope);
+    await cursor.baseline.take('s1', null, scope);
+    for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  }
+  for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  const taken = await cursor.baseline.take('s1', null, scope);
+  assert.equal(taken.ordered, false);
+  assert.equal(taken.before.size, 0);
+  await taken.commit();
+});
+
+test('two processes serialize claim numbering while an earlier reader keeps its chunk', async t => {
+  const { dir } = stores();
+  const target = join(dir, 'queue.jsonl');
+  const runtime = new URL('../../lib/runtime/store/file-lock.js', import.meta.url).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import { join } from 'node:path';
+    import { appendStateLine, takeStateLines } from ${JSON.stringify(runtime)};
+    const [dir, target, role] = process.argv.slice(1);
+    const marker = name => join(dir, name);
+    const wait = name => {
+      const deadline = Date.now() + 10_000;
+      while (!fs.existsSync(marker(name))) {
+        if (Date.now() >= deadline) throw new Error('timed out waiting for ' + name);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+    };
+    let taken;
+    if (role === 'A') {
+      appendStateLine(target, { command: 'first' });
+      const rename = fs.renameSync;
+      fs.renameSync = (from, to) => {
+        if (from === target && to.endsWith('.taking')) { fs.writeFileSync(marker('A-paused'), ''); wait('A-resume'); }
+        return rename(from, to);
+      };
+      taken = takeStateLines(target);
+      fs.writeFileSync(marker('A-ready'), '');
+    } else {
+      assert.throws(() => takeStateLines(target), { code: 'ELOCKED' });
+      fs.writeFileSync(marker('B-blocked'), '');
+      wait('A-ready');
+      appendStateLine(target, { command: 'last' });
+      taken = takeStateLines(target);
+      fs.writeFileSync(marker('B-ready'), '');
+    }
+    wait('release');
+    taken.release();
+  `;
+  const { run, results } = lockContenders(t, dir, script, [dir, target], ['A-resume', 'release']);
+  run('A');
+  await until(() => existsSync(join(dir, 'A-paused')));
+  run('B');
+  await until(() => existsSync(join(dir, 'B-blocked')));
+  writeFileSync(join(dir, 'A-resume'), '');
+  await until(() => existsSync(join(dir, 'B-ready')));
+  writeFileSync(join(dir, 'release'), '');
+  for (const { code, stderr } of await results()) assert.equal(code, 0, stderr);
+  const { takeStateLines } = await import('../../lib/runtime/store/file-lock.js');
+  const taken = takeStateLines(target);
+  assert.equal(taken.ordered, true);
+  assert.deepEqual(taken.lines, [{ command: 'first' }, { command: 'last' }]);
+  taken.commit();
+});
+
+test('a legacy reader racing claim rotation cannot turn native evidence into an empty take', async t => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'preserved' }, scope);
+  const target = join(dir, readdirSync(dir).find(name => name.endsWith('.jsonl')));
+  const legacy = `${target}.${process.pid}.0123456789ab.taking`;
+  const bytes = fs.readFileSync(target);
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (from === target && String(to).endsWith('.taking')) rename(from, legacy);
+    return rename(from, to);
+  });
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'ELOCKED' });
+  assert.deepEqual(fs.readFileSync(legacy), bytes);
+  t.mock.restoreAll();
+  fs.utimesSync(legacy, new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  const recovered = await cursor.notes.take('s1', scope);
+  assert.deepEqual(recovered.notes, [{ command: 'preserved' }]);
+  assert.equal(recovered.ordered, true);
+  await recovered.commit();
+});
+
+test('turn evidence waits for an earlier take without dropping new appends', async () => {
+  const { stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  const first = await cursor.notes.take('s1', scope);
+  await cursor.notes.append('s1', { command: 'new' }, scope);
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'ELOCKED' });
+  await first.commit();
+  const next = await cursor.notes.take('s1', scope);
+  assert.deepEqual(next.notes, [{ command: 'new' }]);
+  await next.commit();
+});
+
+test('turn evidence is immediately recoverable when claim metadata fails after renaming', async t => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'preserved' }, scope);
+  const source = readdirSync(dir).find(name => name.endsWith('.jsonl'));
+  const bytes = fs.readFileSync(join(dir, source));
+  const touch = fs.utimesSync;
+  let denied = false;
+  t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+    if (!denied && String(file).startsWith(dir) && String(file).endsWith('.taking')) {
+      denied = true;
+      throw Object.assign(new Error('fixture claim metadata denial'), { code: 'EACCES' });
+    }
+    return touch(file, atime, mtime);
+  });
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'EACCES' });
+  assert.equal(denied, true, 'the claim metadata write was actually refused');
+  const [claim] = readdirSync(dir).filter(name => name.endsWith('.taking'));
+  assert.deepEqual(fs.readFileSync(join(dir, claim)), bytes, 'the moved evidence stays byte-for-byte intact');
+  const recovered = await cursor.notes.take('s1', scope);
+  assert.deepEqual(recovered.notes, [{ command: 'preserved' }]);
+  await recovered.commit();
+  assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
+});
+
+for (const requireComplete of [false, true]) for (const code of ['EACCES', 'EPERM', 'EIO']) {
+  test(`${requireComplete ? 'native' : 'queue'} takes preserve every claim when metadata refresh fails with ${code}`, t => {
+    const { dir } = stores();
+    const target = join(dir, 'evidence.jsonl');
+    appendStateLine(target, { command: 'earlier' });
+    const earlier = takeStateLines(target);
+    earlier.release();
+    appendStateLine(target, { command: 'later' });
+    const bytes = fs.readFileSync(target);
+    const failure = Object.assign(new Error('fixture claim metadata refusal'), { code });
+    const touch = fs.utimesSync;
+    t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+      if (String(file).endsWith('.taking') && Number(mtime) > Date.now() - 60_000 && !existsSync(target)) throw failure;
+      return touch(file, atime, mtime);
+    });
+    assert.throws(() => takeStateLines(target, Date.now(), { requireComplete }), error => error === failure);
+    const claims = readdirSync(dir).filter(name => name.endsWith('.taking'));
+    assert.equal(claims.length, 2, 'both earlier and newly moved records remain recoverable');
+    assert.ok(claims.some(name => fs.readFileSync(join(dir, name)).equals(bytes)), 'new evidence stays byte-for-byte intact');
+    t.mock.restoreAll();
+    const recovered = takeStateLines(target, Date.now(), { requireComplete });
+    assert.deepEqual(recovered.lines.map(({ command }) => command).sort(), ['earlier', 'later']);
+    recovered.commit();
+    assert.deepEqual(readdirSync(dir), []);
+  });
+}
+
+test('a metadata failure preserves its original error when release is also denied', t => {
+  const { dir } = stores();
+  const target = join(dir, 'evidence.jsonl');
+  appendStateLine(target, { command: 'preserved' });
+  const failure = Object.assign(new Error('fixture claim metadata failure'), { code: 'EIO' });
+  const touch = fs.utimesSync;
+  t.mock.method(fs, 'utimesSync', () => { throw failure; });
+  assert.throws(() => takeStateLines(target, Date.now(), { requireComplete: true }), error => error === failure);
+  t.mock.restoreAll();
+  assert.throws(() => takeStateLines(target, Date.now(), { requireComplete: true }), { code: 'ELOCKED' });
+  for (const name of readdirSync(dir)) touch(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  const recovered = takeStateLines(target, Date.now(), { requireComplete: true });
+  assert.deepEqual(recovered.lines, [{ command: 'preserved' }]);
+  recovered.commit();
+});
+
+test('queue takes still consume new appends while an earlier take awaits commit', () => {
+  const { dir } = stores();
+  const target = join(dir, 'queue.jsonl');
+  appendStateLine(target, { report: 'first' });
+  const first = takeStateLines(target);
+  appendStateLine(target, { report: 'next' });
+  const next = takeStateLines(target);
+  assert.deepEqual(first.lines, [{ report: 'first' }]);
+  assert.deepEqual(next.lines, [{ report: 'next' }]);
+  first.commit();
+  next.commit();
+  assert.deepEqual(takeStateLines(target).lines, []);
+});
+
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
   const { dir, stores: cursor } = stores();
   const scope = { sessionEpoch: 10, turn: 1 };
@@ -82,6 +325,8 @@ test('pruning expires generation evidence and its claims without touching report
   await cursor.baseline.remember('s1', '/old.js', null, scope);
   await cursor.notes.take('s1', scope);
   await cursor.baseline.take('s1', null, scope);
+  writeFileSync(join(dir, 'cursor-turn-generation-0123456789abcdef.jsonl.order-unknown.123.0123456789ab.taking'), 'legacy ambiguity');
+  writeFileSync(join(dir, 'cursor-edits-generation-0123456789abcdef.jsonl.123.0123456789ab.taking'), 'legacy claim');
   const reportClaim = join(dir, 'cursor-reports-queue.jsonl.123.0123456789ab.taking');
   writeFileSync(reportClaim, 'keep report');
   for (const name of readdirSync(dir)) fs.utimesSync(join(dir, name), new Date(0), new Date(0));

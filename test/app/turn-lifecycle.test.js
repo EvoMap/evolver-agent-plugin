@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs, { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +10,7 @@ import { TASKS } from '../../lib/app/ports.js';
 import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
-import { sessionStarted } from '../../lib/app/session-start.js';
+import { recoverNativeTurns, sessionStarted } from '../../lib/app/session-start.js';
 import { beforeEdit, toolFinished } from '../../lib/app/tool-result.js';
 import { closeUnfinishedTurn, turnEnded } from '../../lib/app/turn-end.js';
 import { AGENT_REPORTED } from '../../lib/app/turn-reports.js';
@@ -830,8 +831,79 @@ test('the current native epoch replaces an older range with its own snapshot bas
   assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
 });
 
-for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
-  test(`redelivering a confirmed native turn recovers from a transient ${read} read failure`, async (t) => {
+for (const [firstExit, lastExit] of [[0, 1], [1, 0]]) {
+  test(`native claim recovery keeps check order after repeated releases (${firstExit} then ${lastExit})`, async t => {
+    const { ports, queued } = memoryPorts();
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-native-claim-order-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+    Object.assign(ports, { sessions, candidates, notes, baseline, confirmTurnCompletion: true, modelForTurn: () => NATIVE_ROUTE });
+    let nonce = 255;
+    t.mock.method(crypto, 'randomBytes', size => Buffer.alloc(size, nonce--));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+    const scope = await sessions.read('s1');
+    const check = async (callId, exit) => {
+      const call = { kind: 'shell', command: 'npm test', callId };
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, running: true } });
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, exit } });
+    };
+    await check('first', firstExit);
+    (await notes.take('s1', scope)).release();
+    await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { kind: 'edit', paths: ['/proj/retry.js'] } });
+    await check('last', lastExit);
+    (await notes.take('s1', scope)).release();
+    const ended = await end(ports, 's1', { turnId: 't1' });
+    assert.deepEqual(ended.record.checks.map(({ exit }) => exit), [firstExit, lastExit]);
+    assert.deepEqual(queued.map(({ report }) => report.outcome), [lastExit === 0 ? 'success' : 'failed']);
+    const range = (await candidates.read()).s1;
+    assert.deepEqual(range.turns[0].steps.filter(({ kind }) => kind === 'check').map(({ exit }) => exit), [firstExit, lastExit]);
+    assert.equal(ended.isDistillable, lastExit === 0);
+  });
+}
+
+for (const native of [false, true]) for (const observed of [false, true]) {
+  test(`unordered legacy notes need an authoritative record (${native ? 'native' : 'hook'}, ${observed ? 'record available' : 'notes only'})`, async t => {
+    const { ports, queued, retained } = memoryPorts();
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-legacy-note-order-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+    Object.assign(ports, { sessions, candidates, notes, baseline, confirmTurnCompletion: native, modelForTurn: () => NATIVE_ROUTE });
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+    const scope = await sessions.read('s1');
+    for (const [callId, exit] of [['first', 0], ['last', 1]]) {
+      const call = { kind: 'shell', command: 'npm test', callId };
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, running: true } });
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, exit } });
+      (await notes.take('s1', scope)).release();
+    }
+    for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) {
+      fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+    }
+    const ended = await end(ports, 's1', { turnId: 't1', ...(observed && { recordOf: () => NATIVE_PASS }) });
+    assert.deepEqual(queued.map(({ report }) => report.outcome), observed ? ['success'] : []);
+    assert.equal(Boolean((await candidates.read()).s1), observed);
+    assert.equal(retained.length, observed ? 1 : 0);
+    assert.equal((await sessions.read('s1')).open, false, 'legacy ambiguity does not leave the turn permanently busy');
+    assert.equal(ended.record.checks.length, observed ? 1 : 2, 'the original evidence is not rewritten into a made-up verdict');
+  });
+}
+
+test('a trusted native record can verify work without inventing retention from an unordered baseline', async () => {
+  const { ports, queued, retained } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  ports.modelForTurn = () => NATIVE_ROUTE;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  const take = ports.baseline.take;
+  ports.baseline.take = async (...args) => ({ ...await take(...args), ordered: false });
+  const ended = await end(ports, 's1', { turnId: 't1', recordOf: () => NATIVE_PASS });
+  assert.deepEqual(queued.map(({ report }) => report.outcome), ['success']);
+  assert.deepEqual(ended.record, NATIVE_PASS);
+  assert.ok((await ports.candidates.read()).s1);
+  assert.deepEqual(retained, []);
+});
+
+for (const [read, releaseDenied = false] of [['terminal record'], ['saved tool notes'], ['edit baseline'], ['saved tool notes', true]]) {
+  test(`redelivering a confirmed native turn recovers from a transient ${read} read failure${releaseDenied ? ' with denied claim release' : ''}`, async (t) => {
     const { ports, queued, retained } = memoryPorts();
     const dir = mkdtempSync(join(tmpdir(), 'evolver-native-read-retry-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -861,12 +933,29 @@ for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
         }
         return readFile(file, ...args);
       });
+      if (releaseDenied) {
+        const touch = fs.utimesSync;
+        t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+          if (typeof file === 'string' && file.startsWith(dir) && file.endsWith('.taking') && Number(atime) < Date.now() - 60_000) {
+            throw Object.assign(new Error('claim release denied'), { code: 'EACCES' });
+          }
+          return touch(file, atime, mtime);
+        });
+      }
     }
     const deliver = () => turnEnded(ports, { sessionId, turnId, reason: 'answer', expectedTurn, recordOf });
     await assert.rejects(deliver, /temporary read failure/);
     assert.equal((await sessions.read(sessionId)).open, true);
     assert.deepEqual(queued, []);
     assert.deepEqual(await candidates.read(), {});
+    if (releaseDenied) {
+      await assert.rejects(deliver, { code: 'ELOCKED' });
+      assert.equal((await sessions.read(sessionId)).open, true);
+      assert.deepEqual(queued, []);
+      assert.deepEqual(await candidates.read(), {});
+      t.mock.restoreAll();
+      for (const name of readdirSync(dir)) if (name.endsWith('.taking')) utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+    }
 
     const result = await deliver();
     assert.deepEqual(result?.record.checks, NATIVE_PASS.checks);
@@ -879,6 +968,26 @@ for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
     if (editedFile) assert.equal(retained[0].editedBefore.has(editedFile), true);
   });
 }
+
+test('an epoch change while taking native notes cannot queue a replacement session report', async () => {
+  const { ports, queued, advance } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: PROMPT, ...WAIT });
+  const take = ports.notes.take;
+  ports.notes.take = async (...args) => {
+    const notes = await take(...args);
+    advance(1);
+    await ports.sessions.update('s1', () => ({ turn: 0 }));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: PROMPT, ...WAIT });
+    return notes;
+  };
+  assert.equal(await end(ports, 's1', { turnId: 'old', recordOf: () => NATIVE_PASS }), null);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(await ports.candidates.read(), {});
+  const current = await ports.sessions.read('s1');
+  assert.equal(current.open, true);
+  assert.equal(current.turnId, 'new');
+});
 
 test('a native evidence read failure cannot reopen a turn after a newer prompt', async () => {
   const { ports, queued } = memoryPorts();
@@ -896,6 +1005,219 @@ test('a native evidence read failure cannot reopen a turn after a newer prompt',
   assert.equal(current.open, true);
   assert.deepEqual(queued, []);
   assert.deepEqual(await ports.candidates.read(), {});
+});
+
+async function storedNativeTurn(t) {
+  const fixture = memoryPorts();
+  const { ports } = fixture;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-native-processing-retry-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const stores = fileStoresOf({ dir, agent: 'testagent' });
+  for (const name of ['sessions', 'candidates', 'notes', 'baseline', 'reports', 'outbox', 'retention']) ports[name] = stores[name];
+  Object.assign(ports, { confirmTurnCompletion: true, modelForTurn: () => NATIVE_ROUTE });
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  await stores.sessions.update('s1', session => ({ ...session, withheld: [{ asset_id: `sha256:${'c'.repeat(64)}`, withheld_id: 'trial-1' }] }));
+  const scope = await stores.sessions.read('s1');
+  const file = join(dir, 'retry.js');
+  writeFileSync(file, 'before');
+  await stores.baseline.remember('s1', file, 't1', scope);
+  writeFileSync(file, 'after');
+  await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { kind: 'edit', paths: [file] } });
+  const check = { kind: 'shell', command: 'npm test', callId: 'check' };
+  await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...check, running: true } });
+  await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...check, exit: 0 } });
+  return { ...fixture, dir, stores, scope, deliver: () => end(ports, 's1', { turnId: 't1', expectedTurn: scope }),
+    sent: () => fixture.requests.filter(({ path }) => ['/asset/reuse-result', '/asset/trial-control'].includes(path)) };
+}
+
+for (const written of [false, true]) {
+  test(`a retention failure ${written ? 'after' : 'before'} append preserves the native candidate without retrying the uncertain write`, async t => {
+    const f = await storedNativeTurn(t);
+    const append = fs.appendFileSync;
+    let attempts = 0;
+    const failure = Object.assign(new Error('fixture retention append refusal'), { code: 'EIO' });
+    t.mock.method(fs, 'appendFileSync', (file, ...args) => {
+      if (file === join(f.dir, 'testagent-retention-pending.jsonl')) {
+        attempts++;
+        if (written) append(file, ...args);
+        throw failure;
+      }
+      return append(file, ...args);
+    });
+    await assert.rejects(f.deliver(), error => error === failure);
+    const session = await f.stores.sessions.read('s1');
+    assert.equal(session.open, false);
+    assert.equal(session.labelable.length, 1);
+    assert.equal((await f.stores.candidates.read()).s1.turns.length, 1);
+    assert.deepEqual(readdirSync(f.dir).filter(name => name.endsWith('.taking')), []);
+    assert.equal(await f.deliver(), null);
+    assert.equal(attempts, 1, 'an append whose outcome is uncertain is not run a second time');
+    const retention = join(f.dir, 'testagent-retention-pending.jsonl');
+    assert.equal(fs.existsSync(retention), written, 'a refused pre-write calibration record is surfaced, not invented');
+    await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+    assert.deepEqual(f.sent().map(({ path }) => path).sort(), ['/asset/reuse-result', '/asset/trial-control']);
+  });
+}
+
+for (const [written, recover] of [[false, false], [true, false], [false, true]]) {
+  test(`a native candidate write failing ${written ? 'after' : 'before'} persistence ${recover ? 'recovers its dead owner' : 'retries its evidence'} without duplicate reports or trials`, async t => {
+    const f = await storedNativeTurn(t);
+    const update = f.stores.candidates.update;
+    const failure = Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+    let refused = false;
+    f.stores.candidates.update = async (...args) => {
+      if (!refused) {
+        refused = true;
+        if (written) await update(...args);
+        throw failure;
+      }
+      return update(...args);
+    };
+    await assert.rejects(f.deliver(), error => error === failure);
+    const labelable = (await f.stores.sessions.read('s1')).labelable;
+    assert.equal(labelable.length, 1);
+    assert.equal((await f.stores.sessions.read('s1')).open, true);
+    await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+    assert.equal(f.sent().length, 2);
+    if (recover) {
+      f.ports.owner.isGone = () => true;
+      f.ports.turnStatus = () => ({ status: 'completed', record: NATIVE_PASS, answer: NATIVE_PASS.answer });
+      await recoverNativeTurns(f.ports);
+    } else {
+      const ended = await f.deliver();
+      assert.equal(ended.record.checks.at(-1).exit, 0);
+    }
+    assert.deepEqual((await f.stores.sessions.read('s1')).labelable, labelable);
+    assert.equal((await f.stores.sessions.read('s1')).open, false);
+    assert.equal((await f.stores.candidates.read()).s1.turns.length, 1);
+    const retention = readFileSync(join(f.dir, 'testagent-retention-pending.jsonl'), 'utf8').trim().split('\n').filter(Boolean);
+    assert.equal(retention.length, 1, 'completed retention work is not repeated on a candidate retry');
+    await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+    assert.equal(f.sent().length, 2, 'the settled outbox suppresses both repeated report and trial entries');
+    assert.equal(await f.deliver(), null);
+  });
+}
+
+test('a recovered native candidate schedules delivery of reports acknowledged by the failed attempt', async t => {
+  const f = await storedNativeTurn(t);
+  await f.stores.sessions.update('s1', session => ({ ...session, withheld: [] }));
+  const update = f.stores.candidates.update;
+  let refused = false;
+  f.stores.candidates.update = async (...args) => {
+    if (!refused) {
+      refused = true;
+      throw Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+    }
+    return update(...args);
+  };
+  await assert.rejects(f.deliver(), { code: 'EIO' });
+  f.scheduled.length = 0;
+  const ended = await f.deliver();
+  assert.deepEqual(ended.reports, [], 'the first attempt already queued and acknowledged this report');
+  assert.ok(f.scheduled.includes(TASKS.DRAIN), 'the recovered candidate still wakes report delivery');
+  await runBackgroundTasks(f.ports, f.scheduled);
+  assert.deepEqual(f.sent().map(({ path }) => path), ['/asset/reuse-result']);
+  await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+  assert.equal(f.sent().length, 1, 'later drains do not send the report again');
+});
+
+test('failed processing releases both leases without replacing its error if their release throws', async t => {
+  const f = await storedNativeTurn(t);
+  const failure = Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+  f.stores.candidates.update = async () => { throw failure; };
+  let released = 0;
+  for (const store of [f.stores.notes, f.stores.baseline]) {
+    const take = store.take;
+    store.take = async (...args) => {
+      const lease = await take(...args);
+      return { ...lease, release: () => { released++; lease.release(); throw new Error('fixture release refusal'); } };
+    };
+  }
+  await assert.rejects(f.deliver(), error => error === failure);
+  assert.equal(released, 2);
+  assert.equal((await f.stores.sessions.read('s1')).open, true);
+});
+
+test('failed old-turn processing cannot reopen or change a newer prompt', async t => {
+  const f = await storedNativeTurn(t);
+  const update = f.stores.candidates.update;
+  const failure = Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+  let refused = false;
+  f.stores.candidates.update = async (...args) => {
+    if (!refused) {
+      refused = true;
+      await promptSubmitted(f.ports, { sessionId: 's1', turnId: 'new', prompt: 'Continue with a new task', ...WAIT });
+      throw failure;
+    }
+    return update(...args);
+  };
+  await assert.rejects(f.deliver(), error => error === failure);
+  const current = await f.stores.sessions.read('s1');
+  assert.equal(current.open, true);
+  assert.equal(current.turnId, 'new');
+  assert.equal(current.turn, f.scope.turn + 1);
+});
+
+test('partial evidence commit failure keeps the completed native candidate closed and schedules its reports', async t => {
+  const f = await storedNativeTurn(t);
+  const remove = fs.rmSync;
+  const failure = Object.assign(new Error('fixture baseline commit refusal'), { code: 'EACCES' });
+  let refused = false;
+  t.mock.method(fs, 'rmSync', (file, ...args) => {
+    if (!refused && String(file).startsWith(f.dir) && String(file).includes('-edits-') && String(file).endsWith('.taking')) {
+      refused = true;
+      throw failure;
+    }
+    return remove(file, ...args);
+  });
+  await assert.rejects(f.deliver(), error => error === failure);
+  assert.equal(refused, true);
+  assert.equal((await f.stores.sessions.read('s1')).open, false);
+  const candidate = (await f.stores.candidates.read()).s1;
+  assert.equal(candidate.turns.length, 1);
+  assert.ok(f.scheduled.includes(TASKS.DRAIN));
+  assert.equal(await f.deliver(), null, 'cleanup failure must not rejudge partially consumed evidence');
+  assert.deepEqual((await f.stores.candidates.read()).s1, candidate);
+  const claims = readdirSync(f.dir).filter(name => name.endsWith('.taking'));
+  assert.equal(claims.length, 1);
+  assert.ok(fs.statSync(join(f.dir, claims[0])).mtimeMs < Date.now() - 60_000, 'the uncommitted baseline is released');
+  await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+  assert.equal(f.sent().length, 2);
+});
+
+test('a processing retry with cached reports does not repeat an uncertain retention append', async t => {
+  const f = await storedNativeTurn(t);
+  const enqueue = f.stores.reports.enqueue;
+  let queueFailed = false;
+  f.stores.reports.enqueue = async (...args) => {
+    if (!queueFailed) { queueFailed = true; throw new Error('fixture report queue refusal'); }
+    return enqueue(...args);
+  };
+  const append = fs.appendFileSync;
+  let retentionAttempts = 0;
+  t.mock.method(fs, 'appendFileSync', (file, ...args) => {
+    const result = append(file, ...args);
+    if (file === join(f.dir, 'testagent-retention-pending.jsonl') && ++retentionAttempts === 1) throw new Error('fixture append failed after writing');
+    return result;
+  });
+  const update = f.stores.candidates.update;
+  const failure = Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+  let candidateFailed = false;
+  f.stores.candidates.update = async (...args) => {
+    if (!candidateFailed) { candidateFailed = true; throw failure; }
+    return update(...args);
+  };
+  await assert.rejects(f.deliver(), error => error === failure);
+  const pending = await f.stores.sessions.read('s1');
+  assert.equal(pending.open, true);
+  assert.ok(Object.values(pending.injected).some(({ pendingReport }) => pendingReport));
+  const ended = await f.deliver();
+  assert.equal(ended.record.checks.at(-1).exit, 0);
+  assert.equal(retentionAttempts, 1);
+  assert.equal((await f.stores.candidates.read()).s1.turns.length, 1);
+  assert.equal((await f.stores.sessions.read('s1')).labelable.length, 1);
+  await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+  assert.equal(f.sent().length, 2);
 });
 
 test('a verified native report retries with its original evidence and keeps its work after a local queue failure', async (t) => {
