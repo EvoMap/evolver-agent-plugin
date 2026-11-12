@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "evolver-plugin",
   "displayName": "Evolver",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Recall reusable strategies, report verified results, and distill completed work into local drafts.",
   "author": "EvoMap",
   "repository": "https://github.com/EvoMap/evolver-agent-plugin",

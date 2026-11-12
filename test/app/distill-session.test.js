@@ -8,9 +8,10 @@ import { MIN_WAKE_DELAY_MS, armDistillWakeUp, distillDue, distillSession, dropEx
 import { adoptStrategy, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { TASKS } from '../../lib/app/ports.js';
+import { draftSourcesOf } from '../../lib/distill.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { BLOCKED_ROUTE_TTL_MS, EPISODE_QUIET_MS, IDLE_DISTILL_MS, RETRY_BASE_MS, UNDISTILLED_LEFTOVER_TTL_MS, nextDueAt } from '../../lib/distill/range.js';
-import { memoryPorts } from './memory-ports.js';
+import { ASSET, memoryPorts } from './memory-ports.js';
 import { DRAFTED, IR, changeTurn, fixTurn, modelAnswering, turnOf } from './work-turns.js';
 
 const PROJECT = {
@@ -75,8 +76,9 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.equal((await made.ports.candidates.read()).s1, undefined);
   assert.equal((await made.ports.drafts.read())[0].title, IR.title);
   const [{ body }] = distills(made.requests);
-  assert.deepEqual(Object.keys(body), ['platform', 'session_id', 'trigger', 'ir_version', 'ir', 'record', 'user_prompt', 'final_answer', 'execution', 'project', 'project_dir', 'persist', 'publish', 'distill_usage']);
+  assert.deepEqual(Object.keys(body), ['platform', 'session_id', 'trigger', 'ir_version', 'ir', 'record', 'user_prompt', 'final_answer', 'execution', 'project', 'project_dir', 'reused_asset_ids', 'persist', 'publish', 'distill_usage']);
   assert.deepEqual([body.platform, body.session_id, body.trigger, body.ir_version, body.persist, body.publish, body.project_dir], ['testagent', 'testagent:s1', 'session_end', 'session-gene-ir-v1', true, false, '/proj']);
+  assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id], 'the strategy the turn was recalled');
   assert.deepEqual(body.ir, IR);
   assert.deepEqual(body.record.slice(0, 9), [
     { kind: 'turn', text: 'Turn 1' },
@@ -92,6 +94,28 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.deepEqual([body.user_prompt, body.final_answer, body.project, body.distill_usage], ['fix the flaky redis retries', 'Fixed the retries.', PROJECT, { inputTokens: 10, outputTokens: 5 }]);
   const [kept] = await made.ports.corpus.read();
   assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
+});
+
+test('a distillation names only the assets injected into the turns it read', async () => {
+  const offTopic = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
+  const made = memoryPorts({ assets: [offTopic, ASSET], distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
+  await turnOf(made.ports, 's1', { prompt: 'what is the weather like', answer: 'Sunny.' });
+  await fixTurn(made.ports, 's1');
+  const { injected } = await made.ports.sessions.read('s1');
+  assert.deepEqual([injected[offTopic.asset_id].turn, injected[ASSET.asset_id].turn], [1, 2], 'the answered question was recalled for too');
+  await endedAndDistilled(made);
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id]);
+});
+
+test('a session ledger that cannot be read leaves out the reused assets, never the distillation', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
+  made.ports.sessions.read = async () => { throw Object.assign(new Error('Invalid JSON in the session file'), { code: 'EINVALIDSTATE' }); };
+  const [outcome] = await distillDue(made.ports);
+  assert.equal(outcome.status, 'drafted');
+  const [{ body }] = distills(made.requests);
+  assert.equal('reused_asset_ids' in body, false);
 });
 
 test('the record holds every work turn in order: a failed check\'s redacted output tail, the correction, and a diff cut to fit a prompt', async () => {
@@ -421,12 +445,13 @@ test('a correction after its turn was distilled removes that turn\'s draft and m
     await before(ports);
     await fixTurn(ports, 's1');
     assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted', name);
-    const [{ sourceCandidate }] = await ports.drafts.read();
-    assert.deepEqual([sourceCandidate.turn, sourceCandidate.sessionEpoch === undefined], [turn, turn === 5], name);
+    const [draft] = await ports.drafts.read();
+    const [source] = draftSourcesOf(draft);
+    assert.deepEqual([source.turn, source.sessionEpoch === undefined], [turn, turn === 5], name);
     await after(ports);
     await correct(ports);
     assert.deepEqual(await ports.drafts.read(), [], name);
-    assert.equal(await ports.draftCorrections.has('s1', turn, sourceCandidate.sessionEpoch), true, name);
+    assert.equal(await ports.draftCorrections.has('s1', turn, source.sessionEpoch), true, name);
   }
 });
 
@@ -845,6 +870,27 @@ test('with no headless model, distilling now hands the agent the IR prompt, and 
   assert.equal((await ports.drafts.read()).length, 0);
 });
 
+test('a failed background range releases the unrun ranges so the same process can retry', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  const { ports, requests } = made;
+  await fixTurn(ports, 's2');
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await sessionEnded(ports, { sessionId: 's2', projectDir: '/proj' });
+  const updateCorpus = ports.corpus.update;
+  ports.corpus.update = async () => { throw new Error('corpus write denied'); };
+
+  await assert.rejects(distillDue(ports), /corpus write denied/);
+  ports.corpus.update = updateCorpus;
+
+  const pending = await ports.candidates.read();
+  assert.deepEqual([pending.s1.claimedBy, pending.s2.claimedBy], [null, null]);
+  assert.deepEqual([pending.s1.attempts, pending.s2.attempts], [0, 0]);
+  assert.deepEqual((await distillDue(ports)).map(({ status }) => status), ['stored', 'stored']);
+  assert.deepEqual(await ports.candidates.read(), {});
+  assert.deepEqual(distills(requests).map(({ body }) => body.session_id), ['testagent:s1', 'testagent:s2']);
+  assert.deepEqual(await distillDue(ports), []);
+});
+
 test('a draft write failure releases the claim so the same process can retry', async () => {
   const { ports } = await fixedSession({ distillAnswer: DRAFTED });
   const asked = await distillSession(ports, { sessionId: 's1' });
@@ -921,4 +967,63 @@ test('a command run can be stopped: its signal reaches the evolver CLI', async (
   const controller = new AbortController();
   await runCommand(ports, { sessionId: 's1', name: 'evolver-run', args: '--loop', signal: controller.signal });
   assert.equal(seen, controller.signal);
+});
+
+test('a correction marked while the model answers stops the distillation before its request is sent', async () => {
+  let ports;
+  const made = await fixedSession({ model: modelAnswering(IR, async () => {
+    const { turns: [{ turn }], sessionEpoch } = (await ports.candidates.read()).s1;
+    await ports.draftCorrections.mark('s1', turn, sessionEpoch);
+  }) });
+  ports = made.ports;
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'dropped');
+  assert.deepEqual(distills(made.requests), []);
+});
+
+test('an agent is neither asked for nor can post a Gene for work below the explicit gate', async () => {
+  const { ports, requests } = memoryPorts({ distillAnswer: DRAFTED, project: PROJECT });
+  await turnOf(ports, 's1', { steps: [['fail', 'npm test'], ['edit', '/proj/a.js'], ['fail', 'npm test']] });
+  const asked = await distillSession(ports, { sessionId: 's1' });
+  assert.equal(asked.agentGene, undefined);
+  const writtenFor = ports.candidates.referenceOf('s1', (await ports.candidates.read()).s1);
+  assert.equal((await postAgentGene(ports, { sessionId: 's1', text: JSON.stringify(IR), writtenFor })).status, 'dropped');
+  assert.deepEqual(distills(requests), []);
+});
+
+test('a distillation that throws gives its claim back, so the same live process can try the range again', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const request = made.ports.proxy.request;
+  made.ports.proxy.request = async (...args) => {
+    if (args[1] === '/conversation/distill') throw new Error('the Proxy connection reset');
+    return request(...args);
+  };
+  await assert.rejects(endedAndDistilled(made), /connection reset/);
+  assert.equal((await made.ports.candidates.read()).s1.claimedBy, null);
+  made.ports.proxy.request = request;
+  const [outcome] = await distillDue(made.ports);
+  assert.equal(outcome.status, 'drafted');
+});
+
+test('a model failure is logged without the credential its message carried', async () => {
+  const made = await fixedSession({ model: { complete: async () => { throw new Error('401 for Authorization: Bearer sk-fixture-secret-0123456789abcdef'); } } });
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'model_failed');
+  assert.equal(JSON.stringify([outcome, await made.ports.outcomes.read()]).includes('sk-fixture-secret-0123456789abcdef'), false);
+});
+
+test('a shutdown while the Proxy answers stops the distillation and leaves the range for the next start', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR) });
+  const stopping = new AbortController();
+  made.ports.scheduler = { ...made.ports.scheduler, signal: stopping.signal };
+  made.ports.proxy.request = async (method, path, body, { signal } = {}) => {
+    if (path !== '/conversation/distill') return { ok: true, data: { recorded: true } };
+    stopping.abort();
+    signal.throwIfAborted();
+    return { ok: true, data: DRAFTED };
+  };
+  const [outcome] = await endedAndDistilled(made);
+  assert.equal(outcome.status, 'stopped');
+  const range = (await made.ports.candidates.read()).s1;
+  assert.deepEqual([range.claimedBy, range.turns.length], [null, 1]);
 });

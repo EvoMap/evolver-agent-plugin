@@ -26,7 +26,7 @@ async function setUpUnderLock(stores, runtime) {
  * The Engine port: whether Evolver needs setting up (no Proxy new enough answers and no retry is pending),
  * setting it up under the agent's own prefix, retrying a failed setup at once, and the outcome's one-off announcement.
  */
-export function enginePortOf(stores, { runningProxy, runtime = engineRuntime({ prefix: stores.folder('engine') }) }) {
+export function enginePortOf(stores, { runningProxy, clientEnv = () => ({}), runtime = engineRuntime({ prefix: stores.folder('engine'), clientEnv }) }) {
   return {
     outcome: () => stores.engineState.read(),
     needsSetup: async () => {

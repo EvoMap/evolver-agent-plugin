@@ -53,6 +53,17 @@ export function openedTurn(session, { turnId = null, turnStart = null, hostTurn 
   };
 }
 
+/**
+ * The session with its open turn bound to `turnId`, for a host that names a turn only once it runs: the announced
+ * `prompt` must be the one the turn opened with, and the turn still unbound or bound to that id; undefined otherwise.
+ */
+export function boundTurn(session, { turnId, prompt }) {
+  if (!session.open || session.isCommand || !turnId) return undefined;
+  if (session.turnId) return session.turnId === turnId ? session : undefined;
+  if (!prompt || prompt !== session.prompt || session.turnIds.includes(turnId)) return undefined;
+  return { ...session, turnId, turnIds: [...session.turnIds, turnId].slice(-MAX_TURN_IDS) };
+}
+
 /** The session with the git HEAD its open `turn` began on (`{ root, head }`); undefined once that turn is not open. */
 export function withTurnHead(session, head, turn) {
   if (!(session.open && session.turn === turn) || !head) return undefined;

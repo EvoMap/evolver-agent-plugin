@@ -103,7 +103,7 @@ function copyModule(file, out, includesVendor) {
 }
 
 const VERSION_FIELD = /("version"\s*:\s*")[^"]*(")/g;
-const isManifest = (target) => /(?:^|\/)(?:plugin|marketplace|package)\.json$/.test(target);
+const isManifest = (target) => /(?:^|\/)(?:kimi\.plugin|plugin|marketplace|package)\.json$/.test(target);
 
 // A release names its version once, in its tag: every manifest the host reads its version from gets it here.
 function stampVersion(out, targets, version) {
@@ -147,6 +147,7 @@ export function pack(host, out, { version = null } = {}) {
   if (!existsSync(path.join(out, 'package.json'))) writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(MODULE_PACKAGE, null, 2)}\n`);
   for (const [target, fields] of Object.entries(spec.patch ?? {})) patchJson(path.join(out, target), fields);
   if (version) stampVersion(out, Object.keys(spec.root ?? {}), version);
+  if (version) patchJson(path.join(out, 'package.json'), { version });
   writeFileSync(path.join(out, PACKED_MARK), `${host}\n`);
   return files;
 }

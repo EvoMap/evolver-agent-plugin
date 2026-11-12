@@ -14,6 +14,19 @@ export const transcripts = Object.freeze({
       return 0;
     }
   },
+  head(file, bytes) {
+    if (typeof file !== 'string' || !file) return '';
+    let fd;
+    try {
+      const buffer = Buffer.alloc(Math.min(bytes, MAX_READ_BYTES));
+      fd = openSync(file, 'r');
+      return buffer.toString('utf8', 0, readSync(fd, buffer, 0, buffer.length, 0));
+    } catch {
+      return '';
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  },
   readSince(file, offset = 0) {
     if (typeof file !== 'string' || !file) return '';
     let fd;

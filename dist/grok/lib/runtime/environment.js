@@ -3,6 +3,7 @@
 
 import { loadReuseLedger, recordReuseLocally } from '../local-ledger.js';
 import { evolverCliOf } from './cli-executor.js';
+import { clientOf } from './client.js';
 import { commandJobsOf } from './command-jobs.js';
 import { enginePortOf } from './engine/job.js';
 import { hubSignInOf, signInFilesOf } from './hub-login.js';
@@ -38,9 +39,11 @@ const clock = Object.freeze({ now: () => Date.now(), sleep: (ms, signal) => new 
 export function environmentFor({ profile, env = process.env, lifetime, runBackground, overrides = {} }) {
   const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
   stores.adoptLegacy(profile.legacy);
-  const request = proxyFetchOf(env, { closeConnection: lifetime === EPHEMERAL && Boolean(profile.drainWindowsHandles) });
+  const client = clientOf({ agent: profile.name, releaseFile: stores.agentRelease });
+  const request = proxyFetchOf(env, { closeConnection: lifetime === EPHEMERAL && Boolean(profile.drainWindowsHandles), clientHeaders: client.headers });
   const ports = {
     identity: { agent: profile.name, label: profile.label },
+    client,
     sessions: stores.sessions,
     notes: stores.notes,
     baseline: stores.baseline,
@@ -60,12 +63,12 @@ export function environmentFor({ profile, env = process.env, lifetime, runBackgr
     owner: ownerProbeOf(profile.owner, { windowsAncestry: profile.windowsAncestry }),
     project: projectSnapshotOf(env),
     clock,
-    engine: enginePortOf(stores, { runningProxy: () => runningProxy({ env, proxyFetch: request }) }),
+    engine: enginePortOf(stores, { runningProxy: () => runningProxy({ env, proxyFetch: request }), clientEnv: client.env }),
     ledger: lifetime === RESIDENT ? threadedLedger({ enginePrefix: stores.folder('engine') }) : {
       load: () => loadReuseLedger({ enginePrefix: stores.folder('engine') }),
       record: (entry) => recordReuseLocally(entry, { enginePrefix: stores.folder('engine') }),
     },
-    cli: evolverCliOf({ enginePrefix: stores.folder('engine') }),
+    cli: evolverCliOf({ enginePrefix: stores.folder('engine'), clientEnv: client.env }),
     signIn: hubSignInOf({ files: signInFilesOf(env), enginePrefix: stores.folder('engine'), env }),
     settings: settingsOf(env, profile.settingsFile?.(env)),
     ...overrides,

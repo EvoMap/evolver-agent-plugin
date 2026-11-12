@@ -5,6 +5,7 @@
 export const EVENTS = Object.freeze({
   SESSION_START: 'sessionStart',
   PROMPT: 'prompt',
+  TURN_START: 'turnStart',
   TOOL_RESULT: 'toolResult',
   BEFORE_EDIT: 'beforeEdit',
   TURN_END: 'turnEnd',
@@ -23,6 +24,7 @@ export const COMMAND_ENTRIES = Object.freeze({
   INTERCEPT: 'intercept',
   INLINE_SCRIPT: 'inline-script',
   PROMPT: 'prompt',
+  TURN_START: 'turnStart',
   TOOL: 'tool',
   CLI_ONLY: 'cli-only',
 });

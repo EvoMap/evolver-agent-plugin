@@ -21,12 +21,21 @@ const SETTLING_WAIT_MS = 2_000;
 
 const sameTurn = (session, expected) => session.turnId === expected.turnId && session.turn === expected.turn && session.sessionEpoch === expected.sessionEpoch;
 
+// A turn end that began later (a re-judge of the same turn) owns `settling` from then on; an earlier one leaves it.
+// A native turn whose evidence could not be read reopens, so the host's next turn end or recovery delivers it again.
+const settleTurn = (ports, sessionId, opened, reopen = false) => ports.sessions.update(sessionId, (stored) => {
+  const current = sessionOf(stored);
+  if (!sameTurn(current, opened) || current.settling !== opened.settling) return undefined;
+  const settled = settledSession(current);
+  return reopen ? { ...settled, open: true, waiting: opened.waiting } : settled;
+});
+
 async function closeTurn({ sessions, clock }, sessionId, turnId, expected) {
   let opened = null;
   await sessions.update(sessionId, (stored) => {
-    if (expected && !sameTurn(stored, expected)) return undefined;
+    if (expected && !sameTurn(sessionOf(stored), expected)) return undefined;
     const result = closedTurn(sessionOf(stored), turnId, clock.now());
-    opened = result.opened;
+    opened = result.opened && { ...result.opened, settling: result.next.settling };
     return result.next;
   });
   return opened;
@@ -45,6 +54,7 @@ async function reportTurn({ identity, sessions, reports, clock, confirmTurnCompl
   const queued = turnReportsOf(identity, due, { reason, checks, source });
   const retries = confirmTurnCompletion ? pendingReportsOf(session, sessionId, opened.turn - 1) : [];
   const controls = [...session.pendingControls, ...(verified ? trialControlsOf(identity, session, sessionId, opened, checks) : [])];
+  const result = { queued, controls: controls.length + retries.length, strategies: due.map((asset) => asset.strategyText) };
   try {
     await reports.enqueue([...retries.map(({ entry }) => entry), ...queued, ...controls]);
   } catch (error) {
@@ -54,7 +64,9 @@ async function reportTurn({ identity, sessions, reports, clock, confirmTurnCompl
       const pending = confirmTurnCompletion ? withPendingReports(current, due, queued) : current;
       return withPendingControls(pending, controls);
     });
-    throw error;
+    // A native turn's reports wait in the session with their evidence, so its work is still recorded before the error.
+    if (!confirmTurnCompletion) throw error;
+    return { ...result, failure: error };
   }
   await sessions.update(sessionId, (stored) => {
     const current = sessionOf(stored);
@@ -64,7 +76,7 @@ async function reportTurn({ identity, sessions, reports, clock, confirmTurnCompl
     const labelable = opened.isCommand ? session.labelable : queued.map(({ report }) => reportedReuseOf(report));
     return { ...withoutPendingControls(session, controls), labelable };
   });
-  return { queued, controls: controls.length + retries.length, strategies: due.map((asset) => asset.strategyText) };
+  return result;
 }
 
 // Keyed by withholding, so turn ends that overlap neither drop each other's pending controls nor queue one twice.
@@ -119,7 +131,7 @@ async function rememberWorkTurn({ candidates, owner, clock, project, sessions, m
   const matching = rangeInEpoch(pending, sessionId, opened.sessionEpoch);
   if (modelForTurn && !canJoinRange(matching, model)) return false;
   const workTurn = workTurnOf({ turn: opened.turn, prompt: opened.prompt, record, answer: record.answer, head: opened.turnHead, now: clock.now() });
-  const planned = matching ? baseFor(pending, sessionId, workTurn) : workTurn.head ?? null;
+  const planned = matching ? baseFor(pending, sessionId, workTurn, opened) : workTurn.head ?? null;
   const snapshot = projectDir ? await snapshotIfReadable(project, projectDir, planned) : null;
   const base = planned ?? (snapshot?.head ? { root: snapshot.root, head: snapshot.head } : null);
   // A detached observer's parent is a hook process, while the open turn carries the native owner.
@@ -146,8 +158,8 @@ async function rejudgeWorkTurn(ports, sessionId, turnId, { answer, model, projec
   await ports.sessions.update(sessionId, (stored) => {
     const current = sessionOf(stored);
     if (current.open || current.isCommand || current.turnId !== turnId) return undefined;
-    session = current;
-    return { ...current, settling: ports.clock.now() };
+    session = { ...current, settling: ports.clock.now() };
+    return session;
   });
   if (!session) return;
   try {
@@ -155,9 +167,23 @@ async function rejudgeWorkTurn(ports, sessionId, turnId, { answer, model, projec
     const finished = { ...record, answer: String(answer || record.answer || '').trim() };
     const isWork = await rememberWorkTurn(ports, sessionId, session, { record: finished, model, projectDir, source: OBSERVED });
     if (!isWork) await ports.candidates.update((pending) => rangeInEpoch(pending, sessionId, session.sessionEpoch)
-      ? withoutWorkTurn(pending, sessionId, session.turn) : undefined);
+      ? withoutWorkTurn(pending, sessionId, session.turn, session) : undefined);
   } finally {
-    await ports.sessions.update(sessionId, (stored) => sameTurn(stored, session) ? settledSession(sessionOf(stored)) : undefined);
+    await settleTurn(ports, sessionId, session);
+  }
+}
+
+/** The closed turn's evidence, read before anything is written; null once its session epoch has moved on. */
+async function readTurnEvidence(ports, sessionId, opened, recordOf) {
+  if ((await ports.sessions.read(sessionId)).sessionEpoch !== opened.sessionEpoch) return null;
+  const observed = await recordOf?.(opened);
+  if ((await ports.sessions.read(sessionId)).sessionEpoch !== opened.sessionEpoch) return null;
+  const notes = await ports.notes.take(sessionId, opened);
+  try {
+    return { observed, notes, edits: await ports.baseline.take(sessionId, opened.turnId, opened) };
+  } catch (error) {
+    notes.release();
+    throw error;
   }
 }
 
@@ -169,19 +195,13 @@ async function rejudgeWorkTurn(ports, sessionId, turnId, { answer, model, projec
  * turn joins the session's range for distillation; `isDistillable` says the range passes the gate now. `strategies`
  * holds the text of each strategy it reported. Null when no such turn was open.
  */
-async function recordTurn(ports, sessionId, opened, { reason, answer, model, projectDir, recordOf, source }) {
-  if ((await ports.sessions.read(sessionId)).sessionEpoch !== opened.sessionEpoch) return null;
-  const [notes, edits] = await Promise.all([
-    ports.notes.take(sessionId, opened), ports.baseline.take(sessionId, opened.turnId, opened),
-  ]);
-  const observed = await recordOf?.(opened);
-  if ((await ports.sessions.read(sessionId)).sessionEpoch !== opened.sessionEpoch) return null;
+async function recordTurn(ports, sessionId, opened, { reason, answer, model, projectDir, source }, { observed, notes, edits }) {
   const ofThisTurn = (entry) => !entry.turnId || !opened.turnId || entry.turnId === opened.turnId;
   const record = observed ?? turnRecordOf(notes.notes.filter(ofThisTurn), { pairShellCalls: ports.confirmTurnCompletion });
   const finished = { ...record, answer: String(answer || record.answer || '').trim() };
   const verified = !ports.confirmTurnCompletion || (reason === 'answer' && finished.answer
     && finished.checks.length > 0 && finished.checks.every(check => verdictOf(check) !== 'unknown'));
-  const { queued, controls, strategies } = await reportTurn(ports, sessionId, opened, { reason, checks: finished.checks, source, verified });
+  const { queued, controls, strategies, failure } = await reportTurn(ports, sessionId, opened, { reason, checks: finished.checks, source, verified });
   if ((await ports.sessions.read(sessionId)).sessionEpoch !== opened.sessionEpoch) return null;
   const reuses = queued.map(({ report }) => reportedReuseOf(report));
   if (verified) await ports.retention.remember({ sessionId, projectDir, reuses, editedBefore: edits.before });
@@ -191,7 +211,7 @@ async function recordTurn(ports, sessionId, opened, { reason, answer, model, pro
   if (!isWork) await ports.candidates.update((pending) => rangeInEpoch(pending, sessionId, opened.sessionEpoch)
     ? withSessionActivity(pending, sessionId, ports.clock.now()) : undefined);
   const isDistillable = isWork && gateOf(rangeInEpoch(await ports.candidates.read(), sessionId, opened.sessionEpoch)?.turns ?? []).passed;
-  return { turn: opened.turn, record: finished, reports: queued.map(({ report }) => report), strategies, isDistillable, controls };
+  return { turn: opened.turn, record: finished, reports: queued.map(({ report }) => report), strategies, isDistillable, controls, failure };
 }
 
 export async function turnEnded(ports, { sessionId, turnId, reason, answer = '', model = null, projectDir, recordOf = null, source = OBSERVED, expectedTurn }) {
@@ -202,15 +222,18 @@ export async function turnEnded(ports, { sessionId, turnId, reason, answer = '',
     await scheduleDueDistillation(ports);
     return null;
   }
-  let ended;
+  let ended, evidenceRead = false;
   try {
-    ended = await recordTurn(ports, sessionId, opened, { reason, answer, model, projectDir, recordOf, source });
+    const evidence = await readTurnEvidence(ports, sessionId, opened, recordOf);
+    evidenceRead = true;
+    if (evidence) ended = await recordTurn(ports, sessionId, opened, { reason, answer, model, projectDir, source }, evidence);
   } finally {
-    await ports.sessions.update(sessionId, (stored) => sameTurn(stored, opened) ? settledSession(sessionOf(stored)) : undefined);
+    await settleTurn(ports, sessionId, opened, ports.confirmTurnCompletion && !evidenceRead);
   }
   if (!ended) return null;
-  const { controls, ...result } = ended;
+  const { controls, failure, ...result } = ended;
   await scheduleDueDistillation(ports, result.reports.length > 0 || controls > 0 ? [TASKS.DRAIN] : []);
+  if (failure) throw failure;
   return result;
 }
 
@@ -218,6 +241,9 @@ function isWorthWaiting(session, now, openUntil) {
   if (session.open) return now < openUntil;
   return isSettling(session, now) && now < session.settling + SETTLING_WAIT_MS;
 }
+
+/** The evidence a host status row carries, when its record is the host's own (a session log), else `recordOf`. */
+export const recordOfRow = (row, recordOf = null) => (row?.record ? () => row.record : recordOf);
 
 /**
  * Before a new prompt: waits while the last turn's end is still writing (a bounded while), and up to `settleMs` for
@@ -227,12 +253,12 @@ function isWorthWaiting(session, now, openUntil) {
 export async function closeUnfinishedTurn(ports, { sessionId, settleMs = 0, as = 'error', projectDir, recordOf = null }) {
   const session = await settledSessionOf(ports, sessionId, settleMs);
   if (!session.open) return;
-  if (!ports.confirmTurnCompletion) return turnEnded(ports, { sessionId, reason: as, projectDir, recordOf });
+  if (!ports.confirmTurnCompletion) return turnEnded(ports, { sessionId, reason: as, projectDir, recordOf, expectedTurn: session });
   const row = ports.turnStatus?.(sessionId, session.turnId);
   const reason = reasonOfNativeStatus(row?.status, true);
   const ended = await turnEnded(ports, {
     sessionId, turnId: session.turnId, reason: reason ?? (as === 'answer' ? 'error' : as), projectDir,
-    recordOf: reason ? recordOf : null, expectedTurn: session,
+    answer: (reason && row.answer) || '', recordOf: reason ? recordOfRow(row, recordOf) : null, expectedTurn: session,
   });
   if (!ended) await settledSessionOf(ports, sessionId);
 }

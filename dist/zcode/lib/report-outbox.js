@@ -44,6 +44,6 @@ function localRecordOf({ local }, entry, now) {
 export function withAttempt(outbox, key, attempt, now) {
   const entry = outbox[key];
   if (!entry) return outbox;
-  const attempted = { ...entry, attempts: entry.attempts + 1, ...localRecordOf(attempt, entry, now) };
+  const attempted = { ...entry, ...(attempt.report && { report: attempt.report }), attempts: entry.attempts + 1, ...localRecordOf(attempt, entry, now) };
   return { ...outbox, [key]: { ...attempted, ...settlementOf(attempt, now) } };
 }

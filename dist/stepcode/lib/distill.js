@@ -31,14 +31,16 @@ export function withDraft(drafts, draft) {
   const list = Array.isArray(drafts) ? drafts : [];
   const index = list.findIndex((existing) => existing.id === draft.id);
   const existing = list[index];
-  const saved = existing?.sourceCandidate;
-  const incoming = draft.sourceCandidate;
+  const saved = draftSourcesOf(existing).at(-1);
+  const incoming = draftSourcesOf(draft).at(-1);
   if (saved && incoming) {
     // Candidate order, not reply time, decides which draft can replace the other.
     const sameSession = existing.sessionId === draft.sessionId && saved.sessionEpoch === incoming.sessionEpoch;
+    const savedAt = existing.sourceRange?.changedAt ?? saved.at;
+    const incomingAt = draft.sourceRange?.changedAt ?? incoming.at;
     const newer = sameSession && saved.turn !== incoming.turn
       ? saved.turn > incoming.turn
-      : saved.at > incoming.at || (!sameSession && saved.at === incoming.at);
+      : savedAt > incomingAt || (!sameSession && savedAt === incomingAt);
     if (newer) return undefined;
   }
   const kept = list.filter((existing) => existing.id !== draft.id);
@@ -46,11 +48,21 @@ export function withDraft(drafts, draft) {
   return kept;
 }
 
+export function draftSourcesOf(draft) {
+  const sources = draft?.sourceRange ? draft.sourceRange.turns : draft?.sourceCandidate ? [draft.sourceCandidate] : [];
+  return Array.isArray(sources) && sources.every((source) => Number.isSafeInteger(source?.turn)) ? sources : [];
+}
+
 export function sameDraftSource(draft, reference) {
-  return draft.id === reference.id && draft.sessionId === reference.sessionId
-    && draft.sourceCandidate?.at === reference.sourceCandidate.at
-    && draft.sourceCandidate?.turn === reference.sourceCandidate.turn
-    && draft.sourceCandidate?.sessionEpoch === reference.sourceCandidate.sessionEpoch;
+  if (draft.id !== reference.id || draft.sessionId !== reference.sessionId) return false;
+  if (draft.sourceRange || reference.sourceRange) {
+    return Boolean(draft.sourceRange && reference.sourceRange)
+      && draft.sourceRange.at === reference.sourceRange.at && draft.sourceRange.changedAt === reference.sourceRange.changedAt
+      && JSON.stringify(draftSourcesOf(draft)) === JSON.stringify(draftSourcesOf(reference));
+  }
+  return draft.sourceCandidate?.at === reference.sourceCandidate?.at
+    && draft.sourceCandidate?.turn === reference.sourceCandidate?.turn
+    && draft.sourceCandidate?.sessionEpoch === reference.sourceCandidate?.sessionEpoch;
 }
 
 export function withConfirmedDraft(drafts, draft) {
@@ -68,13 +80,20 @@ export function withoutCorrectedDraft(drafts, corrected) {
 
 export function withoutDraftsForTurn(drafts, sessionId, turn, sessionEpoch) {
   if (!Array.isArray(drafts)) return undefined;
-  const kept = drafts.filter((draft) => draft.sessionId !== sessionId || draft.sourceCandidate?.turn !== turn
-    || draft.sourceCandidate.sessionEpoch !== sessionEpoch);
+  const kept = drafts.filter((draft) => draft.sessionId !== sessionId
+    || !draftSourcesOf(draft).some((source) => source.turn === turn && source.sessionEpoch === sessionEpoch));
   return kept.length === drafts.length ? undefined : kept;
 }
 
 export function withoutDraft(drafts, id) {
   return (Array.isArray(drafts) ? drafts : []).filter((draft) => draft.id !== id);
+}
+
+// A same-id replacement saved while the Proxy was answering differs from the submitted snapshot and stays.
+export function withoutSubmittedDraft(drafts, submitted) {
+  const snapshot = JSON.stringify(submitted);
+  const kept = drafts.filter((draft) => draft.id !== submitted.id || JSON.stringify(draft) !== snapshot);
+  return kept.length < drafts.length ? kept : undefined;
 }
 
 // `1` names the first listed draft; anything else is matched as an id prefix

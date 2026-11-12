@@ -223,12 +223,23 @@ export function readStateLines(target) {
 
 export function takeStateLines(target, now = Date.now()) {
   const claims = [...staleClaimsOf(target, now), target].map((source) => claimed(source, target)).filter(Boolean);
-  return {
-    lines: claims.flatMap(linesOf),
-    commit: () => {
-      for (const claim of claims) fs.rmSync(claim, { force: true });
-    },
+  // A released claim is dated just past stale, so the next take recovers it at once while pruning, which expires
+  // evidence days old, keeps it.
+  const release = () => {
+    const releasedAt = new Date(Date.now() - 2 * CLAIM_STALE_MS);
+    for (const claim of claims) {
+      try { fs.utimesSync(claim, releasedAt, releasedAt); } catch { /* Ordinary stale recovery can retry an inaccessible claim. */ }
+    }
   };
+  const commit = () => {
+    for (const claim of claims) fs.rmSync(claim, { force: true });
+  };
+  try {
+    return { lines: claims.flatMap(linesOf), commit, release };
+  } catch (error) {
+    release();
+    throw error;
+  }
 }
 
 function isStale(lockDir, now) {

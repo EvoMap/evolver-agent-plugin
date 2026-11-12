@@ -42,6 +42,12 @@ export const mcpPayload = Object.freeze({
   projectDir: (payload) => text(payload.project_dir) || null,
   isIgnored: () => false,
   model: () => null,
+  // An MCP client names itself only in its handshake, so its name rides with the version: `cursor/1.2.0`.
+  agentVersion: (payload) => {
+    const name = text(payload.client_info?.name);
+    const version = text(payload.client_info?.version);
+    return name && version ? `${name}/${version}`.replace(/\s+/g, '-').slice(0, 64) : null;
+  },
 });
 
 const OUTCOME_REASONS = { success: 'answer', failed: 'error', aborted: 'aborted' };

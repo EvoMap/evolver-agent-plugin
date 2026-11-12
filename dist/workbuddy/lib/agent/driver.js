@@ -4,7 +4,7 @@
 import { distillText } from '../app/commands/distill.js';
 import { commandNamed, runCommand } from '../app/commands/index.js';
 import { distillSession, postAgentGene } from '../app/distill-session.js';
-import { adoptStrategy, lastTurnOf, promptSubmitted, takeWaitingStrategy } from '../app/prompt.js';
+import { adoptStrategy, lastTurnOf, promptSubmitted, takeWaitingStrategy, turnStarted } from '../app/prompt.js';
 import { sessionEnded } from '../app/session-end.js';
 import { isNewOwner, sessionStarted } from '../app/session-start.js';
 import { recallWhenStuck } from '../app/stuck-recall.js';
@@ -50,7 +50,8 @@ async function commandAnswer(profile, ports, at, typed, options = {}) {
 
 const HANDLERS = {
   async [EVENTS.SESSION_START]({ profile, ports, hostEvent, payload, at }) {
-    const notice = await sessionStarted(ports, { sessionId: at.sessionId, projectDir: at.projectDir });
+    // Only a host whose new session is a new owner reads the owner here; finding it can take seconds on Windows.
+    const notice = await sessionStarted(ports, { ...at, trackOwner: profile.sessionStart === 'owner-change' });
     return notice ? profile.reply.notice(notice, hostEvent, payload) : profile.reply.empty(hostEvent, payload);
   },
 
@@ -80,6 +81,13 @@ const HANDLERS = {
     if (profile.turnEnd.statusRecord && turnId) await scheduleTurn(ports, at, { turn, turnId, sessionEpoch });
     const answer = profile.reply.context(joined(notice, await checkpointOf(), injection), hostEvent, payload);
     return late ? profile.reply.late(answer, late, hostEvent, payload) : answer;
+  },
+
+  async [EVENTS.TURN_START]({ profile, ports, hostEvent, payload, context, at }) {
+    const turnId = profile.payload.turnId(payload, context);
+    const started = turnId && await turnStarted(ports, { sessionId: at.sessionId, turnId, prompt: profile.payload.prompt(payload, context) });
+    if (started && profile.turnEnd.statusRecord) await scheduleTurn(ports, at, started);
+    return profile.reply.empty(hostEvent, payload);
   },
 
   async [EVENTS.TOOL_RESULT]({ profile, ports, hostEvent, payload, context, at, waitLeft }) {
@@ -148,6 +156,10 @@ function geneOutcome(ports, at, { gene, writtenFor }) {
   return postAgentGene(ports, { sessionId: at.sessionId, text, writtenFor, anySession: at.anySession });
 }
 
+// The events where a host is asked what version it is: often enough to follow an upgrade, never on every tool call.
+const VERSION_EVENTS = new Set([EVENTS.SESSION_START, EVENTS.PROMPT, EVENTS.TURN_END]);
+const TRANSCRIPT_HEAD_BYTES = 64 * 1024;
+
 /**
  * A driver for one agent over its ports. `transcripts` reads a host's transcript for the profile, so the agent's
  * own code stays free of IO, and `env` is the environment the host gave this event, which some hosts use to say
@@ -158,7 +170,7 @@ function geneOutcome(ports, at, { gene, writtenFor }) {
 export function createDriver({ profile, ports, transcripts, env = process.env, lifetime, startedAt = Date.now() }) {
   const contextOf = (payload, hostEvent) => {
     const file = profile.payload.transcriptPath(payload);
-    return { env, hostEvent, transcriptSize: () => transcripts.size(file), transcriptSince: (offset) => transcripts.readSince(file, offset), modelRecord: key => ports.modelRecord?.(key) };
+    return { env, hostEvent, recordScope: ports.turnStatus?.scope, transcriptSize: () => transcripts.size(file), transcriptSince: (offset) => transcripts.readSince(file, offset), transcriptHead: () => transcripts.head(file, TRANSCRIPT_HEAD_BYTES), modelRecord: key => ports.modelRecord?.(key) };
   };
   return {
     /**
@@ -183,6 +195,7 @@ export function createDriver({ profile, ports, transcripts, env = process.env, l
         const sessionId = profile.payload.sessionId(payload, context);
         if (!sessionId) return profile.reply.empty(hostEvent, payload);
         const at = { sessionId, projectDir: profile.payload.projectDir(payload, context) };
+        if (VERSION_EVENTS.has(event)) ports.client?.rememberAgentVersion(profile.payload.agentVersion(payload, context));
         const waitLeft = (budgetOf = 'prompt') => waitBudgetOf(profile.budgets, budgetOf, { lifetime, startedAt });
         return await HANDLERS[event]({ profile, ports, hostEvent, payload, context, at, waitLeft, startedAt, options });
       } catch (error) {

@@ -32,7 +32,10 @@ export async function monitorTurn(ports, at, close, { dir, now = Date.now, sleep
       if (reason) {
         const { projectDir, expectedTurn, ...turn } = at;
         // Once its owner is gone, the current worktree need not be the one the turn checked.
-        await close({ ...turn, ...(!ownerGone && { projectDir }), reason, ...((expectedTurn || ports.confirmTurnCompletion) && { expectedTurn: watched }) });
+        await close({
+          ...turn, ...(!ownerGone && { projectDir }), reason, ...(row.record && { answer: row.answer, recordOf: () => row.record }),
+          ...((expectedTurn || ports.confirmTurnCompletion) && { expectedTurn: watched }),
+        });
         return;
       }
       // Some native stores write the first row only at turn completion.

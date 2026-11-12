@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { withConfirmedDraft, withDraft, withoutCorrectedDraft } from '../distill.js';
+import { draftSourcesOf, withConfirmedDraft, withDraft, withoutCorrectedDraft } from '../distill.js';
 import { corpusEntryOf, withCorpusEntry } from '../distill/corpus.js';
 import { gateDetailOf, gateOf } from '../distill/gate.js';
 import { irProblemOf, irReplyOf } from '../distill/ir.js';
@@ -10,8 +10,10 @@ import { defaultKindOf } from '../distill/kinds.js';
 import { withOutcome } from '../distill/outcomes.js';
 import { isCurrentRange } from '../distill/range.js';
 import { sessionRecordOf } from '../distill/record.js';
-import { distillBodiesOf } from '../distill/request.js';
+import { distillBodiesOf, reusedAssetIdsOf } from '../distill/request.js';
 import { blockedModelReason, distillResultOf, isDiscarded, postedOutcomeOf } from '../distill/result.js';
+import { withoutSecrets } from '../redact.js';
+import { sessionOf } from '../session/state.js';
 import { taskSessionId } from './turn-reports.js';
 
 export const DISTILL_TIMEOUT_MS = 120_000;
@@ -45,7 +47,7 @@ async function keptForCalibration(ports, claimed, { gate, kind, session }) {
   await ports.corpus?.update((corpus) => withCorpusEntry(corpus, entry));
 }
 
-const isCurrent = async ({ candidates }, { sessionId, range }) => isCurrentRange(await candidates.read(), sessionId, range);
+const isCurrent = async ({ candidates }, { sessionId, range, exact }) => isCurrentRange(await candidates.read(), sessionId, range, { exact });
 
 /**
  * The turn whose later correction would invalidate a draft of `range`: its last. One corrected already when the range
@@ -53,8 +55,18 @@ const isCurrent = async ({ candidates }, { sessionId, range }) => isCurrentRange
  */
 function draftSourceOf(range) {
   const last = range.turns.at(-1);
-  return { at: range.at, turn: last.turn, sessionEpoch: range.sessionEpoch, ...(last.correction && { sawCorrection: true }) };
+  return { at: range.at, turn: last.turn, sessionEpoch: last.sessionEpoch ?? range.sessionEpoch, ...(last.correction && { sawCorrection: true }) };
 }
+
+/** Whether a correction of a turn `draft` was distilled from came after it was (see `draftSourceOf`). */
+export async function draftWasCorrected({ draftCorrections }, draft) {
+  const sources = draftSourcesOf(draft).filter((source) => !source.corrected && !source.sawCorrection);
+  const marks = await Promise.all(sources.map(({ turn, sessionEpoch }) => draftCorrections.has(draft.sessionId, turn, sessionEpoch)));
+  return marks.some(Boolean);
+}
+
+const isStale = async (ports, claimed) => !(await isCurrent(ports, claimed))
+  || draftWasCorrected(ports, { sessionId: claimed.sessionId, sourceCandidate: draftSourceOf(claimed.range) });
 
 // A correction may land between any two steps: the draft is written unconfirmed, the range checked again, and only
 // then confirmed; a range that changed takes its draft back, and one it cannot take back stays unpublishable.
@@ -79,21 +91,33 @@ async function savedDraft(ports, claimed, result) {
 // What the Proxy stored stands; any other answer for work that changed while it was asked for is discarded.
 async function keptResult(ports, claimed, result) {
   if (result.status === 'stored') return result;
-  if (!(await isCurrent(ports, claimed))) return { status: 'dropped', title: result.title };
+  if (await isStale(ports, claimed)) return { status: 'dropped', title: result.title };
   return result.draft ? savedDraft(ports, claimed, result) : result;
 }
 
+// A session file that cannot be read costs the distillation its lineage, never the distillation itself.
+async function reusedAssetIdsIn(ports, { sessionId, range }) {
+  try {
+    return reusedAssetIdsOf(sessionOf(await ports.sessions.read(sessionId)), range);
+  } catch {
+    return [];
+  }
+}
+
 async function posted(ports, claimed, session, { irs, usage, signal }) {
-  const bodies = distillBodiesOf({ platform: ports.identity.agent, sessionId: taskSessionId(ports.identity, claimed.sessionId), trigger: claimed.trigger, session, irs, usage });
+  const reusedAssetIds = await reusedAssetIdsIn(ports, claimed);
+  const bodies = distillBodiesOf({ platform: ports.identity.agent, sessionId: taskSessionId(ports.identity, claimed.sessionId), trigger: claimed.trigger, session, irs, usage, reusedAssetIds });
   const results = [];
   for (const body of bodies) {
     // The range watch polls; a correction since the last look (while a refused IR was logged, or during the previous
-    // request) must stop the next request before it is sent.
-    if (!(await isCurrent(ports, claimed))) {
+    // request) must stop the next request before it is sent. The correction lock is held through dispatch only.
+    const started = await ports.draftCorrections.withSession(claimed.sessionId, async () => (signal?.aborted || await isStale(ports, claimed)
+      ? null : { response: ports.proxy.request('POST', '/conversation/distill', body, { timeoutMs: DISTILL_TIMEOUT_MS, signal }) }), signal);
+    if (!started) {
       results.push(await logged(ports, claimed, { status: 'dropped', title: body.ir.title }));
       break;
     }
-    const answer = await ports.proxy.request('POST', '/conversation/distill', body, { timeoutMs: DISTILL_TIMEOUT_MS, signal });
+    const answer = await started.response;
     const result = await keptResult(ports, claimed, distillResultOf(answer, { title: body.ir.title, sessionId: claimed.sessionId }, ports.clock.now()));
     results.push(await logged(ports, claimed, result));
     if (isDiscarded(result)) break;
@@ -106,6 +130,7 @@ async function posted(ports, claimed, session, { irs, usage, signal }) {
  * could never be accepted is refused here. Every outcome is logged.
  */
 export async function postedReply(ports, claimed, distillation, { text, usage = null, signal }) {
+  if (await isStale(ports, claimed)) return { status: 'dropped' };
   const reply = irReplyOf(text);
   if (!reply) return { ...(await logged(ports, claimed, { status: 'failed', reason: 'unparsed' })), status: 'unparsed', ...(usage && { usage }) };
   if (reply.skip || reply.irs.length === 0) return { ...(await logged(ports, claimed, { status: 'declined', reason: reply.skip ?? 'no IR' })), ...(usage && { usage }) };
@@ -124,7 +149,7 @@ function watchRange(ports, claimed) {
   const controller = new AbortController();
   const timer = setInterval(async () => {
     try {
-      if (!(await isCurrent(ports, claimed))) controller.abort();
+      if (await isStale(ports, claimed)) controller.abort();
     } catch {
       // Retry a failed read; the fresh check before posting must still succeed.
     }
@@ -138,10 +163,10 @@ async function asked(ports, claimed, prompt, { signal, watched }) {
     return { reply: await ports.model.complete(claimed.range.model, prompt, signal) };
   } catch (error) {
     if (watched.aborted) return { outcome: await logged(ports, claimed, { status: 'dropped' }) };
+    if (ports.scheduler?.signal?.aborted) return { outcome: { status: 'stopped' } };
     const blocked = ports.model.capture && blockedModelReason(error);
     if (blocked) return { outcome: await logged(ports, claimed, { status: 'blocked', reason: blocked }) };
-    if (ports.scheduler?.signal?.aborted) return { outcome: { status: 'stopped' } };
-    const failure = await logged(ports, claimed, { status: 'failed', reason: 'model_failed', error: String(error?.message ?? error) });
+    const failure = await logged(ports, claimed, { status: 'failed', reason: 'model_failed', error: withoutSecrets(String(error?.message ?? error)) });
     return { outcome: { ...failure, status: 'model_failed' } };
   }
 }
@@ -160,6 +185,7 @@ async function withoutRoute(ports, claimed) {
  * `blocked` when the session's model route is unavailable; `dropped` when a turn it read was corrected meanwhile.
  */
 export async function distillClaimed(ports, claimed, { focus = '', explicit = false } = {}) {
+  if (await isStale(ports, claimed)) return { status: 'dropped' };
   const distillation = distillationOf(claimed.range, { explicit, focus });
   const { gate } = distillation;
   if (!gate.passed && claimed.range.held) return { status: 'below_threshold', reason: gate.reason, detail: gateDetailOf(gate) };
@@ -173,8 +199,14 @@ export async function distillClaimed(ports, claimed, { focus = '', explicit = fa
   try {
     const { reply, outcome } = await asked(ports, claimed, distillation.prompt, { signal, watched: watch.signal });
     if (outcome) return outcome;
+    if (stopping?.aborted) return { status: 'stopped' };
     if (watch.signal.aborted || !(await isCurrent(ports, claimed))) return logged(ports, claimed, { status: 'dropped' });
     return await postedReply(ports, claimed, distillation, { text: reply.answer, usage: reply.usage, signal });
+  } catch (error) {
+    // The Proxy request carries the same signal: a correction or shutdown during it aborts the request.
+    if (watch.signal.aborted) return { status: 'dropped' };
+    if (stopping?.aborted) return { status: 'stopped' };
+    throw error;
   } finally {
     watch.stop();
   }

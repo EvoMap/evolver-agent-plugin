@@ -30,10 +30,10 @@ export function evolverCommandsOf(enginePrefix, managedEngine = managedEngineAt)
  * The EvolverCli port, run as `evolverCommandsOf` says. It runs in `cwd`, the session's project, else where this
  * process runs, since the engine acts on the repository the person works in.
  */
-export function evolverCliOf({ enginePrefix, managedEngine = managedEngineAt } = {}) {
+export function evolverCliOf({ enginePrefix, clientEnv = () => ({}), managedEngine = managedEngineAt } = {}) {
   return {
     run: async (args, { cwd, signal } = {}) => {
-      const run = ({ command, args: base, shim }) => runProcess(command, [...base, ...args], { cwd: cwd || process.cwd(), timeoutMs: CLI_TIMEOUT_MS, signal, shim });
+      const run = ({ command, args: base, shim }) => runProcess(command, [...base, ...args], { cwd: cwd || process.cwd(), env: { ...process.env, ...clientEnv() }, timeoutMs: CLI_TIMEOUT_MS, signal, shim });
       const [first, fallback] = evolverCommandsOf(enginePrefix, managedEngine);
       let result = await run(first);
       if (fallback && (await isMissingCommand(result, first.command))) result = await run(fallback);

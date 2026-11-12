@@ -25,7 +25,7 @@ const COMMON = Object.freeze({
   stateDir: defaultStateDir,
   legacy: Object.freeze([]),
   reply: Object.freeze({ strategyAt: STRATEGY_AT.PROMPT, toolResultContext: false }),
-  payload: Object.freeze({ transcriptPath: (payload) => payload.transcript_path ?? null, gene: (payload) => payload.gene, writtenFor: (payload) => payload.written_for, hostTurn: () => null }),
+  payload: Object.freeze({ transcriptPath: (payload) => payload.transcript_path ?? null, gene: (payload) => payload.gene, writtenFor: (payload) => payload.written_for, hostTurn: () => null, agentVersion: () => null }),
   commands: Object.freeze({ entry: COMMAND_ENTRIES.CLI_ONLY, parse: typedFromPrompt, scriptArgs: (text) => text, scriptAnswer: (result) => result.text }),
 });
 
@@ -42,8 +42,8 @@ const BY_CHANNEL = Object.freeze({
 const NESTED = ['payload', 'reply', 'turnEnd', 'commands', 'evidence', 'budgets'];
 const REPLY_FUNCTIONS = ['context', 'notice', 'empty', 'command', 'turnEnd'];
 const OPTIONAL_REPLY_FUNCTIONS = ['late'];
-const PAYLOAD_FUNCTIONS = ['sessionId', 'turnId', 'prompt', 'projectDir', 'isIgnored', 'model', 'transcriptPath', 'gene', 'writtenFor', 'hostTurn'];
-const MODEL_KINDS = ['cli', 'sdk', 'in-session'];
+const PAYLOAD_FUNCTIONS = ['sessionId', 'turnId', 'prompt', 'projectDir', 'isIgnored', 'model', 'transcriptPath', 'gene', 'writtenFor', 'hostTurn', 'agentVersion'];
+const MODEL_KINDS = ['cli', 'sdk', 'in-session', 'acp'];
 // Where a command's answer becomes part of what the model reads, a strategy it found is a reuse to report.
 const MODEL_SEES_ANSWER = new Set([COMMAND_ENTRIES.INLINE_SCRIPT, COMMAND_ENTRIES.PROMPT, COMMAND_ENTRIES.TOOL]);
 
@@ -56,6 +56,14 @@ function merged(layers) {
   }
   return result;
 }
+
+const LOG_READERS = ['root', 'nativeSessionOf', 'workspacesOf', 'sessionDir', 'decode'];
+const RELATIVE_FILE = /^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/;
+const isSqlRecord = (record) => typeof record?.file === 'function' && typeof record.query === 'string' && record.logFile === undefined;
+const isLogRecord = (record) => record?.query === undefined && LOG_READERS.every((key) => typeof record?.[key] === 'function')
+  && [record.workspaceIndex, record.logFile].every((file) => RELATIVE_FILE.test(file ?? ''));
+const isRecord = (record) => isSqlRecord(record) || isLogRecord(record);
+const RECORD_SHAPES = 'file(env) and a fixed query, or an indexed session log';
 
 function problemsOf(profile) {
   const problems = [];
@@ -82,8 +90,8 @@ function problemsOf(profile) {
   if (Object.values(profile.budgets).some((budget) => !Number.isFinite(budget))) problems.push('budgets must be milliseconds');
   if (!isFunction(profile.stateDir)) problems.push('stateDir must be a function of the environment');
   if (profile.settingsFile !== undefined && !isFunction(profile.settingsFile)) problems.push('settingsFile must be a function of the environment');
-  if (profile.modelRecord !== undefined && (!isFunction(profile.modelRecord.file) || typeof profile.modelRecord.query !== 'string')) problems.push('modelRecord requires file(env) and a fixed query');
-  if (profile.turnEnd.statusRecord !== undefined && (!isFunction(profile.turnEnd.statusRecord.file) || typeof profile.turnEnd.statusRecord.query !== 'string')) problems.push('turnEnd.statusRecord requires file(env) and a fixed query');
+  if (profile.modelRecord !== undefined && !isRecord(profile.modelRecord)) problems.push(`modelRecord requires ${RECORD_SHAPES}`);
+  if (profile.turnEnd.statusRecord !== undefined && !isRecord(profile.turnEnd.statusRecord)) problems.push(`turnEnd.statusRecord requires ${RECORD_SHAPES}`);
   if (profile.commands.background !== undefined && !isFunction(profile.commands.background)) problems.push('commands.background must select admitted command names');
   if (!Array.isArray(profile.legacy)) problems.push('legacy must be a list of leftovers to adopt');
   return problems;

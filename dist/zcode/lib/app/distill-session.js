@@ -5,10 +5,10 @@ import { sameDraftSource } from '../distill.js';
 import { irReplyOf } from '../distill/ir.js';
 import { claimedDue, claimedOwn, hasDueRange, nextDueAt, rangeOf, rangeSessionOf, settledRange, TRIGGERS, withoutExpiredLeftovers } from '../distill/range.js';
 import { isDiscarded, isSettled, needsAgentModel, postedOutcomeOf } from '../distill/result.js';
-import { DISTILL_TIMEOUT_MS, distillClaimed, distillationOf, postedReply } from './distill-run.js';
+import { DISTILL_TIMEOUT_MS, distillClaimed, distillationOf, draftWasCorrected, postedReply } from './distill-run.js';
 import { TASKS } from './ports.js';
 
-export { DISTILL_TIMEOUT_MS };
+export { DISTILL_TIMEOUT_MS, draftWasCorrected };
 // A range due already was missed by the pass that just ran (it came due meanwhile) or by one that failed before
 // settling: a wake-up a minute later takes it without respawning a failing worker in a loop. One still to come keeps
 // its own time.
@@ -33,7 +33,7 @@ const settle = ({ candidates, clock }, claimed, decision) =>
 // person asked for leaves the range as it was, as does one whose answer was discarded: the range, with the
 // correction that discarded it, waits for the next.
 function settlementOf(outcome, { trigger, explicit, countModelFailures }) {
-  if (outcome.status === 'stopped' || isDiscarded(outcome)) return {};
+  if (!outcome || outcome.status === 'stopped' || isDiscarded(outcome)) return {};
   if (outcome.status === 'blocked') return { blocked: outcome.reason };
   if (outcome.status === 'below_threshold') return explicit ? {} : trigger === TRIGGERS.SESSION_END ? { consume: true } : { hold: true };
   if (isSettled(outcome)) return { consume: true };
@@ -41,16 +41,15 @@ function settlementOf(outcome, { trigger, explicit, countModelFailures }) {
 }
 
 // A run its process stopped for shutdown only gives its claim back: the next start tries the range again.
+// One that threw gives its claim back too, so this live process can try the range again.
 async function run(ports, claimed, { focus = '', explicit = false, countModelFailures = true } = {}) {
-  const outcome = await distillClaimed(ports, claimed, { focus, explicit });
-  await settle(ports, claimed, settlementOf(outcome, { trigger: claimed.trigger, explicit, countModelFailures }));
+  let outcome;
+  try {
+    outcome = await distillClaimed(ports, claimed, { focus, explicit });
+  } finally {
+    await settle(ports, claimed, settlementOf(outcome, { trigger: claimed.trigger, explicit, countModelFailures }));
+  }
   return outcome;
-}
-
-/** Whether a correction of the turn `draft` was distilled from came after it was (see `draftSourceOf`). */
-export function draftWasCorrected({ draftCorrections }, draft) {
-  const source = draft.sourceCandidate;
-  return source && !source.sawCorrection ? draftCorrections.has(draft.sessionId, source.turn, source.sessionEpoch) : false;
 }
 
 // A draft reported as made must still be saved as made, and not corrected since, when the person reads the answer.
@@ -94,13 +93,31 @@ export async function distillSession(ports, { sessionId: asked, focus = '', anyS
   if (!needsAgentModel(outcome)) return (await confirmDraftOutcomes(ports, [outcome]))[0];
   const range = rangeOf(await ports.candidates.read(), sessionId);
   if (!range) return outcome;
-  return { ...outcome, agentGene: { writtenFor: ports.candidates.referenceOf(sessionId, range), prompt: distillationOf(range, { explicit: true, focus }).prompt } };
+  const { gate, prompt } = distillationOf(range, { explicit: true, focus });
+  return gate.passed ? { ...outcome, agentGene: { writtenFor: ports.candidates.referenceOf(sessionId, range), prompt } } : outcome;
+}
+
+async function releaseClaims({ candidates, clock }, claims) {
+  if (claims.length === 0) return;
+  await candidates.update((pending) => {
+    const release = (table, { sessionId, range }) => settledRange(table, sessionId, range, { now: clock.now() }) ?? table;
+    const released = claims.reduce(release, pending);
+    return released === pending ? undefined : released;
+  });
 }
 
 /** Distills the ranges that are due: their session is over (ended, or killed with its owner), quiet, or fixed an error. */
 export async function distillDue(ports) {
+  const claims = (await claim(ports, claimedDue)) ?? [];
   const outcomes = [];
-  for (const claimed of (await claim(ports, claimedDue)) ?? []) outcomes.push(await run(ports, claimed));
+  for (const [index, claimed] of claims.entries()) {
+    try {
+      outcomes.push(await run(ports, claimed));
+    } catch (error) {
+      await releaseClaims(ports, claims.slice(index + 1));
+      throw error;
+    }
+  }
   return confirmDraftOutcomes(ports, outcomes);
 }
 
@@ -145,8 +162,9 @@ export async function postAgentGene(ports, { sessionId: asked, text, writtenFor,
   if (!claimed) return rangeOf(await ports.candidates.read(), sessionId) ? { status: 'busy' } : { status: 'nothing' };
   let outcome;
   try {
-    outcome = ports.candidates.referenceOf(sessionId, claimed.range) === writtenFor
-      ? await postedReply(ports, { ...claimed, trigger: TRIGGERS.SESSION_END }, distillationOf(claimed.range, { explicit: true }), { text, signal: AbortSignal.timeout(DISTILL_TIMEOUT_MS) })
+    const distillation = distillationOf(claimed.range, { explicit: true });
+    outcome = ports.candidates.referenceOf(sessionId, claimed.range) === writtenFor && distillation.gate.passed
+      ? await postedReply(ports, { ...claimed, trigger: TRIGGERS.SESSION_END, exact: true }, distillation, { text, signal: AbortSignal.timeout(DISTILL_TIMEOUT_MS) })
       : { status: 'dropped' };
   } finally {
     await settle(ports, claimed, isSettled(outcome) ? { consume: true } : {});

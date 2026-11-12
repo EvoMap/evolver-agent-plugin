@@ -14,6 +14,7 @@
  * @property {string} label
  *
  * @typedef {object} SessionStore
+ * @property {<T>(sessionId: string, work: () => T|Promise<T>) => Promise<T>} withSession  Serializes prompt opening and session cleanup across stores.
  * @property {(sessionId: string) => Promise<object>} read
  * @property {(visit: (session: object, sessionId: string) => void) => Promise<void>} readEach
  * @property {(sessionId: string, mutate: Function) => Promise<object|undefined>} update
@@ -23,7 +24,7 @@
  *                                     epoch and turn counter; calls without one keep the legacy session namespace.
  * @property {(sessionId: string, note: object, scope?: {turn: number, sessionEpoch?: number}) => Promise<void>} append
  * @property {(sessionId: string, scope?: {turn: number, sessionEpoch?: number}) => Promise<object[]>} read
- * @property {(sessionId: string, scope?: {turn: number, sessionEpoch?: number}) => Promise<{ notes: object[], commit: () => Promise<void> }>} take
+ * @property {(sessionId: string, scope?: {turn: number, sessionEpoch?: number}) => Promise<{ notes: object[], commit: () => Promise<void>, release: () => void }>} take
  * @property {(sessionId: string, scope?: {turn: number, sessionEpoch?: number}) => Promise<void>} clear
  *
  * @typedef {object} EditBaseline       Each file's content hash before the turn first edited it.
@@ -138,7 +139,9 @@
  * @property {EvolverCli} cli
  * @property {SignIn} signIn
  * @property {Settings} settings
- * @property {(sessionId: string, turnId: string) => { status: string }|null} [turnStatus]
+ * @property {((sessionId: string, turnId: string) => { status: string, record?: object, answer?: string, model?: object }|null) & { scope?: string }} [turnStatus]
+ *   A turn's status in the host's own store; a host whose evidence is only there (a session log) adds its `record` and
+ *   `answer`. `scope` names the store a session id was read from.
  * @property {boolean} [confirmTurnCompletion]     Only native terminal status can admit observed evidence.
  */
 

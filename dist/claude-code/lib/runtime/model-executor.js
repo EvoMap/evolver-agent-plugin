@@ -10,6 +10,7 @@ import { nodeExecutable } from './process/node.js';
 import { runProcess } from './process/spawn.js';
 import { executableOf } from './process/which.js';
 import { markHeadlessWorkdir } from './headless.js';
+import { acpModelRunnerOf } from './acp-model.js';
 
 const ERROR_MAX_CHARS = 300;
 const PREFLIGHT_TIMEOUT_MS = 10_000;
@@ -98,6 +99,7 @@ function exitFailureOf(declaration, command, result, model) {
  * timeout or cancel.
  */
 export function modelRunnerOf(declaration, env = process.env) {
+  if (declaration?.kind === 'acp') return acpModelRunnerOf(declaration, env);
   if (declaration?.kind === 'sdk') return typeof declaration.complete === 'function' ? { complete: declaration.complete } : null;
   if (declaration?.kind !== 'cli') return null;
   const found = typeof declaration.command === 'function'

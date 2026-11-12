@@ -71,9 +71,11 @@ async function fixture(t) {
     for (const { pid, startedAt } of started) {
       if (ownerIsGone(pid)) continue;
       const birth = processStartTime(pid);
+      // A live worker whose start time is not readable yet (a cold PowerShell probe on a busy Windows runner) is
+      // probed again; `until` still fails the run if it never becomes verifiable.
       if (birth === null) {
-        if (ownerIsGone(pid)) continue;
-        throw new Error('Could not verify the fixture worker identity');
+        if (!ownerIsGone(pid)) settled = false;
+        continue;
       }
       if (Math.abs(birth - startedAt) > PROCESS_START_TOLERANCE_MS) continue;
       try { process.kill(pid); }

@@ -56,10 +56,15 @@ function withActivity(range, now) {
   return due ? { ...range, dueBy: due } : { ...range, activeAt: now };
 }
 
-/** Where the range's diff is taken from once `workTurn` joins it: the HEAD its first kept turn began on. */
-export function baseFor(pending, sessionId, workTurn) {
+const isOtherEpoch = (epoch, range) => epoch !== undefined && range.sessionEpoch !== undefined && epoch !== range.sessionEpoch;
+
+/**
+ * Where the range's diff is taken from once `workTurn` joins it: the HEAD its first kept turn began on; the turn's own
+ * HEAD when the range is of another session epoch than the turn's (`sessionEpoch`).
+ */
+export function baseFor(pending, sessionId, workTurn, { sessionEpoch } = {}) {
   const range = rangeOf(pending, sessionId);
-  if (!range) return workTurn.head ?? null;
+  if (!range || isOtherEpoch(sessionEpoch, range)) return workTurn.head ?? null;
   const isReplacing = range.turns.some((turn) => turn.turn === workTurn.turn);
   const dropsFirst = !isReplacing && range.turns.length >= MAX_RANGE_TURNS;
   return dropsFirst ? (range.turns[1].head ?? range.base) : range.base;
@@ -71,27 +76,36 @@ function joinedTurns(turns, workTurn) {
   return [...turns.filter((turn) => turn.turn !== workTurn.turn), merged].sort((left, right) => left.turn - right.turn).slice(-MAX_RANGE_TURNS);
 }
 
+// A session epoch is the time its state started over, so a turn of an older epoch ends after a newer one began only
+// when its write was late: it must not replace the newer range.
+const isOlderEpoch = (epoch, range) => Number.isFinite(epoch) && Number.isFinite(range?.sessionEpoch) && epoch < range.sessionEpoch;
+
 /**
  * The table with `workTurn` in the session's range: added, or in place of the same turn judged again (keeping its
  * correction). `context` is `{ base, project, projectDir, model, sessionEpoch, pid, source, now }`: the range's diff
- * base and the project snapshot taken against it at this turn's end, and who runs the session. A turn of another
+ * base and the project snapshot taken against it at this turn's end, and who runs the session. A turn of a newer
  * session epoch (its state started over, so its turn numbers did) starts a range of its own; its model route replaces
- * a blocked one.
+ * a blocked one. A late turn of an older epoch changes nothing.
  */
 export function withWorkTurn(pending, sessionId, workTurn, { now, ...context }) {
   const range = rangeOf(pending, sessionId);
+  if (isOlderEpoch(context.sessionEpoch, range)) return undefined;
   if (!range || range.sessionEpoch !== context.sessionEpoch) {
     return { ...pending, [sessionId]: { turns: [workTurn], ...context, at: now, changedAt: now, activeAt: now, attempts: 0 } };
   }
-  const { blocked, ...active } = withActivity(range, now);
   const turns = joinedTurns(range.turns, workTurn);
+  // A turn judged again after a later one joined carries an older route, snapshot and owner: only its own turn changes.
+  if (range.turns.some((turn) => turn.turn > workTurn.turn)) {
+    return { ...pending, [sessionId]: { ...withActivity(range, now), turns, changedAt: changedAtAfter(range, now), held: false } };
+  }
+  const { blocked, ...active } = withActivity(range, now);
   return { ...pending, [sessionId]: { ...active, turns, ...context, changedAt: changedAtAfter(range, now), held: false } };
 }
 
 /** The table without that turn of the session's range (judged again, it was no work); no range is left empty. */
-export function withoutWorkTurn(pending, sessionId, turnNumber) {
+export function withoutWorkTurn(pending, sessionId, turnNumber, { sessionEpoch } = {}) {
   const range = rangeOf(pending, sessionId);
-  if (!range?.turns.some((turn) => turn.turn === turnNumber)) return undefined;
+  if (!range?.turns.some((turn) => turn.turn === turnNumber) || isOtherEpoch(sessionEpoch, range)) return undefined;
   const turns = range.turns.filter((turn) => turn.turn !== turnNumber);
   if (turns.length > 0) return { ...pending, [sessionId]: { ...range, turns } };
   const { [sessionId]: removed, ...rest } = pending;
@@ -99,9 +113,9 @@ export function withoutWorkTurn(pending, sessionId, turnNumber) {
 }
 
 /** The person's next prompt corrected `turnNumber`: it stays in the range, with the correction as its last word. */
-export function withCorrection(pending, sessionId, turnNumber, text, now) {
+export function withCorrection(pending, sessionId, turnNumber, text, now, { sessionEpoch } = {}) {
   const range = rangeOf(pending, sessionId);
-  if (!text || !range?.turns.some((turn) => turn.turn === turnNumber)) return undefined;
+  if (!text || !range?.turns.some((turn) => turn.turn === turnNumber) || isOtherEpoch(sessionEpoch, range)) return undefined;
   const turns = range.turns.map((turn) => (turn.turn === turnNumber ? { ...turn, correction: text } : turn));
   return { ...pending, [sessionId]: { ...range, turns, changedAt: changedAtAfter(range, now) } };
 }
@@ -197,24 +211,26 @@ export function withoutExpiredLeftovers(pending, { now, isGone, blockedOnly = fa
     ? isUnclaimed(range, isGone) && now >= blockedExpiryAt(range)
     : !blockedOnly && isOver(range, isGone) && isUnclaimed(range, isGone) && now - Number(range.changedAt ?? range.at) > UNDISTILLED_LEFTOVER_TTL_MS);
   const kept = rangesOf(pending).filter(([, range]) => !isExpired(range));
-  return kept.length < Object.keys(pending).length ? Object.fromEntries(kept) : undefined;
+  return kept.length < Object.keys(pending ?? {}).length ? Object.fromEntries(kept) : undefined;
 }
 
 // One made again in the same millisecond, after the turns a distillation read were done with, holds none of them.
-const isSameRange = (range, claimed) => Boolean(range) && range.at === claimed.at && range.sessionEpoch === claimed.sessionEpoch
-  && claimed.turns.some((read) => range.turns.some((turn) => turn.turn === read.turn));
+const isSameRange = (range, claimed) => Boolean(range) && range.at === claimed.at && range.claimedBy === claimed.claimedBy
+  && range.sessionEpoch === claimed.sessionEpoch && claimed.turns.some((read) => range.turns.some((turn) => turn.turn === read.turn));
 // A turn judged again while a distillation ran (a background command finished) keeps its number, not what it holds.
 const isAsRead = (turn, read) => turn.turn === read.turn && turn.correction === read.correction
   && JSON.stringify([turn.steps, turn.answer]) === JSON.stringify([read.steps, read.answer]);
 const wasReadAsIs = (claimed, turn) => claimed.turns.some((read) => isAsRead(turn, read));
 
 /**
- * Whether what a distillation of `claimed` read is still the session's work: the same range, every turn it read still
- * in it, and none corrected or judged again since. Turns joining meanwhile change nothing it read.
+ * Whether what a distillation of `claimed` read is still the session's work: the same range under the same claim, every
+ * turn it read still in it, and none corrected or judged again since. Turns joining meanwhile change nothing it read,
+ * unless `exact` asks for the range exactly as read (an agent's Gene was written for those turns alone).
  */
-export function isCurrentRange(pending, sessionId, claimed) {
+export function isCurrentRange(pending, sessionId, claimed, { exact = false } = {}) {
   const range = rangeOf(pending, sessionId);
-  return isSameRange(range, claimed) && claimed.turns.every((read) => range.turns.some((turn) => isAsRead(turn, read)));
+  return isSameRange(range, claimed) && (!exact || range.changedAt === claimed.changedAt)
+    && claimed.turns.every((read) => range.turns.some((turn) => isAsRead(turn, read)));
 }
 
 const retryDelayOf = (attempts) => Math.min(RETRY_BASE_MS * 2 ** (attempts - 1), RETRY_MAX_MS);

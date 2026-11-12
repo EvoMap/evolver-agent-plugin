@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 EvoMap
+
+import { unreportedAssets, withInjected, withReported } from '../injected-ledger.js';
+
+// One session's state as plain data, and every change to it as a function from state to state. The turn counter
+// outlives the session's end, so a resumed session never repeats a task id the Hub would take for a duplicate.
+
+export const EMPTY_SESSION = Object.freeze({
+  turn: 0, turnId: null, open: false, turnStart: null, prompt: '', isCommand: false, strategy: '',
+  labelable: [], injected: {}, pid: null, startedUnder: null, settling: null, turnIds: [], shown: [],
+  waiting: null, task: '', stuckQueries: [], turnHead: null, withheld: [], pendingControls: [],
+});
+
+const MAX_STUCK_RECALLS_PER_TURN = 2;
+
+const MAX_SHOWN = 50;
+
+const MAX_TURN_IDS = 20;
+
+// A turn end that died halfway leaves `settling` behind; past this age it no longer holds the next prompt up.
+const SETTLING_STALE_MS = 30_000;
+
+export const sessionOf = (stored) => ({ ...EMPTY_SESSION, ...stored });
+
+/**
+ * The session's next turn. A turn nobody typed a prompt for (`prompt` null) carries on the last turn's task. A host
+ * that numbers its own turns (`hostTurn`) keeps the count at least there, so a session resumed after its state was
+ * gone never repeats a task id. The session's `task` is its first typed prompt, kept for the Hub to judge each later
+ * recall's fit against; a resumed session keeps the task it had.
+ * A fresh session file gets an epoch so retained drafts cannot share a correction key with reused turn numbers.
+ */
+export function openedTurn(session, { turnId = null, turnStart = null, hostTurn = null, prompt = null, task = '', pid = null, isCommand = false, now }) {
+  return {
+    ...session,
+    sessionEpoch: session.turn === 0 ? now : session.sessionEpoch,
+    turn: Math.max(session.turn + 1, Number.isInteger(hostTurn) ? hostTurn : 0),
+    turnId,
+    turnIds: turnId ? [...session.turnIds.filter((known) => known !== turnId), turnId].slice(-MAX_TURN_IDS) : session.turnIds,
+    open: true,
+    turnStart,
+    prompt: prompt ?? session.prompt,
+    isCommand,
+    strategy: '',
+    pid: pid ?? session.pid,
+    settling: null,
+    labelable: isCommand ? session.labelable : [],
+    waiting: null,
+    task: session.task || (isCommand ? '' : task),
+    stuckQueries: [],
+    turnHead: null,
+    withheld: [],
+  };
+}
+
+/**
+ * The session with its open turn bound to `turnId`, for a host that names a turn only once it runs: the announced
+ * `prompt` must be the one the turn opened with, and the turn still unbound or bound to that id; undefined otherwise.
+ */
+export function boundTurn(session, { turnId, prompt }) {
+  if (!session.open || session.isCommand || !turnId) return undefined;
+  if (session.turnId) return session.turnId === turnId ? session : undefined;
+  if (!prompt || prompt !== session.prompt || session.turnIds.includes(turnId)) return undefined;
+  return { ...session, turnId, turnIds: [...session.turnIds, turnId].slice(-MAX_TURN_IDS) };
+}
+
+/** The session with the git HEAD its open `turn` began on (`{ root, head }`); undefined once that turn is not open. */
+export function withTurnHead(session, head, turn) {
+  if (!(session.open && session.turn === turn) || !head) return undefined;
+  return { ...session, turnHead: head };
+}
+
+/**
+ * The session with a trial Gene the Proxy withheld from `turn` (`{ asset_id, withheld_id }`), for that turn's end to
+ * report as a control; the first withholding of an asset in a turn is the one reported.
+ */
+export function withWithheld(session, withheld, turn) {
+  if (!(session.open && session.turn === turn) || session.withheld.some((known) => known.asset_id === withheld.asset_id)) return undefined;
+  return { ...session, withheld: [...session.withheld, withheld] };
+}
+
+/**
+ * The session with `query` claimed for a recall after a failed check of `turn`; undefined when that turn is no longer
+ * open, the turn recalled for this failure already, or it recalled for as many failures as a turn may.
+ */
+export function withStuckQuery(session, query, turn) {
+  const isOpen = session.open && session.turn === turn;
+  if (!isOpen || session.stuckQueries.includes(query) || session.stuckQueries.length >= MAX_STUCK_RECALLS_PER_TURN) return undefined;
+  return { ...session, stuckQueries: [...session.stuckQueries, query] };
+}
+
+const isOpenTurn = (session, turnId) => session.open && (!turnId || !session.turnId || turnId === session.turnId);
+
+/**
+ * The session with `turnId` (any turn when omitted) closed, and the turn as it was; `next` is undefined when none was
+ * open. It stays `settling` until the turn's reports and candidate are written, so a prompt that arrives meanwhile
+ * waits rather than labelling or dropping what is not there yet.
+ */
+export function closedTurn(session, turnId, now) {
+  if (!isOpenTurn(session, turnId)) return { next: undefined, opened: null };
+  return { next: { ...session, open: false, settling: now, waiting: null }, opened: session };
+}
+
+/** Whether the last turn is still closing: its reports and candidate are not all written yet. */
+export const isSettling = (session, now) => Number.isFinite(session.settling) && now - session.settling < SETTLING_STALE_MS;
+
+export const settledSession = (session) => ({ ...session, settling: null });
+
+/**
+ * The session with `assetIds` noted as shown to the agent before any turn booked them, so no later recall of the
+ * session offers them again; undefined when `turn` is no longer the open turn.
+ */
+export function withShown(session, assetIds, turn) {
+  if (!(session.open && session.turn === turn)) return undefined;
+  return { ...session, shown: [...session.shown.filter((id) => !assetIds.includes(id)), ...assetIds].slice(-MAX_SHOWN) };
+}
+
+/** The assets the session has seen, booked or only shown: a recall offers none of them again. */
+export const listedIdsOf = (session) => new Set([...Object.keys(session.injected), ...session.shown]);
+
+/**
+ * The session with a recalled or searched strategy (`{ ids, text, stepTexts? }`) booked for `turn`: each id not booked
+ * yet under its own text (a Recipe step's), else under `text`, which the open turn keeps as its strategy. `added` is
+ * false when every id was booked already.
+ */
+export function withInjection(session, { ids, text, stepTexts = {} }, turn, now) {
+  const fresh = ids.filter((assetId) => !session.injected[assetId]);
+  if (fresh.length === 0) return { next: undefined, added: false };
+  const strategy = session.open && session.turn === turn ? text : session.strategy;
+  const injected = fresh.reduce((ledger, assetId) => withInjected(ledger, assetId, { turn, strategyText: stepTexts[assetId] ?? text }, now), session.injected);
+  return { next: { ...session, strategy, injected }, added: true };
+}
+
+/**
+ * The session with a recalled strategy (`{ ids, text, stepTexts? }`) waiting for `turn`'s first tool result, for a host
+ * that adds context only there; undefined when `turn` is no longer the open turn. A waiting strategy is not booked: a
+ * turn that ends before a tool result neither reports it nor keeps it out of later recalls.
+ */
+export function withWaiting(session, match, turn) {
+  if (!(session.open && session.turn === turn)) return undefined;
+  return { ...session, waiting: { turn, match } };
+}
+
+/**
+ * The session with its waiting strategy booked into the open turn it waited for, and that strategy's text; `next` is
+ * undefined and `text` empty when nothing waits for the turn now open, or `turnId` names another turn.
+ */
+export function joinedWaiting(session, { turnId = null, now }) {
+  const { waiting } = session;
+  if (!waiting || !isOpenTurn(session, turnId) || session.turn !== waiting.turn) return { next: undefined, text: '' };
+  const booked = withInjection(session, waiting.match, waiting.turn, now);
+  return { next: { ...(booked.next ?? session), waiting: null }, text: booked.added ? waiting.match.text : '' };
+}
+
+function dueOf(session, sessionId, turn) {
+  return unreportedAssets(session.injected, turn).map((asset) => ({ ...asset, sessionId, turn: session.injected[asset.assetId].turn }));
+}
+
+// An injection adopted from a host's standalone plugin belongs to a turn this plugin never saw end: no later turn's
+// evidence is its own, so it is only ever reported as aborted, at the next session start.
+const isAdopted = (session, asset) => Boolean(session.injected[asset.assetId]?.adopted);
+
+/** The injections of turns up to `turn` that no report covered yet; nothing is marked, so they can be queued first. */
+export const unreportedOf = (session, sessionId, turn) => dueOf(session, sessionId, turn).filter((asset) => !isAdopted(session, asset));
+
+/** Retains the verified payload for a failed queue write so another turn can retry it with its own evidence. */
+export function withPendingReports(session, assets, queued) {
+  if (!queued.length) return session;
+  const injected = { ...session.injected };
+  for (const [index, { assetId, turn }] of assets.entries()) {
+    const entry = injected[assetId];
+    if (entry && entry.turn === turn && !entry.reportedAt) injected[assetId] = { ...entry, pendingReport: queued[index].report };
+  }
+  return { ...session, injected };
+}
+
+export function pendingReportsOf(session, sessionId, turn = Infinity) {
+  return dueOf(session, sessionId, turn).flatMap((asset) => {
+    const report = session.injected[asset.assetId].pendingReport;
+    return report ? [{ asset, entry: { report, sessionId } }] : [];
+  });
+}
+
+/** The session with `assets` marked reported; `next` is undefined when none of them was still unreported. */
+export function markedReported(session, assets, now) {
+  const ids = assets.filter(({ assetId, turn }) => {
+    const entry = session.injected[assetId];
+    return entry && entry.turn === turn && !entry.reportedAt;
+  }).map(({ assetId }) => assetId);
+  return ids.length > 0 ? { ...session, injected: withReported(session.injected, ids, now) } : undefined;
+}
+
+/**
+ * Injections no turn end will ever report: all of a killed session's (its owner process is gone), and any session's
+ * adopted from a standalone plugin.
+ */
+export function orphansOf(session, sessionId, isGone) {
+  if (!sessionId) return [];
+  const due = dueOf(session, sessionId, Infinity);
+  return isGone(session.pid) ? due : due.filter((asset) => isAdopted(session, asset));
+}
+
+/**
+ * Whether an event naming `turnId` comes late: the session has since opened another turn. An id it never opened (a
+ * host's intercepted command, say) is no earlier turn, so it is not stale.
+ */
+export const isEarlierTurn = (session, turnId) => Boolean(turnId) && turnId !== session.turnId && session.turnIds.includes(turnId);
+
+/** What an ended session keeps: its turn counter, owner and ledger, so a resume neither repeats a task id nor re-injects. */
+export function endedSession(session) {
+  return { ...EMPTY_SESSION, turn: session.turn, sessionEpoch: session.sessionEpoch, pid: session.pid, injected: session.injected, turnIds: session.turnIds, shown: session.shown, task: session.task, pendingControls: session.pendingControls };
+}

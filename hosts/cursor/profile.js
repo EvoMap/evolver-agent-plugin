@@ -33,6 +33,7 @@ export default defineProfile({
     projectDir: firstWorkspaceRoot,
     isIgnored: isInlineEdit,
     model: sessionModelOf,
+    agentVersion: (payload) => text(payload.cursor_version) || null,
   },
   reply: {
     context: (strategy) => (strategy ? { continue: true, additional_context: strategy } : {}),

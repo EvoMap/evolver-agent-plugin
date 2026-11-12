@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-import { withoutDraftsForTurn } from '../distill.js';
+import { draftSourcesOf, withoutDraftsForTurn } from '../distill.js';
 import { rangeOf, withCorrection, withSessionActivity } from '../distill/range.js';
 import { correctionTextOf } from '../distill/work-turn.js';
 import { promptTextOf, recallStrategy, taskTextOf } from '../recall.js';
 import { correctionReportsOf, followUpLabelOf } from '../session/follow-ups.js';
-import { joinedWaiting, listedIdsOf, openedTurn, sessionOf, withInjection, withShown, withTurnHead, withWaiting, withWithheld } from '../session/state.js';
+import { boundTurn, joinedWaiting, listedIdsOf, openedTurn, sessionOf, withInjection, withShown, withTurnHead, withWaiting, withWithheld } from '../session/state.js';
 import { scheduleDueDistillation } from './distill-session.js';
 import { recallRequestOf } from './recall-request.js';
 import { TASKS } from './ports.js';
@@ -22,8 +22,9 @@ async function sourceEpochOf({ candidates, drafts }, sessionId, turn) {
   const saved = await drafts.read();
   const ofSession = (Array.isArray(saved) ? saved : []).filter((draft) => draft?.sessionId === sessionId);
   const range = rangeOf(await candidates.read(), sessionId);
-  const ofRange = range?.turns.some((read) => read.turn === turn) ? [{ at: range.at, turn, sessionEpoch: range.sessionEpoch }] : [];
-  const sources = [...ofRange, ...ofSession.map((draft) => draft.sourceCandidate)];
+  const work = range?.turns.find((read) => read.turn === turn);
+  const ofRange = work ? [{ at: range.at, turn, sessionEpoch: work.sessionEpoch ?? range.sessionEpoch }] : [];
+  const sources = [...ofRange, ...ofSession.flatMap(draftSourcesOf)];
   return sources.filter((source) => source?.turn === turn && source.sessionEpoch !== undefined).sort((left, right) => right.at - left.at)[0]?.sessionEpoch;
 }
 
@@ -51,8 +52,8 @@ async function recordedCorrection(ports, sessionId, session) {
  * turn in the session's range, for distillation to read, takes back the drafts distilled from that turn before it,
  * and the last turn's reuses are reported again under `:correction`. The turn is marked corrected first, so a draft's
  * confirmation or publication sees the mark, and the range changes before drafts are removed, so a draft written
- * after the removal still sees the turn it read changed. Every prompt is the session's activity, which a range waits
- * out before it is distilled. Answers the error of a correction lock it had to go without, if any.
+ * after the removal still sees the turn it read changed. The caller records the prompt as the session's activity
+ * when it opens the turn. Answers the error of a correction lock it had to go without, and whether reports were queued.
  */
 async function labelFollowUp(ports, sessionId, prompt) {
   const { sessions, candidates, drafts, reports, clock } = ports;
@@ -62,16 +63,25 @@ async function labelFollowUp(ports, sessionId, prompt) {
   if (label === 'correction') {
     const correction = await recordedCorrection(ports, sessionId, session);
     skipped = correction.skipped;
-    await candidates.update((pending) => withCorrection(pending, sessionId, session.turn, correctionTextOf(promptTextOf(prompt)), clock.now()));
+    await candidates.update((pending) => withCorrection(pending, sessionId, session.turn, correctionTextOf(promptTextOf(prompt)), clock.now(), correction));
     if (correction.turn > 0) await drafts.update((list) => withoutDraftsForTurn(list, sessionId, correction.turn, correction.sessionEpoch));
   }
-  await candidates.update((pending) => withSessionActivity(pending, sessionId, clock.now()));
   // Read again: a turn end that overlapped the waits above may have left newer reuses to label.
   const { labelable } = sessionOf(await sessions.read(sessionId));
   const queued = correctionReportsOf(labelable, label, sessionId);
   if (queued.length > 0) await reports.enqueue(queued);
-  await scheduleDueDistillation(ports, queued.length > 0 ? [TASKS.DRAIN] : []);
-  return skipped;
+  return { skipped, reportsQueued: queued.length > 0 };
+}
+
+// The lifecycle lock only orders a prompt against a session end's last writes. One held past its wait, as by a killed
+// session-end hook, must not cost the person their turn, so the turn then opens without it and the hook reports it.
+async function fencedOpen(ports, sessionId, open) {
+  try {
+    return { opened: await ports.sessions.withSession(sessionId, open) };
+  } catch (error) {
+    if (error?.code !== 'ELOCKED') throw error;
+    return { opened: await open(), skipped: error };
+  }
 }
 
 /** A recall's match when it brings a strategy (`{ ids, text, stepTexts? }`, a Recipe's steps or one asset), else null. */
@@ -155,13 +165,20 @@ async function rememberTurnHead({ project, sessions }, sessionId, { turn, sessio
  * only while the turn is still open, once a model step does. With `holdForToolResult`, for a host whose prompt hook
  * cannot add context, a strategy that lands in time waits for the turn's first tool result instead (see
  * `takeWaitingStrategy`). A plugin command's turn keeps the last real turn's reuses for the next prompt to label, is
- * recalled for nothing and never joins the session's range of work turns. `skipped` is the error of a correction lock
- * the prompt went without.
+ * recalled for nothing and never joins the session's range of work turns. `skipped` is the error of a correction or
+ * session lifecycle lock the prompt went without.
  */
 export async function promptSubmitted(ports, { sessionId, prompt, projectDir = null, turnId = null, turnStart = null, hostTurn = null, isCommand = false, waitMs, keepLate = false, holdForToolResult = false }) {
-  const skipped = isCommand ? undefined : await labelFollowUp(ports, sessionId, prompt);
-  const opened = await ports.sessions.update(sessionId, (stored) =>
-    openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, task: taskTextOf(prompt), pid: ports.owner.current(), isCommand, now: ports.clock.now() }));
+  const labelled = isCommand ? {} : await labelFollowUp(ports, sessionId, prompt);
+  const pid = ports.owner.current();
+  const fenced = await fencedOpen(ports, sessionId, async () => {
+    if (!isCommand) await ports.candidates.update((pending) => withSessionActivity(pending, sessionId, ports.clock.now()));
+    return ports.sessions.update(sessionId, (stored) =>
+      openedTurn(sessionOf(stored), { turnId, turnStart, hostTurn, prompt: prompt ? promptTextOf(prompt) : null, task: taskTextOf(prompt), pid, isCommand, now: ports.clock.now() }));
+  });
+  const { opened } = fenced;
+  const skipped = labelled.skipped ?? fenced.skipped;
+  if (!isCommand) await scheduleDueDistillation(ports, labelled.reportsQueued ? [TASKS.DRAIN] : []);
   const wantsRecall = !isCommand && ports.settings?.recall !== false;
   const recall = wantsRecall ? recalled(ports, sessionId, { turn: opened.turn, prompt, projectDir, waitMs, keepLate, holdForToolResult }) : { injection: '' };
   const headRead = isCommand || !projectDir ? null : rememberTurnHead(ports, sessionId, { turn: opened.turn, sessionEpoch: opened.sessionEpoch, projectDir });
@@ -205,4 +222,13 @@ export async function adoptStrategy({ sessions, clock }, { sessionId, strategy }
     const turn = session.open && !session.isCommand ? session.turn : session.turn + 1;
     return withInjection(session, strategy, turn, clock.now()).next;
   });
+}
+
+/**
+ * Binds the open turn to the id a host announces once it runs (see `boundTurn`); the turn, `{ turn, turnId,
+ * sessionEpoch }`, or null when the announcement is not the open turn's.
+ */
+export async function turnStarted({ sessions }, { sessionId, turnId, prompt }) {
+  const bound = await sessions.update(sessionId, (stored) => boundTurn(sessionOf(stored), { turnId, prompt: prompt ? promptTextOf(prompt) : '' }));
+  return bound ? { turn: bound.turn, turnId: bound.turnId, sessionEpoch: bound.sessionEpoch } : null;
 }

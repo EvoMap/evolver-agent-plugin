@@ -6,7 +6,7 @@ import { retentionReportsOf } from '../session/follow-ups.js';
 import { markedReported, orphansOf, pendingReportsOf, sessionOf } from '../session/state.js';
 import { reasonOfNativeStatus } from '../turn-outcomes.js';
 import { TASKS } from './ports.js';
-import { turnEnded } from './turn-end.js';
+import { recordOfRow, turnEnded } from './turn-end.js';
 import { turnReportsOf } from './turn-reports.js';
 
 async function queueRetentionReports({ retention, reports }, sessionId, projectDir) {
@@ -58,8 +58,9 @@ export async function recoverNativeTurns(ports) {
   }
   for (const at of open) {
     try {
-      const reason = reasonOfNativeStatus(ports.turnStatus(at.sessionId, at.turnId)?.status, true);
-      if (reason) await turnEnded(ports, { ...at, reason });
+      const row = ports.turnStatus(at.sessionId, at.turnId);
+      const reason = reasonOfNativeStatus(row?.status, true);
+      if (reason) await turnEnded(ports, { ...at, reason, ...(row.record && { answer: row.answer, recordOf: recordOfRow(row) }) });
     } catch (error) {
       failure ??= error;
     }
@@ -72,8 +73,8 @@ export async function recoverNativeTurns(ports) {
  * starts engine setup, delivery and leftover distillation in the background, and answers the one-off engine
  * notice: the only text besides a recalled strategy that reaches the model.
  */
-export async function sessionStarted(ports, { sessionId, projectDir }) {
-  await ports.sessions.update(sessionId, (stored) => ({ ...sessionOf(stored), startedUnder: String(ports.owner.current()) }));
+export async function sessionStarted(ports, { sessionId, projectDir, trackOwner = true }) {
+  await ports.sessions.update(sessionId, (stored) => ({ ...sessionOf(stored), ...(trackOwner && { startedUnder: String(ports.owner.current()) }) }));
   await queueRetentionReports(ports, sessionId, projectDir);
   await queueOrphanReports(ports);
   const setup = (await ports.engine.needsSetup()) ? [TASKS.ENGINE] : [];

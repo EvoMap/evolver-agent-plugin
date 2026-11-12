@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
-import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
+import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
 
 const dirs = [];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -60,6 +60,21 @@ test('evidence generations keep turns and epochs apart without changing legacy c
   assert.deepEqual([...(await cursor.baseline.take('s1')).before.keys()], ['/legacy.js']);
 });
 
+test('released turn evidence is immediately recoverable alongside newer appends, and pruning keeps it', async () => {
+  const { stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  const first = await cursor.notes.take('s1', scope);
+  await cursor.notes.append('s1', { command: 'arrived after take' }, scope);
+  first.release();
+
+  cursor.prune();
+  const recovered = await cursor.notes.take('s1', scope);
+  assert.deepEqual(recovered.notes, [{ command: 'first' }, { command: 'arrived after take' }]);
+  await recovered.commit();
+  assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
+});
+
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
   const { dir, stores: cursor } = stores();
   const scope = { sessionEpoch: 10, turn: 1 };
@@ -81,6 +96,12 @@ test('ranges stay out of the pending file an earlier version claims from, and it
   await cursor.candidates.update((ranges) => ({ ...ranges, s1: { turns: [], at: 2 } }));
   assert.deepEqual([Object.keys(readState(join(dir, 'cursor-distill-ranges.json'), {})).sort(), readState(join(dir, 'cursor-distill-pending.json'), {})],
     [['old', 's1'], {}]);
+});
+
+test('range references distinguish a reused turn number from a different session epoch', () => {
+  const range = { at: 10, changedAt: 11, turns: [{ turn: 1, sessionEpoch: 12 }] };
+  const replacement = { ...range, turns: [{ turn: 1, sessionEpoch: 13 }] };
+  assert.notEqual(rangeReferenceOf('s1', range), rangeReferenceOf('s1', replacement));
 });
 
 test('one corrupt session file is preserved and reported without stopping the update of the others', async () => {
@@ -487,6 +508,15 @@ test('a draft correction no saved draft refers to is pruned once it is as old as
   assert.equal(readdirSync(join(dir, 'cursor-distill-corrections')).length, 1);
 });
 
+test('a saved range draft retains correction markers for each of its source turns', async () => {
+  const { stores: cursor } = stores();
+  const turns = [{ turn: 1, sessionEpoch: 10 }, { turn: 2, sessionEpoch: 10 }];
+  await cursor.drafts.update(() => [{ id: 'draft', sessionId: 's1', sourceRange: { turns } }]);
+  for (const { turn, sessionEpoch } of turns) await cursor.draftCorrections.mark('s1', turn, sessionEpoch);
+  cursor.prune(Date.now() + 31 * 24 * 60 * 60 * 1000);
+  for (const { turn, sessionEpoch } of turns) assert.equal(await cursor.draftCorrections.has('s1', turn, sessionEpoch), true);
+});
+
 test('a publish gate in another process waits for the source session correction', async (t) => {
   const { dir, stores: parent } = stores();
   const module = new URL('../../lib/runtime/store/file-stores.js', import.meta.url).href;
@@ -516,6 +546,16 @@ process.disconnect();`;
   child.send('release');
   assert.equal(await publication, true);
   assert.deepEqual(await exited, [0, null]);
+});
+
+test('a session lifecycle lock that stays held refuses with ELOCKED, so a prompt can open without it', async () => {
+  const { stores: cursor } = stores();
+  let release;
+  const holder = cursor.sessions.withSession('s1', () => new Promise((resolve) => { release = resolve; }));
+  await assert.rejects(cursor.sessions.withSession('s1', () => assert.fail('work must not run')), { code: 'ELOCKED' });
+  assert.equal(await cursor.sessions.withSession('s2', () => 'other session'), 'other session');
+  release();
+  await holder;
 });
 
 test('a correction lock that stays held refuses with ELOCKED, so a hook reports it', async () => {

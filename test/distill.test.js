@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { isCurrentRange, settledRange } from '../lib/distill/range.js';
+import { baseFor, isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
+import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
   const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: 1_000 });
@@ -70,4 +71,61 @@ test('publishing submits the bundle under a stable request id', () => {
 test('the list says how to publish or discard', () => {
   assert.equal(draftsListText([]), 'No distilled drafts are waiting.');
   assert.match(draftsListText([{ id: 'abcdef1234567890', title: 'T', summary: 'S' }]), /1\. T \(abcdef123456\) — S\n.*publish <number>.*discard <number>/);
+});
+
+test('a turn judged again out of a host-model range keeps the range\'s model, base and snapshot', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number, head: { root: '/repo', head: `h${number}` } });
+  const base = { root: '/repo', head: 'h1' };
+  const range = { at: 1, sessionEpoch: 1, base, project: { ...base, diff: 'd' }, model: 'model-x', turns: [turn(1), turn(2)] };
+  for (const removed of [1, 2]) {
+    const { s } = withoutWorkTurn({ s: range }, 's', removed);
+    assert.deepEqual([s.model, s.base, s.project, s.turns.map(({ turn }) => turn)], ['model-x', base, range.project, [3 - removed]]);
+  }
+});
+
+test('a range claimed again by another process is no longer the one a distillation read', () => {
+  const read = { at: 1, changedAt: 1, sessionEpoch: 1, claimedBy: 10, turns: [{ turn: 1, prompt: 'p', steps: [], answer: '', at: 1 }] };
+  assert.equal(isCurrentRange({ s: read }, 's', read), true);
+  assert.equal(isCurrentRange({ s: { ...read, claimedBy: 11 } }, 's', read), false);
+});
+
+test('cleaning up an empty or missing range table changes nothing', () => {
+  for (const pending of [undefined, null, {}]) assert.equal(withoutExpiredLeftovers(pending, { now: 1, isGone: () => false }), undefined);
+});
+
+test('a work turn\'s stored route binding never reaches the calibration corpus', () => {
+  const turn = { turn: 1, prompt: 'p', steps: [], answer: 'a', at: 1, modelBinding: 'a'.repeat(64) };
+  const entry = corpusEntryOf({
+    platform: 'kimi', sessionId: 's', trigger: 'idle', range: { turns: [turn] },
+    gate: { passed: true, reason: null, workTurns: 1, episodes: 1 }, kind: 'fix', session: { record: [], userPrompt: '', finalAnswer: '' }, now: 2,
+  });
+  assert.equal(JSON.stringify(entry).includes('modelBinding'), false);
+});
+
+test('a late turn, removal or correction of an older session epoch leaves the newer epoch\'s range alone', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number });
+  const newer = { s: { at: 20, changedAt: 20, sessionEpoch: 20, turns: [turn(1)] } };
+  assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 10 }), undefined);
+  assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 10 }), undefined);
+  assert.equal(withoutWorkTurn(newer, 's', 1, { sessionEpoch: 10 }), undefined);
+  assert.equal(withWorkTurn(newer, 's', turn(1), { now: 30, sessionEpoch: 40 }).s.sessionEpoch, 40);
+  assert.equal(withCorrection(newer, 's', 1, 'no, still failing', 30, { sessionEpoch: 20 }).s.turns[0].correction, 'no, still failing');
+});
+
+test('a turn judged again after a later one joined keeps the range\'s newer route, snapshot and block', () => {
+  const turn = (number) => ({ turn: number, prompt: 'p', steps: [], answer: '', at: number });
+  const newer = { root: '/repo', head: 'h2', diff: 'newer diff' };
+  const range = { at: 1, changedAt: 2, sessionEpoch: 1, model: 'route-b', project: newer, pid: 2, blocked: { reason: 'route_changed', at: 2 }, turns: [turn(1), turn(2)] };
+  const { s } = withWorkTurn({ s: range }, 's', { ...turn(1), answer: 'judged again' }, {
+    now: 3, sessionEpoch: 1, model: 'route-a', project: { root: '/repo', head: 'h1', diff: 'older diff' }, pid: 1,
+  });
+  assert.deepEqual([s.model, s.project, s.pid, s.blocked], ['route-b', newer, 2, range.blocked]);
+  assert.equal(s.turns.find(({ turn }) => turn === 1).answer, 'judged again');
+});
+
+test('a turn of another session epoch takes its diff from its own HEAD, not the old range\'s base', () => {
+  const range = { at: 1, sessionEpoch: 10, base: { root: '/repo', head: 'old' }, turns: [{ turn: 1, head: { root: '/repo', head: 'old' } }] };
+  const workTurn = { turn: 1, head: { root: '/repo', head: 'new' } };
+  assert.deepEqual(baseFor({ s: range }, 's', workTurn, { sessionEpoch: 20 }), workTurn.head);
+  assert.deepEqual(baseFor({ s: range }, 's', workTurn, { sessionEpoch: 10 }), range.base);
 });

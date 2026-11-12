@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { draftSourcesOf } from '../../distill.js';
 import { OUTBOX_TTL_MS, withQueued } from '../../report-outbox.js';
 import { ABSENT } from '../../retention.js';
 import { appendStateLine, readState, readStateLines, removeState, takeStateLines, updateState, withLock, writeState } from './file-lock.js';
@@ -18,13 +19,25 @@ import { adoptLegacyIn } from './legacy.js';
 const MAX_DRAIN_ROUNDS = 5;
 // A session file holds the turn counter, which a resumed session needs for as long as it may still be resumed.
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const CORRECTION_LOCK_WAIT_MS = 2_000;
-const CORRECTION_LOCK_RETRY_MS = 20;
+const SESSION_LOCK_WAIT_MS = 2_000;
+const SESSION_LOCK_RETRY_MS = 20;
 const digestOf = (key) => crypto.createHash('sha256').update(String(key)).digest('hex').slice(0, 16);
+
+async function withSessionLock(lock, work, signal, name) {
+  const deadline = Date.now() + SESSION_LOCK_WAIT_MS;
+  let result;
+  for (;;) {
+    signal?.throwIfAborted();
+    if (await withLock(lock, async () => { result = await work(); })) return result;
+    if (Date.now() >= deadline) throw Object.assign(new Error(`Timed out waiting for the ${name} lock. Please retry.`), { code: 'ELOCKED' });
+    await delay(SESSION_LOCK_RETRY_MS, undefined, { signal });
+  }
+}
 
 // A range's turn numbers name it apart from one created again in the same millisecond after its turns were distilled.
 export function rangeReferenceOf(sessionId, { at, changedAt, turns }) {
-  return `v2-${crypto.createHash('sha256').update(JSON.stringify([sessionId, at, changedAt, turns.map(({ turn }) => turn)])).digest('base64url')}`;
+  const sources = turns.map(({ turn, sessionEpoch }) => sessionEpoch === undefined ? turn : [turn, sessionEpoch]);
+  return `v2-${crypto.createHash('sha256').update(JSON.stringify([sessionId, at, changedAt, sources])).digest('base64url')}`;
 }
 
 export function contentHashOf(file) {
@@ -40,8 +53,8 @@ function linesStore(target) {
     append: async (value) => appendStateLine(target, value),
     read: async () => readStateLines(target),
     take: async () => {
-      const { lines, commit } = takeStateLines(target);
-      return { lines, commit: async () => commit() };
+      const { lines, commit, release } = takeStateLines(target);
+      return { lines, commit: async () => commit(), release };
     },
     clear: async () => removeState(target),
   };
@@ -103,17 +116,8 @@ export function fileStoresOf({ dir, agent }) {
   const correctionName = (sessionId, turn, sessionEpoch) => digestOf(JSON.stringify([sessionId, turn, sessionEpoch]));
   const correctionFile = (...source) => path.join(corrections, correctionName(...source));
   const draftCorrections = {
-    withSession: async (sessionId, work, signal) => {
-      const lock = path.join(corrections, `${digestOf(sessionId)}.lock`);
-      const deadline = Date.now() + CORRECTION_LOCK_WAIT_MS;
-      let result;
-      for (;;) {
-        signal?.throwIfAborted();
-        if (await withLock(lock, async () => { result = await work(); })) return result;
-        if (Date.now() >= deadline) throw Object.assign(new Error('Timed out waiting for the draft correction lock. Please retry.'), { code: 'ELOCKED' });
-        await delay(CORRECTION_LOCK_RETRY_MS, undefined, { signal });
-      }
-    },
+    withSession: (sessionId, work, signal) =>
+      withSessionLock(path.join(corrections, `${digestOf(sessionId)}.lock`), work, signal, 'draft correction'),
     mark: async (sessionId, turn, sessionEpoch) => {
       fs.mkdirSync(corrections, { recursive: true, mode: 0o700 });
       fs.closeSync(fs.openSync(correctionFile(sessionId, turn, sessionEpoch), 'a', 0o600));
@@ -134,6 +138,7 @@ export function fileStoresOf({ dir, agent }) {
     if (failure) throw failure;
   };
   const sessions = {
+    withSession: (sessionId, work) => withSessionLock(sessionFile('lifecycle', sessionId, 'lock'), work, undefined, 'session lifecycle'),
     read: async (sessionId) => readState(sessionFile('session', sessionId), {}),
     readEach: async (visit) => eachSession((target) => {
       const stored = readState(target, {});
@@ -149,8 +154,8 @@ export function fileStoresOf({ dir, agent }) {
     append: (sessionId, note, scope) => linesStore(evidenceFile('turn', sessionId, scope)).append(note),
     read: (sessionId, scope) => linesStore(evidenceFile('turn', sessionId, scope)).read(),
     take: async (sessionId, scope) => {
-      const { lines, commit } = await linesStore(evidenceFile('turn', sessionId, scope)).take();
-      return { notes: lines, commit };
+      const { lines, commit, release } = await linesStore(evidenceFile('turn', sessionId, scope)).take();
+      return { notes: lines, commit, release };
     },
     clear: (sessionId, scope) => linesStore(evidenceFile('turn', sessionId, scope)).clear(),
   };
@@ -227,7 +232,8 @@ export function fileStoresOf({ dir, agent }) {
     } catch {
       return;
     }
-    const kept = new Set(saved.filter((draft) => draft?.sourceCandidate).map(({ sessionId, sourceCandidate: { turn, sessionEpoch } }) => correctionName(sessionId, turn, sessionEpoch)));
+    if (!Array.isArray(saved)) return;
+    const kept = new Set(saved.flatMap((draft) => draftSourcesOf(draft).map(({ turn, sessionEpoch }) => correctionName(draft.sessionId, turn, sessionEpoch))));
     for (const name of names.filter((entry) => /^[0-9a-f]{16}$/.test(entry) && !kept.has(entry))) {
       const target = path.join(corrections, name);
       try {
@@ -274,6 +280,7 @@ export function fileStoresOf({ dir, agent }) {
     engineState: tableStore(file('engine'), null),
     engineAnnounced: tableStore(file('engine-announced'), {}),
     engineLock: file('engine', 'lock'),
+    agentRelease: file('agent-release'),
     distillWaiter: file('distill-waiter'),
     folder: (kind) => path.join(dir, `${agent}-${kind}`),
     prune,
