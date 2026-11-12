@@ -40,7 +40,7 @@ test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, 
   assert.match(kimi, /run: npm run test:kimi/);
   assert.match(kimi, /run: npm run pack/);
   const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  windows-kimi:'));
-  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\r?\n\s+runs-on: windows-latest\r?\n/);
+  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'\r?\n\s+runs-on: windows-latest\r?\n/);
   assert.match(windows, /node: \[22, 26\]/);
   assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
