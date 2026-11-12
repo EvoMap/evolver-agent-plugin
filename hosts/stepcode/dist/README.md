@@ -12,7 +12,7 @@ Start a new session after installation or update. For a disposable profile, set 
 
 Recipe guidance is projected into the current prompt's model requests, without being appended to the native transcript. Native `run_command` or `bash` results supply verification evidence. Publication remains an explicit `/evolver-drafts publish <number>` action; ordinary verified work only creates private draft candidates.
 
-Use a separate foreground `run_command` or `bash` call for verification. Inline `then_run` checks and background executions are not supported by this draft adapter; a turn using them is excluded from reuse reporting and candidates. A cancelled turn, including cancellation after a passing check, produces neither a reuse report nor a candidate.
+Use a separate foreground `run_command` or `bash` call for verification. Inline `then_run` checks and background executions are not supported by this draft adapter; a turn using them is excluded from reuse reporting and candidates. Cancellation before `agent_settled` confirms completion, including cancellation after a passing check, produces neither a reuse report nor a candidate. A later abort does not undo an already confirmed completion.
 
 Background completion uses the captured native provider, model, thinking level and account. If that route cannot be verified, the candidate waits rather than switching to the current account. It does not run another agent, load tools, or publish assets.
 
