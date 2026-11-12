@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
+import { appendStateLine, readState, takeStateLines, updateState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
 
 const dirs = [];
@@ -73,6 +73,101 @@ test('released turn evidence is immediately recoverable alongside newer appends,
   assert.deepEqual(recovered.notes, [{ command: 'first' }, { command: 'arrived after take' }]);
   await recovered.commit();
   assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
+});
+
+test('turn evidence waits for an earlier take without dropping new appends', async () => {
+  const { stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  const first = await cursor.notes.take('s1', scope);
+  await cursor.notes.append('s1', { command: 'new' }, scope);
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'ELOCKED' });
+  await first.commit();
+  const next = await cursor.notes.take('s1', scope);
+  assert.deepEqual(next.notes, [{ command: 'new' }]);
+  await next.commit();
+});
+
+test('turn evidence is immediately recoverable when claim metadata fails after renaming', async t => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'preserved' }, scope);
+  const source = readdirSync(dir).find(name => name.endsWith('.jsonl'));
+  const bytes = fs.readFileSync(join(dir, source));
+  const touch = fs.utimesSync;
+  let denied = false;
+  t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+    if (!denied && String(file).startsWith(dir) && String(file).endsWith('.taking')) {
+      denied = true;
+      throw Object.assign(new Error('fixture claim metadata denial'), { code: 'EACCES' });
+    }
+    return touch(file, atime, mtime);
+  });
+  await assert.rejects(cursor.notes.take('s1', scope), { code: 'EACCES' });
+  assert.equal(denied, true, 'the claim metadata write was actually refused');
+  const [claim] = readdirSync(dir).filter(name => name.endsWith('.taking'));
+  assert.deepEqual(fs.readFileSync(join(dir, claim)), bytes, 'the moved evidence stays byte-for-byte intact');
+  const recovered = await cursor.notes.take('s1', scope);
+  assert.deepEqual(recovered.notes, [{ command: 'preserved' }]);
+  await recovered.commit();
+  assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
+});
+
+for (const requireComplete of [false, true]) for (const code of ['EACCES', 'EPERM', 'EIO']) {
+  test(`${requireComplete ? 'native' : 'queue'} takes preserve every claim when metadata refresh fails with ${code}`, t => {
+    const { dir } = stores();
+    const target = join(dir, 'evidence.jsonl');
+    appendStateLine(target, { command: 'earlier' });
+    const earlier = takeStateLines(target);
+    earlier.release();
+    appendStateLine(target, { command: 'later' });
+    const bytes = fs.readFileSync(target);
+    const failure = Object.assign(new Error('fixture claim metadata refusal'), { code });
+    const touch = fs.utimesSync;
+    t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+      if (String(file).endsWith('.taking') && Number(mtime) > Date.now() - 60_000 && !existsSync(target)) throw failure;
+      return touch(file, atime, mtime);
+    });
+    assert.throws(() => takeStateLines(target, Date.now(), { requireComplete }), error => error === failure);
+    const claims = readdirSync(dir).filter(name => name.endsWith('.taking'));
+    assert.equal(claims.length, 2, 'both earlier and newly moved records remain recoverable');
+    assert.ok(claims.some(name => fs.readFileSync(join(dir, name)).equals(bytes)), 'new evidence stays byte-for-byte intact');
+    t.mock.restoreAll();
+    const recovered = takeStateLines(target, Date.now(), { requireComplete });
+    assert.deepEqual(recovered.lines.map(({ command }) => command).sort(), ['earlier', 'later']);
+    recovered.commit();
+    assert.deepEqual(readdirSync(dir), []);
+  });
+}
+
+test('a metadata failure preserves its original error when release is also denied', t => {
+  const { dir } = stores();
+  const target = join(dir, 'evidence.jsonl');
+  appendStateLine(target, { command: 'preserved' });
+  const failure = Object.assign(new Error('fixture claim metadata failure'), { code: 'EIO' });
+  const touch = fs.utimesSync;
+  t.mock.method(fs, 'utimesSync', () => { throw failure; });
+  assert.throws(() => takeStateLines(target, Date.now(), { requireComplete: true }), error => error === failure);
+  t.mock.restoreAll();
+  assert.throws(() => takeStateLines(target, Date.now(), { requireComplete: true }), { code: 'ELOCKED' });
+  for (const name of readdirSync(dir)) touch(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  const recovered = takeStateLines(target, Date.now(), { requireComplete: true });
+  assert.deepEqual(recovered.lines, [{ command: 'preserved' }]);
+  recovered.commit();
+});
+
+test('queue takes still consume new appends while an earlier take awaits commit', () => {
+  const { dir } = stores();
+  const target = join(dir, 'queue.jsonl');
+  appendStateLine(target, { report: 'first' });
+  const first = takeStateLines(target);
+  appendStateLine(target, { report: 'next' });
+  const next = takeStateLines(target);
+  assert.deepEqual(first.lines, [{ report: 'first' }]);
+  assert.deepEqual(next.lines, [{ report: 'next' }]);
+  first.commit();
+  next.commit();
+  assert.deepEqual(takeStateLines(target).lines, []);
 });
 
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
