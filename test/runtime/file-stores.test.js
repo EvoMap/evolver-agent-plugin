@@ -10,6 +10,7 @@ import { after, test } from 'node:test';
 
 import { readState, updateState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf, rangeReferenceOf } from '../../lib/runtime/store/file-stores.js';
+import { lockContenders, until } from '../helpers/lock-contenders.js';
 
 const dirs = [];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -75,6 +76,131 @@ test('released turn evidence is immediately recoverable alongside newer appends,
   assert.deepEqual((await cursor.notes.take('s1', scope)).notes, []);
 });
 
+test('unknown legacy claim order survives repeated release and reclaims without changing note bytes', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  for (const command of ['first', 'last']) {
+    await cursor.notes.append('s1', { command }, scope);
+    (await cursor.notes.take('s1', scope)).release();
+  }
+  const originals = readdirSync(dir).filter(name => name.endsWith('.taking')).map(name => fs.readFileSync(join(dir, name), 'utf8')).sort();
+  for (const name of readdirSync(dir)) fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const taken = await cursor.notes.take('s1', scope);
+    assert.equal(taken.ordered, false);
+    assert.deepEqual(taken.notes.map(({ command }) => command).sort(), ['first', 'last']);
+    assert.deepEqual(readdirSync(dir).filter(name => name.endsWith('.taking')).map(name => fs.readFileSync(join(dir, name), 'utf8')).sort(), originals);
+    if (attempt === 2) await taken.commit(); else taken.release();
+  }
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test('a mixed legacy and numbered claim cannot silently acquire a trusted order', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  await cursor.notes.append('s1', { command: 'first' }, scope);
+  (await cursor.notes.take('s1', scope)).release();
+  await cursor.notes.append('s1', { command: 'last' }, scope);
+  (await cursor.notes.take('s1', scope)).release();
+  const [name] = readdirSync(dir).filter(name => name.endsWith('.taking'));
+  fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  const taken = await cursor.notes.take('s1', scope);
+  assert.equal(taken.ordered, false);
+  assert.deepEqual(taken.notes.map(({ command }) => command).sort(), ['first', 'last']);
+  await taken.commit();
+});
+
+test('baseline recovery preserves the first pre-edit hash through repeated claim rotations', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 }, file = join(dir, 'edited.js');
+  writeFileSync(file, 'original');
+  await cursor.baseline.remember('s1', file, null, scope);
+  const first = await cursor.baseline.take('s1', null, scope);
+  const before = first.before.get(file);
+  for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  writeFileSync(file, 'modified');
+  await cursor.baseline.remember('s1', file, null, scope);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const taken = await cursor.baseline.take('s1', null, scope);
+    assert.equal(taken.ordered, true);
+    assert.equal(taken.before.get(file), before);
+    if (attempt === 1) await taken.commit();
+    else for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  }
+});
+
+test('legacy baseline chunks with unknown order do not invent a first pre-edit hash', async () => {
+  const { dir, stores: cursor } = stores();
+  const scope = { sessionEpoch: 10, turn: 1 };
+  for (const content of ['original', 'modified']) {
+    const file = join(dir, 'edited.js');
+    writeFileSync(file, content);
+    await cursor.baseline.remember('s1', file, null, scope);
+    await cursor.baseline.take('s1', null, scope);
+    for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+  }
+  for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+  const taken = await cursor.baseline.take('s1', null, scope);
+  assert.equal(taken.ordered, false);
+  assert.equal(taken.before.size, 0);
+  await taken.commit();
+});
+
+test('two processes serialize claim numbering while an earlier reader keeps its chunk', async t => {
+  const { dir } = stores();
+  const target = join(dir, 'queue.jsonl');
+  const runtime = new URL('../../lib/runtime/store/file-lock.js', import.meta.url).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import { join } from 'node:path';
+    import { appendStateLine, takeStateLines } from ${JSON.stringify(runtime)};
+    const [dir, target, role] = process.argv.slice(1);
+    const marker = name => join(dir, name);
+    const wait = name => {
+      const deadline = Date.now() + 10_000;
+      while (!fs.existsSync(marker(name))) {
+        if (Date.now() >= deadline) throw new Error('timed out waiting for ' + name);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+    };
+    let taken;
+    if (role === 'A') {
+      appendStateLine(target, { command: 'first' });
+      const rename = fs.renameSync;
+      fs.renameSync = (from, to) => {
+        if (from === target && to.endsWith('.taking')) { fs.writeFileSync(marker('A-paused'), ''); wait('A-resume'); }
+        return rename(from, to);
+      };
+      taken = takeStateLines(target);
+      fs.writeFileSync(marker('A-ready'), '');
+    } else {
+      assert.throws(() => takeStateLines(target), { code: 'ELOCKED' });
+      fs.writeFileSync(marker('B-blocked'), '');
+      wait('A-ready');
+      appendStateLine(target, { command: 'last' });
+      taken = takeStateLines(target);
+      fs.writeFileSync(marker('B-ready'), '');
+    }
+    wait('release');
+    taken.release();
+  `;
+  const { run, results } = lockContenders(t, dir, script, [dir, target], ['A-resume', 'release']);
+  run('A');
+  await until(() => existsSync(join(dir, 'A-paused')));
+  run('B');
+  await until(() => existsSync(join(dir, 'B-blocked')));
+  writeFileSync(join(dir, 'A-resume'), '');
+  await until(() => existsSync(join(dir, 'B-ready')));
+  writeFileSync(join(dir, 'release'), '');
+  for (const { code, stderr } of await results()) assert.equal(code, 0, stderr);
+  const { takeStateLines } = await import('../../lib/runtime/store/file-lock.js');
+  const taken = takeStateLines(target);
+  assert.equal(taken.ordered, true);
+  assert.deepEqual(taken.lines, [{ command: 'first' }, { command: 'last' }]);
+  taken.commit();
+});
+
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
   const { dir, stores: cursor } = stores();
   const scope = { sessionEpoch: 10, turn: 1 };
@@ -82,6 +208,8 @@ test('pruning expires generation evidence and its claims without touching report
   await cursor.baseline.remember('s1', '/old.js', null, scope);
   await cursor.notes.take('s1', scope);
   await cursor.baseline.take('s1', null, scope);
+  writeFileSync(join(dir, 'cursor-turn-generation-0123456789abcdef.jsonl.order-unknown.123.0123456789ab.taking'), 'legacy ambiguity');
+  writeFileSync(join(dir, 'cursor-edits-generation-0123456789abcdef.jsonl.123.0123456789ab.taking'), 'legacy claim');
   const reportClaim = join(dir, 'cursor-reports-queue.jsonl.123.0123456789ab.taking');
   writeFileSync(reportClaim, 'keep report');
   for (const name of readdirSync(dir)) fs.utimesSync(join(dir, name), new Date(0), new Date(0));

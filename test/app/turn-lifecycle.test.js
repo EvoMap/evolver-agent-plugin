@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs, { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -828,6 +829,77 @@ test('the current native epoch replaces an older range with its own snapshot bas
   assert.deepEqual(snapshotBases, ['old-head', 'new-head']);
   assert.deepEqual(range.base, { root: '/proj', head: 'new-head' });
   assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
+});
+
+for (const [firstExit, lastExit] of [[0, 1], [1, 0]]) {
+  test(`native claim recovery keeps check order after repeated releases (${firstExit} then ${lastExit})`, async t => {
+    const { ports, queued } = memoryPorts();
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-native-claim-order-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+    Object.assign(ports, { sessions, candidates, notes, baseline, confirmTurnCompletion: true, modelForTurn: () => NATIVE_ROUTE });
+    let nonce = 255;
+    t.mock.method(crypto, 'randomBytes', size => Buffer.alloc(size, nonce--));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+    const scope = await sessions.read('s1');
+    const check = async (callId, exit) => {
+      const call = { kind: 'shell', command: 'npm test', callId };
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, running: true } });
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, exit } });
+    };
+    await check('first', firstExit);
+    (await notes.take('s1', scope)).release();
+    await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { kind: 'edit', paths: ['/proj/retry.js'] } });
+    await check('last', lastExit);
+    (await notes.take('s1', scope)).release();
+    const ended = await end(ports, 's1', { turnId: 't1' });
+    assert.deepEqual(ended.record.checks.map(({ exit }) => exit), [firstExit, lastExit]);
+    assert.deepEqual(queued.map(({ report }) => report.outcome), [lastExit === 0 ? 'success' : 'failed']);
+    const range = (await candidates.read()).s1;
+    assert.deepEqual(range.turns[0].steps.filter(({ kind }) => kind === 'check').map(({ exit }) => exit), [firstExit, lastExit]);
+    assert.equal(ended.isDistillable, lastExit === 0);
+  });
+}
+
+for (const native of [false, true]) for (const observed of [false, true]) {
+  test(`unordered legacy notes need an authoritative record (${native ? 'native' : 'hook'}, ${observed ? 'record available' : 'notes only'})`, async t => {
+    const { ports, queued, retained } = memoryPorts();
+    const dir = mkdtempSync(join(tmpdir(), 'evolver-legacy-note-order-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const { sessions, candidates, notes, baseline } = fileStoresOf({ dir, agent: 'testagent' });
+    Object.assign(ports, { sessions, candidates, notes, baseline, confirmTurnCompletion: native, modelForTurn: () => NATIVE_ROUTE });
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+    const scope = await sessions.read('s1');
+    for (const [callId, exit] of [['first', 0], ['last', 1]]) {
+      const call = { kind: 'shell', command: 'npm test', callId };
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, running: true } });
+      await toolFinished(ports, { sessionId: 's1', turnId: 't1', note: { ...call, exit } });
+      (await notes.take('s1', scope)).release();
+    }
+    for (const name of readdirSync(dir).filter(name => name.endsWith('.taking'))) {
+      fs.renameSync(join(dir, name), join(dir, name.replace(/\.order-\d+/, '')));
+    }
+    const ended = await end(ports, 's1', { turnId: 't1', ...(observed && { recordOf: () => NATIVE_PASS }) });
+    assert.deepEqual(queued.map(({ report }) => report.outcome), observed ? ['success'] : []);
+    assert.equal(Boolean((await candidates.read()).s1), observed);
+    assert.equal(retained.length, observed ? 1 : 0);
+    assert.equal((await sessions.read('s1')).open, false, 'legacy ambiguity does not leave the turn permanently busy');
+    assert.equal(ended.record.checks.length, observed ? 1 : 2, 'the original evidence is not rewritten into a made-up verdict');
+  });
+}
+
+test('a trusted native record can verify work without inventing retention from an unordered baseline', async () => {
+  const { ports, queued, retained } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  ports.modelForTurn = () => NATIVE_ROUTE;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  const take = ports.baseline.take;
+  ports.baseline.take = async (...args) => ({ ...await take(...args), ordered: false });
+  const ended = await end(ports, 's1', { turnId: 't1', recordOf: () => NATIVE_PASS });
+  assert.deepEqual(queued.map(({ report }) => report.outcome), ['success']);
+  assert.deepEqual(ended.record, NATIVE_PASS);
+  assert.ok((await ports.candidates.read()).s1);
+  assert.deepEqual(retained, []);
 });
 
 for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
