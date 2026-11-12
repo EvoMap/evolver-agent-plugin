@@ -6,7 +6,7 @@ import { test } from 'node:test';
 
 import { runBackgroundTasks } from '../../lib/app/background.js';
 import { TASKS } from '../../lib/app/ports.js';
-import { MIN_WAKE_DELAY_MS } from '../../lib/app/distill-session.js';
+import { MIN_WAKE_DELAY_MS, distillSession } from '../../lib/app/distill-session.js';
 import { lastTurnOf, promptSubmitted } from '../../lib/app/prompt.js';
 import { sessionEnded } from '../../lib/app/session-end.js';
 import { sessionStarted } from '../../lib/app/session-start.js';
@@ -17,7 +17,7 @@ import { EPISODE_QUIET_MS } from '../../lib/distill/range.js';
 import { sessionOf as sessionOfStored } from '../../lib/session/state.js';
 import { contentHashOf, fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 import { ASSET, PROMPT, memoryPorts } from './memory-ports.js';
-import { fixTurn } from './work-turns.js';
+import { DRAFTED, IR, fixTurn, modelAnswering } from './work-turns.js';
 
 const WAIT = { waitMs: 5_000 };
 const nativePassingCheck = JSON.parse(readFileSync(new URL('../fixtures/node-spec-passing-errors.json', import.meta.url), 'utf8'));
@@ -556,6 +556,140 @@ test('a session end waiting on report storage leaves a resumed turn and its evid
   assert.equal((await ports.notes.read('s1', session)).some(({ command }) => command === 'npm test'), true);
 });
 
+for (const drainBeforeRetry of [false, true]) test(`a candidate snapshot read error does not block queuing cached native reports and controls (${drainBeforeRetry ? 'drained before retry' : 'retry before drain'})`, async t => {
+  const { ports, requests } = memoryPorts();
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-delivery-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates, notes, baseline, reports, outbox } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates, notes, baseline, reports, outbox });
+  ports.confirmTurnCompletion = true;
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const answer = await request(...args);
+    if (args[1] === '/asset/fetch' && !args[2]?.asset_ids) answer.data.trial_withheld = { asset_id: 'sha256:trial', withheld_id: 'wh-snapshot' };
+    return answer;
+  };
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  for (const note of [
+    { kind: 'shell', command: 'npm test', callId: 'check', running: true },
+    { kind: 'shell', command: 'npm test', callId: 'check', exit: 0 },
+  ]) await toolFinished(ports, { sessionId: 's1', turnId: 't1', note });
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async () => { throw new Error('local queue unavailable'); };
+  await assert.rejects(end(ports, 's1', { turnId: 't1' }), /local queue unavailable/);
+  ports.reports.enqueue = enqueue;
+  const before = await ports.sessions.read('s1');
+  const cached = before.injected[ASSET.asset_id].pendingReport;
+  assert.equal(before.pendingControls.length, 1);
+  const readCandidates = ports.candidates.read;
+  ports.candidates.read = async () => { throw new Error('candidate storage unavailable'); };
+  await assert.rejects(sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' }), /candidate storage unavailable/);
+  const queued = readFileSync(join(dir, 'testagent-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+  assert.deepEqual(queued, [{ report: cached, sessionId: 's1' }, ...before.pendingControls]);
+  assert.deepEqual(await ports.sessions.read('s1'), before, 'failed range cleanup does not acknowledge or erase cached reports');
+  const delivered = () => requests.filter(({ path }) => ['/asset/reuse-result', '/asset/trial-control'].includes(path));
+  const expected = [
+    { path: '/asset/reuse-result', body: cached },
+    { path: '/asset/trial-control', body: before.pendingControls[0].report },
+  ];
+  if (drainBeforeRetry) {
+    assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+    assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected);
+  } else assert.deepEqual(delivered(), []);
+  ports.candidates.read = readCandidates;
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  if (!drainBeforeRetry) {
+    const retried = readFileSync(join(dir, 'testagent-reports-queue.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    assert.deepEqual(retried, [...queued, ...queued], 'the first drain receives both copies of each crash-safe queue entry');
+  }
+  assert.equal(await runBackgroundTasks(ports, [TASKS.DRAIN]), true);
+  assert.deepEqual(delivered().map(({ path, body }) => ({ path, body })), expected, 'retrying crash-safe queue entries does not resend settled reports or controls');
+  const after = await ports.sessions.read('s1');
+  assert.ok(after.injected[ASSET.asset_id].reportedAt);
+  assert.equal(after.injected[ASSET.asset_id].pendingReport, undefined);
+  assert.deepEqual(after.pendingControls, []);
+});
+
+for (const currentEpoch of [false, true]) test(`session cleanup preserves legacy range provenance (${currentEpoch ? 'new session epoch' : 'adopted legacy session'})`, async t => {
+  const { ports } = memoryPorts();
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-legacy-range-end-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates });
+  await sessions.update('s1', () => ({ turn: 1, pid: 4242, ...(currentEpoch && { sessionEpoch: ports.clock.now() }) }));
+  writeFileSync(join(dir, 'testagent-distill-pending.json'), JSON.stringify({
+    s1: { at: ports.clock.now(), pid: 4242, turn: 1, prompt: 'Legacy work', commands: ['npm test'], checks: [{ command: 'npm test', exit: 0 }], held: true },
+  }));
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const range = (await candidates.read()).s1;
+  assert.equal(range.sessionEpoch, undefined);
+  assert.equal(range.held, true);
+  assert.equal(Boolean(range.closed), !currentEpoch, 'an observed legacy range closes only under its legacy session provenance');
+});
+
+test('a session end closes its final range when the verified turn lands after an empty range snapshot', async () => {
+  const { ports } = memoryPorts();
+  await verifiedTurn(ports, 's1');
+  const reading = Promise.withResolvers();
+  const finishRecord = Promise.withResolvers();
+  const completing = end(ports, 's1', { recordOf: async () => { reading.resolve(); await finishRecord.promise; return null; } });
+  await reading.promise;
+  const snapshot = Promise.withResolvers();
+  const finishEnd = Promise.withResolvers();
+  const enqueue = ports.reports.enqueue;
+  let held = false;
+  ports.reports.enqueue = async (entries) => {
+    if (!held) { held = true; snapshot.resolve(); await finishEnd.promise; }
+    return enqueue(entries);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await snapshot.promise;
+  try {
+    assert.deepEqual(await ports.candidates.read(), {});
+    finishRecord.resolve();
+    await completing;
+    assert.equal((await ports.candidates.read()).s1.turns.length, 1);
+  } finally {
+    finishRecord.resolve();
+    finishEnd.resolve();
+    await ending;
+  }
+  assert.equal((await ports.candidates.read()).s1.closed, true, 'the last verified work becomes due at session end');
+});
+
+test('a session end closes its late final turn after the range in its snapshot was distilled', async () => {
+  const { ports } = memoryPorts({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  await verifiedTurn(ports, 's1', { prompt: 'continue the Redis repair' });
+  const reading = Promise.withResolvers();
+  const finishRecord = Promise.withResolvers();
+  const completing = end(ports, 's1', { model: 'model-x', recordOf: async () => { reading.resolve(); await finishRecord.promise; return null; } });
+  await reading.promise;
+  const snapshot = Promise.withResolvers();
+  const finishEnd = Promise.withResolvers();
+  const enqueue = ports.reports.enqueue;
+  let held = false;
+  ports.reports.enqueue = async (entries) => {
+    if (!held) { held = true; snapshot.resolve(); await finishEnd.promise; }
+    return enqueue(entries);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await snapshot.promise;
+  try {
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [1]);
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'stored');
+    finishRecord.resolve();
+    await completing;
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [2]);
+  } finally {
+    finishRecord.resolve();
+    finishEnd.resolve();
+    await ending;
+  }
+  assert.equal((await ports.candidates.read()).s1.closed, true, 'the ending turn remains due after the earlier range was consumed');
+});
+
 test('a session end delayed before closing its turn cannot close a resumed turn', async () => {
   const { ports } = memoryPorts();
   await verifiedTurn(ports, 's1');
@@ -641,6 +775,76 @@ test('a prompt waits until session and range cleanup finish before opening a new
   const resumed = await next;
   const session = await ports.sessions.read('s1');
   assert.deepEqual([session.open, session.turn, session.turnId], [true, resumed.turn, 'next']);
+});
+
+test('late session cleanup cannot close a replacement range after a prompt bypasses the held lifecycle lock', async (t) => {
+  const { ports } = memoryPorts({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-fallback-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  const closingRange = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const updateCandidates = ports.candidates.update;
+  ports.candidates.update = async (...args) => {
+    ports.candidates.update = updateCandidates;
+    closingRange.resolve();
+    await resume.promise;
+    return updateCandidates(...args);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await closingRange.promise;
+  try {
+    const next = await promptSubmitted(ports, { sessionId: 's1', prompt: 'continue the repair', turnId: 'next', ...WAIT });
+    assert.equal(next.skipped.code, 'ELOCKED');
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'stored');
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'edit', paths: ['/proj/lib/next.js'] } });
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'shell', command: 'npm test', exit: 0 } });
+    await end(ports, 's1', { turnId: 'next', model: 'model-x' });
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [next.turn]);
+  } finally {
+    resume.resolve();
+    await ending;
+  }
+  const current = (await ports.candidates.read()).s1;
+  assert.notEqual(current.closed, true);
+  assert.equal((await ports.sessions.read('s1')).turnId, 'next');
+});
+
+test('late session cleanup cannot close retained work after a new turn joins through the lifecycle fallback', async (t) => {
+  const { ports } = memoryPorts();
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-session-end-retained-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  const closingRange = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const updateCandidates = ports.candidates.update;
+  ports.candidates.update = async (...args) => {
+    ports.candidates.update = updateCandidates;
+    closingRange.resolve();
+    await resume.promise;
+    return updateCandidates(...args);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await closingRange.promise;
+  try {
+    const next = await promptSubmitted(ports, { sessionId: 's1', prompt: 'continue the repair', turnId: 'next', ...WAIT });
+    assert.equal(next.skipped.code, 'ELOCKED');
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'edit', paths: ['/proj/lib/next.js'] } });
+    await toolFinished(ports, { sessionId: 's1', turnId: 'next', note: { kind: 'shell', command: 'npm test', exit: 0 } });
+    await end(ports, 's1', { turnId: 'next', model: 'model-x' });
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [1, next.turn]);
+    assert.notEqual((await ports.candidates.read()).s1.closed, true, 'the retained range was still open before stale cleanup resumed');
+  } finally {
+    resume.resolve();
+    await ending;
+  }
+  assert.notEqual((await ports.candidates.read()).s1.closed, true, 'overlapping old work does not authorize closing a later turn');
 });
 
 test('a note that raced past the open-turn check is still kept out of the next turn', async () => {
