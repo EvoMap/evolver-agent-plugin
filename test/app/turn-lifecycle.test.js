@@ -586,6 +586,39 @@ test('a session end closes its final range when the verified turn lands after an
   assert.equal((await ports.candidates.read()).s1.closed, true, 'the last verified work becomes due at session end');
 });
 
+test('a session end closes its late final turn after the range in its snapshot was distilled', async () => {
+  const { ports } = memoryPorts({ model: modelAnswering(IR), distillAnswer: { status: 'stored', gene: DRAFTED.gene } });
+  await verifiedTurn(ports, 's1');
+  await end(ports, 's1', { model: 'model-x' });
+  await verifiedTurn(ports, 's1', { prompt: 'continue the Redis repair' });
+  const reading = Promise.withResolvers();
+  const finishRecord = Promise.withResolvers();
+  const completing = end(ports, 's1', { model: 'model-x', recordOf: async () => { reading.resolve(); await finishRecord.promise; return null; } });
+  await reading.promise;
+  const snapshot = Promise.withResolvers();
+  const finishEnd = Promise.withResolvers();
+  const enqueue = ports.reports.enqueue;
+  let held = false;
+  ports.reports.enqueue = async (entries) => {
+    if (!held) { held = true; snapshot.resolve(); await finishEnd.promise; }
+    return enqueue(entries);
+  };
+  const ending = sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  await snapshot.promise;
+  try {
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [1]);
+    assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'stored');
+    finishRecord.resolve();
+    await completing;
+    assert.deepEqual((await ports.candidates.read()).s1.turns.map(({ turn }) => turn), [2]);
+  } finally {
+    finishRecord.resolve();
+    finishEnd.resolve();
+    await ending;
+  }
+  assert.equal((await ports.candidates.read()).s1.closed, true, 'the ending turn remains due after the earlier range was consumed');
+});
+
 test('a session end delayed before closing its turn cannot close a resumed turn', async () => {
   const { ports } = memoryPorts();
   await verifiedTurn(ports, 's1');

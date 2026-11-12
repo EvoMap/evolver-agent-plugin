@@ -39,6 +39,8 @@ test('session cleanup includes a late final turn but excludes resumed work even 
   const final = { at: 1_000, sessionEpoch: 1, turns: [first] };
   const ending = { turn: 1, sessionEpoch: 1 };
   assert.equal(withClosedRange({ s: final }, 's', null, ending).s.closed, true);
+  const consumed = { ...final, turns: [{ ...first, turn: 0 }] };
+  assert.equal(withClosedRange({ s: { ...final, at: 2_000 } }, 's', consumed, ending).s.closed, true);
   for (const replacement of [
     { ...final, sessionEpoch: 2 },
     { ...final, turns: [{ ...first, turn: 2 }] },
