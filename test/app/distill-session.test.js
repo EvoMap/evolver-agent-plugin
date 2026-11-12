@@ -108,6 +108,25 @@ test('a distillation names only the assets injected into the turns it read', asy
   assert.deepEqual(body.reused_asset_ids, [ASSET.asset_id]);
 });
 
+test('a fitted distillation names only assets from the turns the model still reads', async () => {
+  const lastAsset = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
+  const made = memoryPorts({ assets: [ASSET, lastAsset], distillAnswer: DRAFTED, model: modelAnswering(IR) });
+  const steps = [
+    ...Array.from({ length: 56 }, (_, index) => ['run', `fixture-command-${index} ${'x'.repeat(940)}`]),
+    ['pass', 'npm test'],
+  ];
+  for (let turn = 1; turn <= 8; turn++) {
+    await turnOf(made.ports, 's1', { steps, ...(turn === 8 && { prompt: 'what is the weather like' }) });
+  }
+  await endedAndDistilled(made);
+  const [{ body }] = distills(made.requests);
+  const turns = body.record.filter(({ kind }) => kind === 'turn').map(({ text }) => text);
+  assert.ok(!turns.includes('Turn 1'), 'the oldest work was cut to meet the Proxy body limit');
+  assert.ok(turns.includes('Turn 8'));
+  assert.deepEqual(body.reused_asset_ids, [lastAsset.asset_id]);
+  assert.ok(bytesOf(body) <= 256 * 1024);
+});
+
 test('a session ledger that cannot be read leaves out the reused assets, never the distillation', async () => {
   const made = await fixedSession({ model: modelAnswering(IR) });
   await sessionEnded(made.ports, { sessionId: 's1', projectDir: '/proj' });
