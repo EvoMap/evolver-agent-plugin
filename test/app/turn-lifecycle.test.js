@@ -556,6 +556,50 @@ test('a session end waiting on report storage leaves a resumed turn and its evid
   assert.equal((await ports.notes.read('s1', session)).some(({ command }) => command === 'npm test'), true);
 });
 
+test('a candidate snapshot read error does not block queuing cached native reports and controls', async () => {
+  const { ports, queued } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  const request = ports.proxy.request;
+  ports.proxy.request = async (...args) => {
+    const answer = await request(...args);
+    if (args[1] === '/asset/fetch' && !args[2]?.asset_ids) answer.data.trial_withheld = { asset_id: 'sha256:trial', withheld_id: 'wh-snapshot' };
+    return answer;
+  };
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 't1', prompt: PROMPT, ...WAIT });
+  for (const note of [
+    { kind: 'shell', command: 'npm test', callId: 'check', running: true },
+    { kind: 'shell', command: 'npm test', callId: 'check', exit: 0 },
+  ]) await toolFinished(ports, { sessionId: 's1', turnId: 't1', note });
+  const enqueue = ports.reports.enqueue;
+  ports.reports.enqueue = async () => { throw new Error('local queue unavailable'); };
+  await assert.rejects(end(ports, 's1', { turnId: 't1' }), /local queue unavailable/);
+  ports.reports.enqueue = enqueue;
+  const before = await ports.sessions.read('s1');
+  const cached = before.injected[ASSET.asset_id].pendingReport;
+  assert.equal(before.pendingControls.length, 1);
+  ports.candidates.read = async () => { throw new Error('candidate storage unavailable'); };
+  await assert.rejects(sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' }), /candidate storage unavailable/);
+  assert.deepEqual(queued, [{ report: cached, sessionId: 's1' }, ...before.pendingControls]);
+  assert.deepEqual(await ports.sessions.read('s1'), before, 'failed range cleanup does not acknowledge or erase cached reports');
+});
+
+for (const currentEpoch of [false, true]) test(`session cleanup preserves legacy range provenance (${currentEpoch ? 'new session epoch' : 'adopted legacy session'})`, async t => {
+  const { ports } = memoryPorts();
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-legacy-range-end-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { sessions, candidates } = fileStoresOf({ dir, agent: 'testagent' });
+  Object.assign(ports, { sessions, candidates });
+  await sessions.update('s1', () => ({ turn: 1, pid: 4242, ...(currentEpoch && { sessionEpoch: ports.clock.now() }) }));
+  writeFileSync(join(dir, 'testagent-distill-pending.json'), JSON.stringify({
+    s1: { at: ports.clock.now(), pid: 4242, turn: 1, prompt: 'Legacy work', commands: ['npm test'], checks: [{ command: 'npm test', exit: 0 }], held: true },
+  }));
+  await sessionEnded(ports, { sessionId: 's1', projectDir: '/proj' });
+  const range = (await candidates.read()).s1;
+  assert.equal(range.sessionEpoch, undefined);
+  assert.equal(range.held, true);
+  assert.equal(Boolean(range.closed), !currentEpoch, 'an observed legacy range closes only under its legacy session provenance');
+});
+
 test('a session end closes its final range when the verified turn lands after an empty range snapshot', async () => {
   const { ports } = memoryPorts();
   await verifiedTurn(ports, 's1');
