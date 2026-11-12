@@ -34,6 +34,23 @@ test('session cleanup closes only the range it observed, including legacy sessio
   assert.equal(withClosedRange({ s: legacy }, 's', legacy).s.closed, true);
 });
 
+test('session cleanup includes a late final turn but excludes resumed work even when old turns overlap', () => {
+  const first = { turn: 1, prompt: 'p', steps: [], answer: '', at: 1_000 };
+  const final = { at: 1_000, sessionEpoch: 1, turns: [first] };
+  const ending = { turn: 1, sessionEpoch: 1 };
+  assert.equal(withClosedRange({ s: final }, 's', null, ending).s.closed, true);
+  for (const replacement of [
+    { ...final, sessionEpoch: 2 },
+    { ...final, turns: [{ ...first, turn: 2 }] },
+    { ...final, turns: [first, { ...first, turn: 2 }] },
+  ]) {
+    assert.equal(withClosedRange({ s: replacement }, 's', null, ending), undefined);
+    assert.equal(withClosedRange({ s: replacement }, 's', final, ending), undefined);
+  }
+  const resumed = withWorkTurn({ s: { ...final, closed: true } }, 's', { ...first, turn: 2 }, { now: 2_000, sessionEpoch: 1 });
+  assert.equal(resumed.s.closed, true, 'resuming an already closed range preserves its existing due state');
+});
+
 const RESULT = {
   ok: true,
   distill_id: 'abc123',
