@@ -1098,6 +1098,29 @@ for (const [written, recover] of [[false, false], [true, false], [false, true]])
   });
 }
 
+test('a recovered native candidate schedules delivery of reports acknowledged by the failed attempt', async t => {
+  const f = await storedNativeTurn(t);
+  await f.stores.sessions.update('s1', session => ({ ...session, withheld: [] }));
+  const update = f.stores.candidates.update;
+  let refused = false;
+  f.stores.candidates.update = async (...args) => {
+    if (!refused) {
+      refused = true;
+      throw Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
+    }
+    return update(...args);
+  };
+  await assert.rejects(f.deliver(), { code: 'EIO' });
+  f.scheduled.length = 0;
+  const ended = await f.deliver();
+  assert.deepEqual(ended.reports, [], 'the first attempt already queued and acknowledged this report');
+  assert.ok(f.scheduled.includes(TASKS.DRAIN), 'the recovered candidate still wakes report delivery');
+  await runBackgroundTasks(f.ports, f.scheduled);
+  assert.deepEqual(f.sent().map(({ path }) => path), ['/asset/reuse-result']);
+  await runBackgroundTasks(f.ports, [TASKS.DRAIN]);
+  assert.equal(f.sent().length, 1, 'later drains do not send the report again');
+});
+
 test('failed processing releases both leases without replacing its error if their release throws', async t => {
   const f = await storedNativeTurn(t);
   const failure = Object.assign(new Error('fixture candidate write refusal'), { code: 'EIO' });
