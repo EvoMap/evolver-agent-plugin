@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -7,6 +8,38 @@ import { DRAFTED } from '../../app/work-turns.js';
 import { PROMPT, requestsTo, stepHost, until } from './host.js';
 
 const assistant = (text, stopReason = 'stop') => ({ role: 'assistant', content: [{ type: 'text', text }], stopReason });
+
+test('packed Step fixtures record locally without global npm and keep successive profiles isolated', async t => {
+  const outside = mkdtempSync(join(tmpdir(), 'evolver-step-outside-'));
+  const previous = { EVOLVER_HOME: process.env.EVOLVER_HOME, EVOMAP_HOME: process.env.EVOMAP_HOME };
+  process.env.EVOLVER_HOME = outside;
+  process.env.EVOMAP_HOME = outside;
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    rmSync(outside, { recursive: true, force: true });
+  });
+  for (const name of ['first profile', 'next profile with the same native session id']) await t.test(name, async t => {
+    const host = await stepHost(t, { env: { PATH: '' } });
+    const ledger = join(host.proxy.env.HOME, '.evomap', 'evolution', 'root_events.jsonl');
+    assert.equal(existsSync(ledger), false, 'a fresh profile has no earlier reuse records');
+    assert.deepEqual(await host.stores.candidates.read(), {});
+    await host.emit('session_start');
+    await host.emit('before_agent_start', { prompt: PROMPT, systemPrompt: 'Base instructions.' });
+    await host.emit('agent_start');
+    await check(host, 0);
+    await host.emit('turn_end', { turnIndex: 0, message: assistant('The bounded Redis retries passed the native check.') });
+    await host.emit('agent_settled');
+    await until(() => requestsTo(host, '/asset/reuse-result').length === 2, 'the Recipe step reports');
+    await host.shutdown();
+    const events = readFileSync(ledger, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepEqual(events.filter(({ type }) => type === 'value.reuse_hit').map(({ payload }) => payload), [
+      { assetId: 'sha256:step1', cycleId: 'native-step-session', platform: 'stepcode', taskId: 'stepcode:native-step-session:1', tier: 'L1', stage: 'immediate' },
+      { assetId: 'sha256:step2', cycleId: 'native-step-session', platform: 'stepcode', taskId: 'stepcode:native-step-session:1', tier: 'L1', stage: 'immediate' },
+    ]);
+    assert.equal(requestsTo(host, '/asset/reuse-result').length, 2, 'local recording does not resend to the Hub');
+    assert.equal(existsSync(join(outside, 'evolution', 'root_events.jsonl')), false, 'the inherited ledger home stays untouched');
+  });
+});
 
 async function check(host, exit, { callId = 'check-1', details = { execution: { status: 'exited', exitCode: exit } } } = {}) {
   const call = { toolName: 'run_command', toolCallId: callId, input: { command: 'node --test' } };
