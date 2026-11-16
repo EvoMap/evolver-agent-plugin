@@ -30,11 +30,12 @@ test('packed Step fixtures record locally without global npm and keep successive
     await host.emit('turn_end', { turnIndex: 0, message: assistant('The bounded Redis retries passed the native check.') });
     await host.emit('agent_settled');
     await until(() => requestsTo(host, '/asset/reuse-result').length === 2, 'the Recipe step reports');
-    await host.shutdown();
-    // The ledger is written off the delivery path, so poll and parse only lines the writer has finished.
+    // The ledger thread records off the delivery path and stops at shutdown, so wait for it first and parse only
+    // lines the writer has finished.
     const reuseHits = () => (existsSync(ledger) ? readFileSync(ledger, 'utf8').split('\n').slice(0, -1).filter(Boolean) : [])
       .map(JSON.parse).filter(({ type }) => type === 'value.reuse_hit');
     await until(() => reuseHits().length === 2, 'the local ledger records both Recipe steps');
+    await host.shutdown();
     assert.deepEqual(reuseHits().map(({ payload }) => payload), [
       { assetId: 'sha256:step1', cycleId: 'native-step-session', platform: 'stepcode', taskId: 'stepcode:native-step-session:1', tier: 'L1', stage: 'immediate' },
       { assetId: 'sha256:step2', cycleId: 'native-step-session', platform: 'stepcode', taskId: 'stepcode:native-step-session:1', tier: 'L1', stage: 'immediate' },
