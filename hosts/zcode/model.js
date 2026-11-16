@@ -4,7 +4,7 @@
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
-const nativeHomeOf = (env) => (process.platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir();
+const nativeHomeOf = (env, platform = process.platform) => (platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir();
 export const homeOf = (env) => env.ZCODE_DATA_BASE_DIR?.trim() || nativeHomeOf(env);
 export const databaseOf = (env) => {
   const file = env.ZCODE_SESSION_DB_PATH?.trim() || env.ZCODE_SESSION_DB?.trim() || join(nativeHomeOf(env), '.zcode', 'cli', 'db', 'db.sqlite');
@@ -154,8 +154,8 @@ function cliDirs(env) {
 const MAC_BUNDLED_RUNTIME = join('ZCode.app', 'Contents', 'Resources', 'glm');
 
 function desktopRuntimeDirs(env, platform) {
-  if (platform === 'darwin') return [join(nativeHomeOf(env), 'Applications', MAC_BUNDLED_RUNTIME), join('/Applications', MAC_BUNDLED_RUNTIME)];
-  const local = env.LOCALAPPDATA || (platform === 'win32' ? join(nativeHomeOf(env), 'AppData', 'Local') : '');
+  if (platform === 'darwin') return [join(nativeHomeOf(env, platform), 'Applications', MAC_BUNDLED_RUNTIME), join('/Applications', MAC_BUNDLED_RUNTIME)];
+  const local = env.LOCALAPPDATA || (platform === 'win32' ? join(nativeHomeOf(env, platform), 'AppData', 'Local') : '');
   return isAbsolute(local) ? [join(local, 'Programs', 'ZCode', 'resources', 'glm')] : [];
 }
 
