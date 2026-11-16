@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { draftNamed, draftOf, draftsListText, skipReasonOf, submitRequestOf, withDraft, withoutDraft } from '../lib/distill.js';
-import { baseFor, isCurrentRange, settledRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
+import { baseFor, isCurrentRange, settledRange, withClosedRange, withCorrection, withoutExpiredLeftovers, withoutWorkTurn, withWorkTurn } from '../lib/distill/range.js';
 import { corpusEntryOf } from '../lib/distill/corpus.js';
 
 test('settling what a distillation read cannot touch a range made at the same time or in another session epoch', () => {
@@ -17,6 +17,26 @@ test('settling what a distillation read cannot touch a range made at the same ti
     assert.equal(settledRange({ s: current }, 's', read, { consume: true, now: 2_000 }), undefined, name);
     assert.equal(isCurrentRange({ s: current }, 's', current), true, name);
   }
+});
+
+test('session cleanup closes the ending turn\'s range, never one a later turn or another session epoch took', () => {
+  const first = { turn: 1, prompt: 'p', steps: [], answer: '', at: 1_000 };
+  const range = { at: 1_000, sessionEpoch: 1, turns: [first] };
+  const ending = { turn: 1, sessionEpoch: 1 };
+  assert.equal(withClosedRange({ s: range }, 's', ending).s.closed, true);
+  assert.equal(withClosedRange({ s: range }, 's', { turn: 2, sessionEpoch: 1 }).s.closed, true, 'a final turn without work');
+  const { sessionEpoch, ...legacy } = range;
+  assert.equal(withClosedRange({ s: legacy }, 's', ending).s.closed, true);
+  assert.equal(withClosedRange({}, 's', ending), undefined);
+  for (const replacement of [
+    { ...range, sessionEpoch: 2 },
+    { ...range, turns: [{ ...first, turn: 2 }] },
+    { ...range, turns: [first, { ...first, turn: 2 }] },
+  ]) {
+    assert.equal(withClosedRange({ s: replacement }, 's', ending), undefined);
+  }
+  const resumed = withWorkTurn({ s: { ...range, closed: true } }, 's', { ...first, turn: 2 }, { now: 2_000, sessionEpoch: 1 });
+  assert.equal(resumed.s.closed, true, 'resuming an already closed range preserves its existing due state');
 });
 
 const RESULT = {
