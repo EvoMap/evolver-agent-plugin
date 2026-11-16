@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -127,7 +127,8 @@ test('standalone ZCode requires an explicit regular CLI bundle', (t) => {
   assert.equal(resolve({ ZCODE_CLI_PATH: file }), null);
   rmdirSync(file);
   writeFileSync(file, '');
-  assert.equal(resolve({ PATH: dir, HOME: dir, LOCALAPPDATA: dir }), null);
+  const onWindows = { PATH: dir, LOCALAPPDATA: dir };
+  assert.equal(executableOf({ ...command, dirs: runtimeDirs(onWindows, 'win32') }, { env: onWindows }), null);
   assert.deepEqual(resolve({ ZCODE_CLI_PATH: file }), { file, viaNode: true });
 });
 
@@ -139,4 +140,9 @@ test('Desktop runtime lookup follows each platform\'s install location unless a 
   assert.deepEqual(runtimeDirs({ HOME: '/home/dev' }, 'linux'), []);
   const cli = join('/opt', 'zcode', 'zcode.cjs');
   assert.deepEqual(runtimeDirs({ HOME: '/Users/dev', ZCODE_CLI_PATH: cli }, 'darwin'), [join('/opt', 'zcode')]);
+});
+
+test('the prompt recall waits as long as the ZCode prompt hook may run', () => {
+  const hooks = JSON.parse(readFileSync(new URL('../../../hosts/zcode/dist/hooks/hooks.json', import.meta.url), 'utf8')).hooks;
+  assert.equal(hooks.UserPromptSubmit[0].hooks[0].timeoutMs, profile.budgets.prompt);
 });

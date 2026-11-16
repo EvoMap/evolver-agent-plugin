@@ -61,6 +61,7 @@ export default defineProfile({
       ), 'pending') AS status`,
     },
   },
+  budgets: { prompt: 10_000 },
   owner: 'spawner',
   stateDir: (env) => isAbsolute(env.ZCODE_PLUGIN_DATA || '') ? env.ZCODE_PLUGIN_DATA : join(homeOf(env), '.zcode', 'cli', 'evolver-plugin'),
 });
