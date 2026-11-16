@@ -12,6 +12,7 @@ import { editedFilesOf } from '../tools.js';
 import { stepModel } from './model.js';
 
 const text = (value) => typeof value === 'string' ? value : '';
+const UNSAVED_TURN = 'Evolver could not finish saving this turn. Check the local state directory before continuing.';
 const RETRYABLE_STATE_ERRORS = new Set(['ELOCKED', 'ESTATEIO', 'EIO', 'EACCES', 'EBUSY', 'EPERM']);
 const answerOf = (message) => message?.role === 'assistant'
   ? (message.content ?? []).filter((part) => part?.type === 'text').map((part) => text(part.text)).join('\n').trim() : '';
@@ -76,7 +77,7 @@ export default function evolverStep(pi) {
           if (!RETRYABLE_STATE_ERRORS.has(failure.code)) break;
           if (attempt < 2) await delay(50);
         }
-        notify(ctx, { ok: false, text: 'Evolver could not finish saving this turn. Check the local state directory before continuing.' });
+        notify(ctx, { ok: false, text: UNSAVED_TURN });
       } finally { forget(current); }
     })();
     return current.finished;
