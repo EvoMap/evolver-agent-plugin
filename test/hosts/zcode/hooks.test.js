@@ -236,7 +236,10 @@ test('cancelled background completion removes its temporary profile and process 
 
 test('Desktop runs its bundled CLI when no explicit CLI path is configured', async (t) => {
   const f = await fixture(t);
-  const file = join(f.env.LOCALAPPDATA, 'Programs', 'ZCode', 'resources', 'glm', 'zcode.cjs');
+  const runtime = process.platform === 'darwin'
+    ? join(f.env.HOME, 'Applications', 'ZCode.app', 'Contents', 'Resources', 'glm')
+    : join(f.env.LOCALAPPDATA, 'Programs', 'ZCode', 'resources', 'glm');
+  const file = join(runtime, 'zcode.cjs');
   const marker = appServer(f, file);
   const runner = modelRunnerOf(profile.model, f.env);
   const model = { configDigest: null, selection: f.selection };
