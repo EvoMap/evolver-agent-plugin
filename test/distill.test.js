@@ -19,37 +19,23 @@ test('settling what a distillation read cannot touch a range made at the same ti
   }
 });
 
-test('session cleanup closes only the range it observed, including legacy session epochs', () => {
-  const read = { at: 1_000, sessionEpoch: 1, turns: [{ turn: 1, prompt: 'p', steps: [], answer: '', at: 1_000 }] };
-  assert.equal(withClosedRange({ s: read }, 's', read).s.closed, true);
-  for (const replacement of [
-    { ...read, at: 2_000 },
-    { ...read, sessionEpoch: 2 },
-    { ...read, turns: [{ ...read.turns[0], turn: 2 }] },
-  ]) {
-    assert.equal(withClosedRange({ s: replacement }, 's', read), undefined);
-  }
-  assert.equal(withClosedRange({ s: read }, 's', null), undefined);
-  const { sessionEpoch, ...legacy } = read;
-  assert.equal(withClosedRange({ s: legacy }, 's', legacy).s.closed, true);
-});
-
-test('session cleanup includes a late final turn but excludes resumed work even when old turns overlap', () => {
+test('session cleanup closes the ending turn\'s range, never one a later turn or another session epoch took', () => {
   const first = { turn: 1, prompt: 'p', steps: [], answer: '', at: 1_000 };
-  const final = { at: 1_000, sessionEpoch: 1, turns: [first] };
+  const range = { at: 1_000, sessionEpoch: 1, turns: [first] };
   const ending = { turn: 1, sessionEpoch: 1 };
-  assert.equal(withClosedRange({ s: final }, 's', null, ending).s.closed, true);
-  const consumed = { ...final, turns: [{ ...first, turn: 0 }] };
-  assert.equal(withClosedRange({ s: { ...final, at: 2_000 } }, 's', consumed, ending).s.closed, true);
+  assert.equal(withClosedRange({ s: range }, 's', ending).s.closed, true);
+  assert.equal(withClosedRange({ s: range }, 's', { turn: 2, sessionEpoch: 1 }).s.closed, true, 'a final turn without work');
+  const { sessionEpoch, ...legacy } = range;
+  assert.equal(withClosedRange({ s: legacy }, 's', ending).s.closed, true);
+  assert.equal(withClosedRange({}, 's', ending), undefined);
   for (const replacement of [
-    { ...final, sessionEpoch: 2 },
-    { ...final, turns: [{ ...first, turn: 2 }] },
-    { ...final, turns: [first, { ...first, turn: 2 }] },
+    { ...range, sessionEpoch: 2 },
+    { ...range, turns: [{ ...first, turn: 2 }] },
+    { ...range, turns: [first, { ...first, turn: 2 }] },
   ]) {
-    assert.equal(withClosedRange({ s: replacement }, 's', null, ending), undefined);
-    assert.equal(withClosedRange({ s: replacement }, 's', final, ending), undefined);
+    assert.equal(withClosedRange({ s: replacement }, 's', ending), undefined);
   }
-  const resumed = withWorkTurn({ s: { ...final, closed: true } }, 's', { ...first, turn: 2 }, { now: 2_000, sessionEpoch: 1 });
+  const resumed = withWorkTurn({ s: { ...range, closed: true } }, 's', { ...first, turn: 2 }, { now: 2_000, sessionEpoch: 1 });
   assert.equal(resumed.s.closed, true, 'resuming an already closed range preserves its existing due state');
 });
 
