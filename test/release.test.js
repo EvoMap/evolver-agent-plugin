@@ -32,15 +32,20 @@ test('packing with a version stamps it into every manifest a packed host reads',
 
 test('only a pushed vX.Y.Z tag publishes, after the tests: pack at its version, publish, then the GitHub Release', () => {
   assert.match(workflow, /tags: \['v\*'\]/);
-  assert.match(workflow, /needs: \[test, windows-minimax, windows-kimi\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(workflow, /needs: \[test, windows-minimax, macos-zcode, windows-kimi\]\r?\n\s+if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   const kimi = workflow.slice(workflow.indexOf('  windows-kimi:'), workflow.indexOf('  publish:'));
   assert.match(kimi, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'/);
   assert.match(kimi, /runs-on: windows-latest/);
   assert.match(kimi, /node: \[22, 26\]/);
   assert.match(kimi, /run: npm run test:kimi/);
   assert.match(kimi, /run: npm run pack/);
-  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  windows-kimi:'));
-  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\r?\n\s+runs-on: windows-latest\r?\n/);
+  const macos = workflow.slice(workflow.indexOf('  macos-zcode:'), workflow.indexOf('  windows-kimi:'));
+  assert.match(macos, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'\r?\n\s+runs-on: macos-latest\r?\n/);
+  assert.match(macos, /node: \[22, 26\]/);
+  assert.match(macos, /run: npm run test:zcode/);
+  assert.match(macos, /run: npm run pack/);
+  const windows = workflow.slice(workflow.indexOf('  windows-minimax:'), workflow.indexOf('  macos-zcode:'));
+  assert.match(windows, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| github\.event_name == 'pull_request' \|\| github\.event_name == 'workflow_dispatch'\r?\n\s+runs-on: windows-latest\r?\n/);
   assert.match(windows, /node: \[22, 26\]/);
   assert.match(windows, /run: npm run test:minimax/);
   const publish = workflow.slice(workflow.indexOf('  publish:'));
