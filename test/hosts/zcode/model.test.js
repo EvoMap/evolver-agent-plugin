@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { headlessZCode } from '../../../hosts/zcode/model.js';
+import { headlessZCode, runtimeDirs } from '../../../hosts/zcode/model.js';
 import profile from '../../../hosts/zcode/profile.js';
 import { executableOf } from '../../../lib/runtime/process/which.js';
 
@@ -127,6 +127,16 @@ test('standalone ZCode requires an explicit regular CLI bundle', (t) => {
   assert.equal(resolve({ ZCODE_CLI_PATH: file }), null);
   rmdirSync(file);
   writeFileSync(file, '');
-  assert.equal(resolve({ PATH: dir, LOCALAPPDATA: dir }), null);
+  assert.equal(resolve({ PATH: dir, HOME: dir, LOCALAPPDATA: dir }), null);
   assert.deepEqual(resolve({ ZCODE_CLI_PATH: file }), { file, viaNode: true });
+});
+
+test('Desktop runtime lookup follows each platform\'s install location unless a CLI path is explicit', () => {
+  const mac = join('ZCode.app', 'Contents', 'Resources', 'glm');
+  assert.deepEqual(runtimeDirs({ HOME: '/Users/dev', LOCALAPPDATA: '/ignored' }, 'darwin'),
+    [join('/Users/dev', 'Applications', mac), join('/Applications', mac)]);
+  assert.deepEqual(runtimeDirs({ LOCALAPPDATA: '/local' }, 'win32'), [join('/local', 'Programs', 'ZCode', 'resources', 'glm')]);
+  assert.deepEqual(runtimeDirs({ HOME: '/home/dev' }, 'linux'), []);
+  const cli = join('/opt', 'zcode', 'zcode.cjs');
+  assert.deepEqual(runtimeDirs({ HOME: '/Users/dev', ZCODE_CLI_PATH: cli }, 'darwin'), [join('/opt', 'zcode')]);
 });

@@ -151,10 +151,16 @@ function cliDirs(env) {
   return isAbsolute(file) && basename(file) === 'zcode.cjs' ? [dirname(file)] : [];
 }
 
-function runtimeDirs(env) {
-  if (env.ZCODE_CLI_PATH?.trim()) return cliDirs(env);
-  const local = env.LOCALAPPDATA || (process.platform === 'win32' ? join(nativeHomeOf(env), 'AppData', 'Local') : '');
+const MAC_BUNDLED_RUNTIME = join('ZCode.app', 'Contents', 'Resources', 'glm');
+
+function desktopRuntimeDirs(env, platform) {
+  if (platform === 'darwin') return [join(nativeHomeOf(env), 'Applications', MAC_BUNDLED_RUNTIME), join('/Applications', MAC_BUNDLED_RUNTIME)];
+  const local = env.LOCALAPPDATA || (platform === 'win32' ? join(nativeHomeOf(env), 'AppData', 'Local') : '');
   return isAbsolute(local) ? [join(local, 'Programs', 'ZCode', 'resources', 'glm')] : [];
+}
+
+export function runtimeDirs(env, platform = process.platform) {
+  return env.ZCODE_CLI_PATH?.trim() ? cliDirs(env) : desktopRuntimeDirs(env, platform);
 }
 
 export const headlessZCode = Object.freeze({
