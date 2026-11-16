@@ -9,7 +9,7 @@ Use the CLI shipped with ZCode Desktop, or follow the [ZCode CLI build guide](ht
 - Windows: `%LOCALAPPDATA%/Programs/ZCode/resources/glm/zcode.cjs`
 - macOS: `ZCode.app/Contents/Resources/glm/zcode.cjs`, under `~/Applications` or `/Applications`
 
-To run the CLI shipped with macOS Desktop from a terminal, set `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` to `ZCode.app/Contents/Resources/config/provider/zcode-builtin.json`.
+To run the CLI shipped with macOS Desktop from a terminal, set `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` to the absolute path of `Contents/Resources/config/provider/zcode-builtin.json` inside the same app, for example `/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json`. A relative path is ignored.
 
 Install the plugin from the packed folder:
 
