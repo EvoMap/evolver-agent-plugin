@@ -830,8 +830,8 @@ test('the current native epoch replaces an older range with its own snapshot bas
   assert.deepEqual(range.turns.map(({ prompt }) => prompt), ['New project']);
 });
 
-for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
-  test(`redelivering a confirmed native turn recovers from a transient ${read} read failure`, async (t) => {
+for (const [read, releaseDenied = false] of [['terminal record'], ['saved tool notes'], ['edit baseline'], ['saved tool notes', true]]) {
+  test(`redelivering a confirmed native turn recovers from a transient ${read} read failure${releaseDenied ? ' with denied claim release' : ''}`, async (t) => {
     const { ports, queued, retained } = memoryPorts();
     const dir = mkdtempSync(join(tmpdir(), 'evolver-native-read-retry-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -861,12 +861,29 @@ for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
         }
         return readFile(file, ...args);
       });
+      if (releaseDenied) {
+        const touch = fs.utimesSync;
+        t.mock.method(fs, 'utimesSync', (file, atime, mtime) => {
+          if (typeof file === 'string' && file.startsWith(dir) && file.endsWith('.taking') && Number(atime) < Date.now() - 60_000) {
+            throw Object.assign(new Error('claim release denied'), { code: 'EACCES' });
+          }
+          return touch(file, atime, mtime);
+        });
+      }
     }
     const deliver = () => turnEnded(ports, { sessionId, turnId, reason: 'answer', expectedTurn, recordOf });
     await assert.rejects(deliver, /temporary read failure/);
     assert.equal((await sessions.read(sessionId)).open, true);
     assert.deepEqual(queued, []);
     assert.deepEqual(await candidates.read(), {});
+    if (releaseDenied) {
+      await assert.rejects(deliver, { code: 'ELOCKED' });
+      assert.equal((await sessions.read(sessionId)).open, true);
+      assert.deepEqual(queued, []);
+      assert.deepEqual(await candidates.read(), {});
+      t.mock.restoreAll();
+      for (const name of readdirSync(dir)) if (name.endsWith('.taking')) utimesSync(join(dir, name), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+    }
 
     const result = await deliver();
     assert.deepEqual(result?.record.checks, NATIVE_PASS.checks);
@@ -879,6 +896,26 @@ for (const read of ['terminal record', 'saved tool notes', 'edit baseline']) {
     if (editedFile) assert.equal(retained[0].editedBefore.has(editedFile), true);
   });
 }
+
+test('an epoch change while taking native notes cannot queue a replacement session report', async () => {
+  const { ports, queued, advance } = memoryPorts();
+  ports.confirmTurnCompletion = true;
+  await promptSubmitted(ports, { sessionId: 's1', turnId: 'old', prompt: PROMPT, ...WAIT });
+  const take = ports.notes.take;
+  ports.notes.take = async (...args) => {
+    const notes = await take(...args);
+    advance(1);
+    await ports.sessions.update('s1', () => ({ turn: 0 }));
+    await promptSubmitted(ports, { sessionId: 's1', turnId: 'new', prompt: PROMPT, ...WAIT });
+    return notes;
+  };
+  assert.equal(await end(ports, 's1', { turnId: 'old', recordOf: () => NATIVE_PASS }), null);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(await ports.candidates.read(), {});
+  const current = await ports.sessions.read('s1');
+  assert.equal(current.open, true);
+  assert.equal(current.turnId, 'new');
+});
 
 test('a native evidence read failure cannot reopen a turn after a newer prompt', async () => {
   const { ports, queued } = memoryPorts();
