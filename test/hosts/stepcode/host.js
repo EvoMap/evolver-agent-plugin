@@ -1,22 +1,46 @@
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { after } from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { pack } from '../../../scripts/pack.mjs';
 import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
 import { fakeProxy } from '../../helpers/fake-proxy.js';
+import { useProcessHome } from '../../helpers/process-home.js';
 import { PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
 import { IR } from '../../app/work-turns.js';
 
 export { PROMPT };
 
+const packedRoot = mkdtempSync(join(tmpdir(), 'evolver-step-packed-'));
+const packed = join(packedRoot, 'packed');
+const ledgerCore = fileURLToPath(new URL('../../../node_modules/@evomap/evolver-core', import.meta.url));
+after(() => rmSync(packedRoot, { recursive: true, force: true }));
+let loaded;
+
+// Reuse the immutable package; each extension instance still owns a fresh profile and channel.
+async function packedPlugin() {
+  if (!loaded) {
+    pack('stepcode', packed);
+    const manifest = JSON.parse(readFileSync(join(packed, 'package.json'), 'utf8'));
+    const [entry] = manifest.pi.extensions;
+    loaded = {
+      extension: await import(pathToFileURL(join(packed, entry)).href),
+      profile: (await import(pathToFileURL(join(packed, 'hosts/stepcode/profile.js')).href)).default,
+    };
+  }
+  return loaded;
+}
+
 /** The Step 0.1.7 extension interface around the packed entry; the channel and stores are real. */
 export async function stepHost(t, { env: envPatch = {}, ...options } = {}) {
   const proxy = await fakeProxy({ recipes: [RECIPE], stepAssets: RECIPE_STEPS, ...options });
+  const home = useProcessHome(proxy.env.HOME);
   const agentDir = join(proxy.env.HOME, 'agent');
   const cwd = join(proxy.env.HOME, 'workspace');
   mkdirSync(cwd, { recursive: true });
-  const env = { HOME: proxy.env.HOME, USERPROFILE: proxy.env.HOME, STEP_CODING_AGENT_DIR: agentDir,
+  const env = { ...home.env, STEP_CODING_AGENT_DIR: agentDir,
     EVOMAP_PROXY_PORT: proxy.env.EVOMAP_PROXY_PORT, EVOLVER_RECALL: 'on', EVOLVER_AUTO_DISTILL: 'off', EVOLVER_HEADLESS: '', ...envPatch };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -68,17 +92,17 @@ export async function stepHost(t, { env: envPatch = {}, ...options } = {}) {
       if (!closed) { closed = true; await emit('session_shutdown'); }
     } finally {
       for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      home.restore();
       proxy.close();
     }
   });
-  const packed = join(proxy.env.HOME, 'packed');
-  pack('stepcode', packed);
-  const manifest = JSON.parse(readFileSync(join(packed, 'package.json'), 'utf8'));
-  const [entry] = manifest.pi.extensions;
-  const extension = await import(pathToFileURL(join(packed, entry)).href);
-  await extension.default(pi);
-  const profile = (await import(pathToFileURL(join(packed, 'hosts/stepcode/profile.js')).href)).default;
+  const { extension, profile } = await packedPlugin();
   const stores = fileStoresOf({ dir: profile.stateDir(env), agent: profile.name });
+  // Like an installed engine, provide Core beside the CLI instead of probing the machine's global npm.
+  const engineModules = join(stores.folder('engine'), 'node_modules', '@evomap');
+  mkdirSync(engineModules, { recursive: true });
+  symlinkSync(ledgerCore, join(engineModules, 'evolver-core'), process.platform === 'win32' ? 'junction' : 'dir');
+  await extension.default(pi);
   return {
     proxy, ctx, api: pi, commands, handlers, persisted, triggered, notices, emit, stores, completion, provider, auth,
     abort: () => controller.abort(),
