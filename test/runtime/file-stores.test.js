@@ -318,6 +318,25 @@ test('queue takes still consume new appends while an earlier take awaits commit'
   assert.deepEqual(takeStateLines(target).lines, []);
 });
 
+test('a retention take waits out another process briefly holding the claim admission', async (t) => {
+  const { dir, stores: cursor } = stores();
+  const editedBefore = new Map([[join(dir, 'f'), 'h']]);
+  await cursor.retention.remember({ sessionId: 'old', projectDir: dir, reuses: [{ asset_id: 'a' }], editedBefore });
+  const rename = fs.renameSync;
+  let refused = 0;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (String(to).endsWith('.claims.admission') && refused < 2) {
+      refused += 1;
+      throw Object.assign(new Error('fixture admission held by another process'), { code: 'EEXIST' });
+    }
+    return rename(from, to);
+  });
+  const { due, commit } = await cursor.retention.takeDue({ sessionId: 'new', projectDir: dir });
+  assert.equal(refused, 2);
+  assert.deepEqual(due.map(({ sessionId }) => sessionId), ['old']);
+  await commit();
+});
+
 test('pruning expires generation evidence and its claims without touching report claims', async () => {
   const { dir, stores: cursor } = stores();
   const scope = { sessionEpoch: 10, turn: 1 };
