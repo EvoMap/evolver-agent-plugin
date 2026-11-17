@@ -1,0 +1,8 @@
+{
+  "name": "evolver-plugin",
+  "description": "Evolver for GitHub Copilot CLI: recall guidance, record verified work, and prepare private drafts.",
+  "version": "1.0.0",
+  "author": { "name": "EvoMap" },
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT"
+}

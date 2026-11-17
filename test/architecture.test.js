@@ -21,7 +21,6 @@ function filesUnder(dir) {
 }
 
 const sourceOf = (file) => readFileSync(join(root, file), 'utf8');
-const importsOf = (file) => importsIn(sourceOf(file)).map(({ specifier }) => specifier);
 const hostOf = (path) => /^hosts\/([^/]+)\//.exec(path)?.[1] ?? null;
 const targetOf = (file, specifier) => (specifier.startsWith('.') ? relative(root, join(root, file, '..', specifier)).split(sep).join('/') : specifier);
 
@@ -76,14 +75,15 @@ test('each layer imports only the layers below it, and domain and app never touc
     const layer = layerOf(file);
     if (!MAY_IMPORT[layer]) continue;
     if (hasComputedImport(sourceOf(file)) && !MAY_COMPUTE_IMPORTS.has(layer) && !COMPUTED_IMPORT_FILES.has(file)) problems.push(`${file} (${layer}) imports a computed module`);
-    for (const specifier of importsOf(file)) {
+    for (const { specifier, isDynamic } of importsIn(sourceOf(file))) {
       if (specifier.startsWith('node:')) {
         if (NODE_FREE.has(layer) || (layer === 'hosts' && !PURE_NODE.has(specifier))) problems.push(`${file} (${layer}) imports ${specifier}`);
         continue;
       }
       const target = layerOf(targetOf(file, specifier));
       if (target === 'external') {
-        if (!MAY_IMPORT_PACKAGES.has(layer) && !importsDeclaredPureParser(file, specifier)) problems.push(`${file} (${layer}) imports package ${specifier}`);
+        const bundledSdk = isDynamic && file === 'hosts/copilot/dist/extension.mjs' && specifier === '@github/copilot-sdk/extension';
+        if (!bundledSdk && !MAY_IMPORT_PACKAGES.has(layer) && !importsDeclaredPureParser(file, specifier)) problems.push(`${file} (${layer}) imports package ${specifier}`);
         continue;
       }
       if (!MAY_IMPORT[layer].includes(target)) problems.push(`${file} (${layer}) imports ${specifier} (${target})`);

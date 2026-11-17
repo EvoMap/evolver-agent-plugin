@@ -13,6 +13,7 @@ import { pack, packedHosts, packSpecOf } from '../scripts/pack.mjs';
 const CONTRACT = {
   'claude-code': { manifest: '.claude-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'hooks/register.ts', 'bin/relay.mjs'] },
   codex: { manifest: '.codex-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
+  copilot: { manifest: 'plugin.json', name: 'evolver-plugin', entries: ['extension.mjs', 'bin/command.mjs'] },
   grok: { manifest: '.grok-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   qoder: { manifest: '.qoder-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   kimi: { manifest: 'kimi.plugin.json', name: 'evolver-plugin', entries: ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs'] },

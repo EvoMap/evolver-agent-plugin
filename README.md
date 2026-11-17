@@ -58,6 +58,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | ZCode CLI / Desktop | Supported locally on Windows and macOS | `hosts/zcode`, native hooks; installs `dist/zcode` |
 | Step Code CLI 0.1.7 | Draft, Windows | `hosts/stepcode`, a native resident extension; installs `dist/stepcode` |
+| GitHub Copilot CLI 1.0.112 | Experimental, Windows interactive | `hosts/copilot`, a native SDK extension; loads from the Copilot profile |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -178,6 +179,9 @@ injections, undelivered reports), so nothing is lost on the way over.
   `step install ./dist/stepcode` and start a new session. This uses Step's native extension interface.
   Read the [Step Code adapter guide](hosts/stepcode/dist/README.md) for foreground verification requirements
   and the native double Ctrl-C cleanup limitation before trying this draft.
+- **GitHub Copilot CLI 1.0.112 on Windows (experimental):** pack the adapter into the selected Copilot profile's
+  `extensions/evolver` directory, then start `copilot --experimental`. See the
+  [Copilot adapter guide](hosts/copilot/dist/README.md) for profile setup, verification and manual private drafts.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.
