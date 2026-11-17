@@ -84,4 +84,33 @@ test('Desktop setup retries belong to the selected installation, and queued work
   await engine.setUp();
   assert.deepEqual(await engine.outcome(), ready, 'a queued worker leaves the same verified Proxy alone');
   assert.equal(starts, 2);
+
+  running = null;
+  assert.equal(await engine.needsSetup(), true, 'a successful setup does not delay restarting a stopped Proxy');
+  await engine.setUp();
+  assert.equal(starts, 3);
+});
+
+test('setup does not persist a Proxy result across a concurrent Desktop selection change', async (t) => {
+  let readyProxy;
+  const updated = { command: 'new-desktop-evolver', args: [], version: '2.0.51' };
+  let selection = {
+    command: 'old-desktop-evolver', args: [], version: '2.0.50',
+    verify: async () => {
+      selection = updated;
+      readyProxy = { version: updated.version, desktopProof: 'new-proxy' };
+    },
+  };
+  const desktopEngine = () => selection;
+  const runningProxy = async () => readyProxy;
+  const runtime = { now: Date.now, desktopEngine, runningProxy, nodeVersion: '22.13.0' };
+  const { engine } = enginePort(t, { desktopEngine, runningProxy, runtime });
+
+  await engine.setUp();
+  assert.equal(await engine.outcome(), null);
+  assert.equal(await engine.needsSetup(), true);
+  await engine.setUp();
+  const outcome = await engine.outcome();
+  assert.equal(outcome.version, updated.version);
+  assert.equal(outcome.desktopProof, 'new-proxy');
 });

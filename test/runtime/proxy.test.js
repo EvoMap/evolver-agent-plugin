@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { engineRuntime } from '../../lib/runtime/engine/install.js';
 import { desktopProxyMayStart, proxyFetchOf, runningProxy } from '../../lib/runtime/proxy.js';
 
 async function listen(t, handler) {
@@ -80,4 +81,24 @@ test('only an authenticated Proxy matching the Desktop lifecycle receipt receive
   settings('2.0.50', 'rotated');
   assert.equal((await request('POST', '/asset/fetch', {})).ok, false, 'a new endpoint token invalidates the old proof');
   assert.equal(received, 1);
+});
+
+test('Desktop setup declines an installation replaced before launch', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-desktop-switch-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const first = { command: process.execPath, args: ['-e', 'console.log("first installation")'], version: '2.0.50' };
+  const next = { ...first, args: ['-e', 'console.log("next installation")'] };
+  let selection = next;
+  const runtime = engineRuntime({
+    env: { HOME: home, USERPROFILE: home, SystemRoot: process.env.SystemRoot },
+    desktopEngine: () => selection,
+  });
+  const stale = await runtime.runDesktop(first, ['lifecycle', 'start']);
+  assert.equal(stale.ok, false);
+  assert.match(stale.error, /Desktop installation changed/);
+
+  selection = first;
+  const current = await runtime.runDesktop(first, ['lifecycle', 'start']);
+  assert.equal(current.ok, true, current.error);
+  assert.match(current.stdout, /first installation/);
 });

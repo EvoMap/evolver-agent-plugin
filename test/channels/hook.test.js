@@ -85,12 +85,12 @@ test('a failed Windows worker launch is reported by the hook', { skip: process.p
   const start = invokeHook('SessionStart');
   assert.ifError(start.error);
   assert.equal(start.status, 0);
-  assert.match(JSON.parse(start.stdout).systemMessage ?? '', /could not start the Windows background worker/);
+  assert.match(JSON.parse(start.stdout).systemMessage ?? '', /could not confirm that the Windows background worker started/);
   assert.equal(JSON.parse(start.stdout).continue, undefined);
 
   const end = invokeHook('SessionEnd');
   assert.ifError(end.error);
   assert.equal(end.status, 1);
-  assert.match(end.stderr, /could not start the Windows background worker/);
+  assert.match(end.stderr, /could not confirm that the Windows background worker started/);
   assert.doesNotMatch(start.stdout + end.stderr, /missing-worker-cwd/);
 });

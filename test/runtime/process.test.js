@@ -14,6 +14,7 @@ import { waitForWakeUp } from '../../lib/runtime/lifetime/ephemeral.js';
 import { modelRunnerOf } from '../../lib/runtime/model-executor.js';
 import { ownerIsGone, ownerProbeOf } from '../../lib/runtime/process/owner.js';
 import { cmdArgument, runProcess } from '../../lib/runtime/process/spawn.js';
+import { startWithoutInheritedHandles } from '../../lib/runtime/process/windows-worker.js';
 import { readState, writeState } from '../../lib/runtime/store/file-lock.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
@@ -106,30 +107,42 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
+test('a Windows worker PID acknowledged before the launcher times out is retained', () => {
+  const launch = (stdout) => startWithoutInheritedHandles(tmpdir(), node, '"node"', {
+    cwd: tmpdir(), env: {}, run: () => ({ stdout, error: { code: 'ETIMEDOUT' }, status: null }),
+  });
+  assert.equal(launch('1234\r\n'), 1234);
+  assert.equal(launch('1234'), undefined, 'partial PID output cannot confirm a worker launch');
+});
+
 test('the isolated Windows worker leaves the host output pipe free while it runs', { skip: process.platform !== 'win32' }, async (t) => {
   const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
   const dir = mkdtempSync(join(tmpdir(), 'evolver worker-'));
   const marker = join(dir, 'worker.json');
   const launcher = join(dir, 'launcher.mjs');
   const args = ['with space', 'with "quotes"', 'with trailing slash\\'];
-  const worker = 'const fs=require("node:fs"); fs.writeFileSync(process.env.QA_MARKER,JSON.stringify({pid:process.pid,args:process.argv.slice(1),launchSpec:process.env.EVOLVER_WINDOWS_WORKER??null})); setTimeout(()=>{},15000)';
+  const worker = `
+    const fs = require('node:fs');
+    const marker = process.env.QA_MARKER;
+    const dir = require('node:path').dirname(marker);
+    fs.writeFileSync(marker, JSON.stringify({ pid: process.pid, args: process.argv.slice(1), launchSpec: process.env.EVOLVER_WINDOWS_WORKER ?? null }));
+    setInterval(() => { if (!fs.existsSync(dir)) process.exit(0); }, 30);
+    setTimeout(() => process.exit(0), 15_000);
+  `;
   writeFileSync(launcher, `
     import { startDetached } from ${JSON.stringify(runtime)};
     const pid = startDetached(process.execPath, ['-e', ${JSON.stringify(worker)}, '--', ...${JSON.stringify(args)}], { isolateWindowsHandles: true });
     process.stdout.write(JSON.stringify({pid}));
   `);
   const ps = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  let pid;
-  t.after(() => {
-    if (pid && !ownerIsGone(pid)) process.kill(pid);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-  });
+  // Deleting this fixture's directory releases its worker even if execFile never returns a PID.
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
   const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command', '& $env:QA_NODE $env:QA_LAUNCHER'], {
     env: { ...process.env, QA_NODE: node, QA_LAUNCHER: launcher, QA_MARKER: marker, EVOLVER_WINDOWS_WORKER: 'fixture' },
     timeout: 8_000,
     windowsHide: true,
   });
-  ({ pid } = JSON.parse(stdout));
+  const { pid } = JSON.parse(stdout);
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
   const deadline = Date.now() + 5_000;
   while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
