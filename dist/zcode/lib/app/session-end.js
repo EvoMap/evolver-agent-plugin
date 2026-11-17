@@ -40,7 +40,7 @@ export async function sessionEnded(ports, { sessionId, projectDir, turnId = null
       return endedSession(withoutPendingControls(marked, controls));
     });
     if (!saved) return false;
-    await ports.candidates.update((pending) => withClosedRange(pending, sessionId));
+    await ports.candidates.update((pending) => withClosedRange(pending, sessionId, ending));
     await ports.notes.clear(sessionId, session);
     return true;
   });

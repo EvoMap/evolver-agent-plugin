@@ -21,19 +21,16 @@ const validResult = (result) => result && typeof result === 'object' && typeof r
 const pathOf = (input, cwd) => text(input?.path)
   && (isAbsolute(input.path) ? input.path : text(cwd) && isAbsolute(cwd) ? resolve(cwd, input.path) : null);
 
-// The newest turns' tasks are the ones a turn still waiting for its end can name; older ones are past their end.
 const MAX_TASKS = 64;
+const backgroundTaskOf = (result) => taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(result?.output))?.[1]);
 
-/** Only discovers fixed task IDs; the reader chooses a bounded file under the known session root. */
-export function taskIdsOf(records = []) {
-  const ids = [];
-  for (const record of records.filter(main)) {
-    const event = record.type === 'context.append_loop_event' ? record.event : null;
-    if (event?.type === 'tool.call' && event.name === 'TaskOutput') ids.push(taskId(event.args?.task_id));
-    if (event?.type === 'tool.result') {
-      ids.push(taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(event.result?.output))?.[1]));
-    }
-  }
+/**
+ * Only discovers fixed task IDs, those the requested turn's Bash calls started: no other task can settle its
+ * evidence. The reader chooses a bounded file under the known session root.
+ */
+export function taskIdsOf(records = [], { turnId } = {}) {
+  const ids = callsOf(records, nativeTurnIdOf(turnId)).filter((call) => call.name === 'Bash')
+    .map((call) => backgroundTaskOf(resultOf(records, call)));
   const newestLast = [...new Set(ids.filter(Boolean).reverse())].reverse();
   return newestLast.slice(-MAX_TASKS);
 }
@@ -63,7 +60,7 @@ function notesOf(records, tasks, turnId, cwd) {
     const result = resultOf(records, call);
     const input = call.args && typeof call.args === 'object' ? call.args : {};
     if (call.name === 'Bash' && text(input.command)) {
-      const expectedTask = taskId(/^task_id:\s*([A-Za-z0-9_-]+)(?:\r?\n|$)/.exec(text(result?.output))?.[1]);
+      const expectedTask = backgroundTaskOf(result);
       const matching = tasks.filter((task) => expectedTask && task?.kind === 'process'
         && task.parentToolCallId === call.toolCallId && task.command === input.command && task.taskId === expectedTask);
       const task = matching.length === 1 ? matching[0] : null;

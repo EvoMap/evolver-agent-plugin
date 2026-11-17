@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { pack } from '../../../scripts/pack.mjs';
+import profile from '../../../hosts/kimi/profile.js';
 
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'TurnStarted', 'PreToolUse', 'Stop', 'StopFailure', 'Interrupt', 'SessionEnd', 'Notification'];
 
@@ -21,6 +22,8 @@ test('the Kimi bundle carries a native flat hook manifest and self-contained cha
     assert.equal(hook.command, `node bin/hook.mjs kimi ${hook.event}`);
     assert.equal(hook.timeout, hook.event === 'UserPromptSubmit' ? 10 : 3);
   }
+  const prompt = manifest.hooks.find(hook => hook.event === 'UserPromptSubmit');
+  assert.equal(prompt.timeout * 1000, profile.budgets.prompt, 'recall waits as long as the prompt hook may run');
   for (const entry of ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs', 'hosts/kimi/profile.js', 'lib/runtime/process/windows-job.js']) assert.ok(existsSync(join(dir, entry)), entry);
   for (const extra of ['.claude-plugin', '.mcp.json', '.git', 'test', 'config.toml', 'credentials']) assert.equal(existsSync(join(dir, extra)), false, extra);
   assert.equal(readFileSync(join(dir, '.evolver-packed'), 'utf8').trim(), 'kimi');

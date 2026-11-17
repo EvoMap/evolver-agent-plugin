@@ -44,7 +44,7 @@ export default defineProfile({
     statusRecord: { ...sessionLog, confirmCompletion: true },
     unclosed: { settleMs: 0, as: 'error' },
   },
-  budgets: { prompt: 6_000, sessionEnd: 2_000 },
+  budgets: { prompt: 10_000, sessionEnd: 2_000 },
   owner: { ancestor: /^kimi(?:[- ]code)?(?:\.exe)?$/i },
   windowsAncestry: true,
   drainWindowsHandles: true,

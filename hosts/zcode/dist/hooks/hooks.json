@@ -10,7 +10,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/bin/hook.mjs", "zcode", "UserPromptSubmit"], "timeoutMs": 6000 }
+          { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/bin/hook.mjs", "zcode", "UserPromptSubmit"], "timeoutMs": 8000 }
         ]
       }
     ],

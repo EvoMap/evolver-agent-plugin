@@ -12,9 +12,11 @@ Start a new session after installation or update. For a disposable profile, set 
 
 Recipe guidance is projected into the current prompt's model requests, without being appended to the native transcript. Native `run_command` or `bash` results supply verification evidence. Publication remains an explicit `/evolver-drafts publish <number>` action; ordinary verified work only creates private draft candidates.
 
-Use a separate foreground `run_command` or `bash` call for verification. Inline `then_run` checks and background executions are not supported by this draft adapter; a turn using them is excluded from reuse reporting and candidates. A cancelled turn, including cancellation after a passing check, produces neither a reuse report nor a candidate.
+Use a separate foreground `run_command` or `bash` call for verification. Inline `then_run` checks and background executions are not supported by this draft adapter; a turn using them is excluded from reuse reporting and candidates. Cancellation before `agent_settled` confirms completion, including cancellation after a passing check, produces neither a reuse report nor a candidate. A later abort does not undo an already confirmed completion.
 
 Background completion uses the captured native provider, model, thinking level and account. If that route cannot be verified, the candidate waits rather than switching to the current account. It does not run another agent, load tools, or publish assets.
+
+If local turn persistence hits a temporary I/O or lock error, the live extension retries the same terminal evidence up to three times. It keeps the original turn and model route, without running the model or tools again. A new prompt waits for that save to finish. Persistent failures show a notice; recovery after the Step process exits is not guaranteed because this adapter has no native terminal-record reader.
 
 The `/evolver-*` commands expose status, configuration, draft review and explicit publication in the interactive CLI. This draft does not add a Step Code Desktop adapter.
 
