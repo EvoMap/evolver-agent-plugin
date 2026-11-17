@@ -79,12 +79,13 @@ async function interactive(t, expectedErrors = []) {
   };
 }
 
-async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit, output = 'Fixture shell output reports exit code 0.' } = {}) {
+async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit, check = command,
+  output = 'Fixture shell output reports exit code 0.' } = {}) {
   const transformedContent = await host.transform(PROMPT);
   assert.ok(transformedContent.includes(recipeMarker), 'the SDK hook passes the Recipe to the model');
   const interactionId = randomUUID(), messageId = randomUUID();
   const testTurn = { interactionId, turnId: '0' };
-  const call = { toolCallId: 'call_check', toolName: 'powershell', arguments: { command } };
+  const call = { toolCallId: 'call_check', toolName: 'powershell', arguments: { command: check } };
   await host.emit('user.message', { content: PROMPT, transformedContent, interactionId, messageId, turnId: '0' });
   await host.emit('assistant.turn_start', testTurn);
   await host.emit('assistant.message', { ...testTurn, originatingMessageId: messageId, content: '',
@@ -223,6 +224,32 @@ test('Copilot records the structured exit code even when the tool result says su
   await host.emit('session.idle', { mode: 'interactive' });
   assert.deepEqual(host.queued.map(({ report }) => [report.outcome, report.evidence.check.passed]), [['failed', false], ['failed', false]]);
   assert.deepEqual((await host.candidate()).steps.map(({ exit, failed }) => [exit, failed]), [[1, true]]);
+});
+
+test('redacting an unquoted Cookie argument leaves the Copilot check eligible for reuse', async (t) => {
+  const host = await interactive(t);
+  const suffix = ' https://example.test && npm test';
+  await verificationAttempt(host, 0, {
+    check: 'curl -H Cookie:sid=opaqueFixtureSession' + suffix,
+    output: '# pass 3\n# fail 0',
+  });
+  await host.emit('session.idle');
+  assert.deepEqual(host.queued.map(({ report }) => report.outcome), ['success', 'success']);
+  assert.deepEqual((await host.candidate()).steps.map(({ command, exit, failed }) => [command, exit, failed]),
+    [['curl -H [redacted]' + suffix, null, false]]);
+});
+
+test('a delayed Copilot prompt does not reopen a shut-down native session', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  await host.emit('session.idle');
+  await host.emit('session.shutdown');
+
+  const late = 'Continue the Redis retries work after shutdown.';
+  assert.equal(await host.transform(late), late);
+  assert.equal(host.requests.filter(({ path }) => path === '/recipe/search').length, 1);
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, false);
+  assert.equal(host.queued.length, 2);
 });
 
 test('Copilot redacts a long cookie before keeping the tail of failed check output', async (t) => {

@@ -115,8 +115,16 @@ test('HTTP cookie credentials stay out of the saved work turn and private Proxy 
 });
 
 test('redacting a quoted Cookie header preserves the following verification command', () => {
-  const command = 'curl -H "Cookie: sid=opaqueFixtureSession; route=opaqueFixtureRoute" https://example.test && npm test';
+  const command = 'curl -H "Cookie: token=opaqueFixtureSession; route=opaqueFixtureRoute" https://example.test && npm test';
   assert.equal(withoutSecrets(command), 'curl -H "[redacted]" https://example.test && npm test');
+});
+
+test('redacting Cookie headers leaves no secondary cookie and preserves compact shell arguments', () => {
+  assert.equal(withoutSecrets('Cookie: token=opaqueFixtureToken; sid=opaqueFixtureSession\nVerification passed.'), '[redacted]\nVerification passed.');
+  for (const flag of ['-H ', '--header=']) {
+    const command = `curl ${flag}Cookie:sid=opaqueFixtureSession https://example.test && npm test`;
+    assert.equal(withoutSecrets(command), `curl ${flag}[redacted] https://example.test && npm test`);
+  }
 });
 
 test('redaction stays linear on long adversarial input', () => {

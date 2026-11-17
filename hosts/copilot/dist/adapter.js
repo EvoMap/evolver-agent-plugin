@@ -124,7 +124,7 @@ function notesOf(turn) {
 export async function connectCopilot(joinSession, { env = process.env, overrides = {}, onError = () => {} } = {}) {
   const channel = createPluginChannel({ profile, env, overrides: { ...overrides, confirmTurnCompletion: true } });
   const seen = new Set();
-  let native, session, current, pendingTerminal, unsubscribe, closed = false, tail = Promise.resolve();
+  let native, session, current, pendingTerminal, unsubscribe, ending = false, closed = false, tail = Promise.resolve();
 
   const reportError = (error) => {
     try { onError(error); } catch { /* Diagnostics must not block the session. */ }
@@ -157,12 +157,13 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     return await flushTerminal() || flushTerminal();
   };
   const endSession = async () => {
+    ending = true;
     if (!(await settle())) return;
     if (session) await raise('session_end', session);
     session = null;
   };
   const transform = async ({ sessionId, workingDirectory, prompt, transformedPrompt, timestamp }) => {
-    if (closed || current || !id(sessionId) || (native?.sessionId && native.sessionId !== sessionId)
+    if (closed || ending || current || !id(sessionId) || (native?.sessionId && native.sessionId !== sessionId)
       || (session && session.sessionId !== sessionId) || typeof workingDirectory !== 'string' || !isAbsolute(workingDirectory)
       || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || isIrPrompt(prompt)
       || !(await flushTerminal())) return {};
