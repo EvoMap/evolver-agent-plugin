@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
+import { profileNamed } from '../../lib/agent/registry.js';
 import { prepareEngine } from '../../lib/engine/setup.js';
 import { evolverCliOf } from '../../lib/runtime/cli-executor.js';
 import { desktopEngineOf } from '../../lib/runtime/engine/desktop.js';
+import { environmentFor, EPHEMERAL } from '../../lib/runtime/environment.js';
 
 const version = '2.0.50';
 const schema = 'evolver.desktop.plugin-engine.v1';
@@ -26,6 +28,17 @@ function fixture(t) {
   };
   return { home, root, write, select: (selection) => write('plugin-engine.json', { version, schema, ...selection }) };
 }
+
+test('a Codex runtime checks the Desktop selection in its own home', async (t) => {
+  const { home, write } = fixture(t);
+  write('plugin-engine.json', {});
+  const profile = await profileNamed('codex');
+  const env = { HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: '1' };
+  const { ports } = environmentFor({ profile, env, lifetime: EPHEMERAL });
+  const status = await ports.proxy.request('GET', '/proxy/status');
+  assert.equal(status.ok, false);
+  assert.match(status.error, /Desktop installation could not be verified/);
+});
 
 test('Desktop native selection verifies digest and follows only the active installation', async (t) => {
   const { home, write, select } = fixture(t);
