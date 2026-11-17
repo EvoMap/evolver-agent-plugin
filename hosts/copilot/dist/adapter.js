@@ -56,7 +56,7 @@ function toolCompleted(turn, data) {
   if (Number.isSafeInteger(exit) && telemetry?.executionMode === 'sync' && telemetry.detached === 'false') {
     if (call.exit !== undefined) turn.incomplete = true;
     call.exit = exit;
-    call.output = typeof data.result?.content === 'string' ? withoutSecrets(data.result.content.slice(-2000)) : '';
+    call.output = withoutSecrets(data.result?.content).slice(-2000);
   }
 }
 
@@ -96,7 +96,7 @@ function noteEvent(turn, event) {
         || !turn.messageId || data.originatingMessageId !== turn.messageId) return;
       turn.step.messageEventId = event.id;
       recordRequests(turn, Array.isArray(data.toolRequests) ? data.toolRequests : []);
-      turn.step.answer = !data.toolRequests?.length && typeof data.content === 'string' ? data.content.trim().slice(0, 10_000) : '';
+      turn.step.answer = !data.toolRequests?.length ? withoutSecrets(data.content).trim().slice(0, 10_000) : '';
       break;
     case 'assistant.turn_end':
       if (turn.step?.id === data.turnId) turn.step.ended = true;
@@ -161,7 +161,7 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     if (session) await raise('session_end', session);
     session = null;
   };
-  const transform = async ({ sessionId, workingDirectory, prompt, transformedPrompt }) => {
+  const transform = async ({ sessionId, workingDirectory, prompt, transformedPrompt, timestamp }) => {
     if (closed || current || !id(sessionId) || (native?.sessionId && native.sessionId !== sessionId)
       || (session && session.sessionId !== sessionId) || typeof workingDirectory !== 'string' || !isAbsolute(workingDirectory)
       || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || isIrPrompt(prompt)
@@ -170,11 +170,14 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     if (!session) await raise('session_start', at);
     session = at;
     const { strategy } = await raise('prompt', { ...at, prompt });
-    current = { at, prompt, strategy, calls: new Map(), expectedChecks: new Map() };
+    current = { at, prompt, strategy, timestamp, calls: new Map(), expectedChecks: new Map() };
     return strategy ? { modifiedTransformedPrompt: transformedPrompt + '\n\n' + strategy } : {};
   };
   const eventOf = async (event) => {
     if (closed || !EVENTS.has(event?.type) || !id(event.id)) return;
+    // Native terminal events have no turn ID. An event dated before this prompt belongs to an older interaction.
+    if (current && ['session.idle', 'abort', 'session.shutdown'].includes(event.type)
+      && Number.isFinite(current.timestamp) && Date.parse(event.timestamp) < current.timestamp) return;
     if (seen.has(event.id)) {
       if (event.type === 'session.idle') await flushTerminal();
       return;

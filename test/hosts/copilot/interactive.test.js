@@ -79,7 +79,7 @@ async function interactive(t, expectedErrors = []) {
   };
 }
 
-async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit } = {}) {
+async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit, output = 'Fixture shell output reports exit code 0.' } = {}) {
   const transformedContent = await host.transform(PROMPT);
   assert.ok(transformedContent.includes(recipeMarker), 'the SDK hook passes the Recipe to the model');
   const interactionId = randomUUID(), messageId = randomUUID();
@@ -93,7 +93,7 @@ async function verificationAttempt(host, exit, { followUp, startFollowUp = false
   await host.emit('tool.execution_complete', {
     ...testTurn, toolCallId: call.toolCallId, success: true, shellExecution: { exitCode: exit },
     toolTelemetry: { properties: { detached: 'false', executionMode: 'sync' } },
-    result: { content: 'Fixture shell output reports exit code 0.' },
+    result: { content: output },
   });
   await host.emit('assistant.turn_end', { turnId: '0' });
   if (followUp) {
@@ -203,12 +203,36 @@ test('Copilot settles pending evidence before the next prompt and a replayed idl
   assert.equal(host.queued.length, 2);
 });
 
+test('an old Copilot idle stays stale after its ID leaves the deduplication window', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  const stale = { type: 'session.idle', id: randomUUID(), timestamp: '2026-01-01T00:00:00Z', data: { mode: 'interactive' } };
+  // First observe idle with no work after processing the normal terminal event.
+  await host.emit('session.idle', { mode: 'interactive' });
+  await host.emit(stale.type, stale.data, stale);
+  for (let index = 0; index < 4096; index++) await host.emit('assistant.turn_end', { turnId: '1' });
+  await host.transform('Explain the retry budget in a new turn.');
+  await host.emit(stale.type, stale.data, stale);
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, true);
+  assert.equal(host.queued.length, 2);
+});
+
 test('Copilot records the structured exit code even when the tool result says success', async (t) => {
   const host = await interactive(t);
   await verificationAttempt(host, 1);
   await host.emit('session.idle', { mode: 'interactive' });
   assert.deepEqual(host.queued.map(({ report }) => [report.outcome, report.evidence.check.passed]), [['failed', false], ['failed', false]]);
   assert.deepEqual((await host.candidate()).steps.map(({ exit, failed }) => [exit, failed]), [[1, true]]);
+});
+
+test('Copilot redacts a long cookie before keeping the tail of failed check output', async (t) => {
+  const host = await interactive(t);
+  const credential = 'opaqueFixtureCookie'.repeat(150);
+  await verificationAttempt(host, 1, { output: `Cookie: sid=${credential}\nVerification failed.` });
+  await host.emit('session.idle', { mode: 'interactive' });
+  const [step] = (await host.candidate()).steps;
+  assert.equal(step.output.includes('opaqueFixtureCookie'), false);
+  assert.match(step.output, /Verification failed\./);
 });
 
 test('a passing check cannot verify a later Copilot check whose native execution was not observed', async (t) => {
