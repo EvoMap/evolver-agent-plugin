@@ -124,34 +124,48 @@ function notesOf(turn) {
 export async function connectCopilot(joinSession, { env = process.env, overrides = {}, onError = () => {} } = {}) {
   const channel = createPluginChannel({ profile, env, overrides: { ...overrides, confirmTurnCompletion: true } });
   const seen = new Set();
-  let native, session, current, unsubscribe, closed = false, tail = Promise.resolve();
+  let native, session, current, pendingTerminal, unsubscribe, closed = false, tail = Promise.resolve();
 
+  const reportError = (error) => {
+    try { onError(error); } catch { /* Diagnostics must not block the session. */ }
+  };
   const ordered = (work) => {
     const next = tail.then(work);
-    tail = next.catch(onError);
+    tail = next.catch(reportError);
     return next.catch(() => ({}));
   };
-  const raise = (event, payload) => channel.handle(event, payload, { onError });
+  const raise = (event, payload, onFailure = reportError) => channel.handle(event, payload, { onError: onFailure });
+  const flushTerminal = async () => {
+    if (!pendingTerminal) return true;
+    let failed = false;
+    await raise('terminal', pendingTerminal, (error) => {
+      failed = true;
+      reportError(error);
+    });
+    if (!failed) pendingTerminal = null;
+    return !failed;
+  };
   const settle = async ({ aborted = false, complete = false } = {}) => {
     const turn = current;
-    if (!turn) return;
-    current = null;
-    const answered = complete && turn.injected && !turn.incomplete && turn.step?.ended && turn.step.answer && checksCompleted(turn);
-    const reason = aborted || turn.aborted ? 'aborted' : answered ? 'answer' : 'error';
-    await raise('terminal', {
-      ...turn.at, reason, ...(reason === 'answer' && { answer: turn.step.answer }),
-      notes: notesOf(turn),
-    });
+    if (turn) {
+      const answered = complete && turn.injected && !turn.incomplete && turn.step?.ended && turn.step.answer && checksCompleted(turn);
+      const reason = aborted || turn.aborted ? 'aborted' : answered ? 'answer' : 'error';
+      pendingTerminal = { ...turn.at, reason, ...(reason === 'answer' && { answer: turn.step.answer }), notes: notesOf(turn) };
+      current = null;
+    }
+    // Copilot may emit idle only once. The driver safely ignores retries for a turn it has already closed.
+    return await flushTerminal() || flushTerminal();
   };
   const endSession = async () => {
-    await settle();
+    if (!(await settle())) return;
     if (session) await raise('session_end', session);
     session = null;
   };
   const transform = async ({ sessionId, workingDirectory, prompt, transformedPrompt }) => {
     if (closed || current || !id(sessionId) || (native?.sessionId && native.sessionId !== sessionId)
       || (session && session.sessionId !== sessionId) || typeof workingDirectory !== 'string' || !isAbsolute(workingDirectory)
-      || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || isIrPrompt(prompt)) return {};
+      || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || isIrPrompt(prompt)
+      || !(await flushTerminal())) return {};
     const at = { sessionId, cwd: workingDirectory, turnId: randomUUID() };
     if (!session) await raise('session_start', at);
     session = at;
@@ -160,17 +174,20 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     return strategy ? { modifiedTransformedPrompt: transformedPrompt + '\n\n' + strategy } : {};
   };
   const eventOf = async (event) => {
-    if (closed || !EVENTS.has(event?.type) || !id(event.id) || seen.has(event.id)) return;
+    if (closed || !EVENTS.has(event?.type) || !id(event.id)) return;
+    if (seen.has(event.id)) {
+      if (event.type === 'session.idle') await flushTerminal();
+      return;
+    }
     seen.add(event.id);
     if (seen.size > MAX_EVENT_IDS) seen.delete(seen.values().next().value);
     if (event.type === 'session.shutdown') return endSession();
-    if (!current) return;
     if (event.type === 'session.idle') {
       const aborted = event.data?.aborted;
       if (aborted !== undefined && typeof aborted !== 'boolean') return settle();
       return settle({ aborted: aborted === true, complete: true });
     }
-    noteEvent(current, event);
+    if (current) noteEvent(current, event);
   };
   try {
     native = await joinSession({ hooks: {

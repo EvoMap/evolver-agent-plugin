@@ -16,7 +16,7 @@ const answer = 'Bounded Redis retries passed the native check.';
 const continuation = 'Continue checking the Redis retries. Run node fixture-hold.cjs.';
 const recipeMarker = '[Evolution Memory] Recipe: Stabilise flaky redis connection retries';
 
-async function interactive(t) {
+async function interactive(t, expectedErrors = []) {
   const { ports, queued, requests } = memoryPorts({ recipes: [RECIPE], stepAssets: RECIPE_STEPS });
   const workingDirectory = join(tmpdir(), 'evolver-copilot-interactive-test');
   const sessionId = randomUUID();
@@ -47,7 +47,7 @@ async function interactive(t) {
   });
   t.after(async () => {
     await attached.close();
-    assert.deepEqual(errors, []);
+    assert.deepEqual(errors, expectedErrors);
   });
 
   async function emit(type, data = {}, earlier = null) {
@@ -73,7 +73,7 @@ async function interactive(t) {
 
   await hooks.onSessionStart?.({ sessionId, workingDirectory, timestamp: Date.now() }, invocation);
   return {
-    emit, transform, candidate, queued, requests,
+    emit, transform, candidate, queued, requests, ports, sessionId,
     candidates: ports.candidates.read,
     stop: () => hooks.onAgentStop?.({ sessionId, workingDirectory, timestamp: Date.now(), stopReason: 'end_turn', stopHookActive: false }, invocation),
   };
@@ -149,9 +149,58 @@ test('only a completed Copilot session.idle reports the passing check and saves 
   const host = await interactive(t);
   await verificationAttempt(host, 0);
   const settlement = await host.emit('session.idle', { mode: 'interactive' });
+  const outcomes = () => host.queued.map(({ report }) => [report.asset_id, report.outcome, report.evidence.check.passed]);
+  const expected = [['sha256:step1', 'success', true], ['sha256:step2', 'success', true]];
+  assert.deepEqual(outcomes(), expected);
+  await host.emit('session.idle', { mode: 'interactive' }, settlement);
+  assert.deepEqual(outcomes(), expected, 'replaying idle adds no report');
+  assert.deepEqual((await host.candidate()).steps.map(({ kind, command, exit }) => [kind, command, exit]), [['check', command, 0]]);
+});
+
+test('Copilot idle retries a candidate write without losing the terminal evidence or repeating the reports', async (t) => {
+  const failure = Object.assign(new Error('fixture candidate write refused'), { code: 'EIO' });
+  const host = await interactive(t, [failure]);
+  await verificationAttempt(host, 0);
+  const update = host.ports.candidates.update;
+  let refused = false;
+  host.ports.candidates.update = async (...args) => {
+    if (!refused) {
+      refused = true;
+      throw failure;
+    }
+    return update(...args);
+  };
+  const settlement = await host.emit('session.idle', { mode: 'interactive' });
+  assert.deepEqual((await host.candidate()).steps.map(({ kind, command, exit }) => [kind, command, exit]), [['check', command, 0]]);
   await host.emit('session.idle', { mode: 'interactive' }, settlement);
   assert.deepEqual(host.queued.map(({ report }) => [report.outcome, report.evidence.check.passed]), [['success', true], ['success', true]]);
-  assert.deepEqual((await host.candidate()).steps.map(({ kind, command, exit }) => [kind, command, exit]), [['check', command, 0]]);
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+});
+
+test('Copilot settles pending evidence before the next prompt and a replayed idle leaves that new turn open', async (t) => {
+  const failure = new Error('fixture candidate write refused');
+  const host = await interactive(t, [failure, failure]);
+  await verificationAttempt(host, 0);
+  const update = host.ports.candidates.update;
+  let writable = false;
+  host.ports.candidates.update = async (...args) => {
+    if (!writable) throw failure;
+    return update(...args);
+  };
+  const completed = await host.emit('session.idle');
+  assert.deepEqual(await host.candidates(), {});
+
+  writable = true;
+  await host.transform('Explain the retry budget in a new turn.');
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+  await host.emit('session.idle', {}, completed);
+  const next = await host.ports.sessions.read(host.sessionId);
+  assert.equal(next.turn, 2);
+  assert.equal(next.open, true);
+  await host.emit('abort', { reason: 'user' });
+  await host.emit('session.idle', { aborted: true });
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+  assert.equal(host.queued.length, 2);
 });
 
 test('Copilot records the structured exit code even when the tool result says success', async (t) => {

@@ -91,6 +91,29 @@ test('the saved work turn, model prompt and Proxy body exclude JSON credentials'
   }
 });
 
+test('HTTP cookie credentials stay out of the saved work turn and private Proxy body', () => {
+  const secret = /opaqueFixture(?:Session|Route)/;
+  const headers = { Cookie: 'sid=opaqueFixtureSession; route=opaqueFixtureRoute',
+    'set-cookie': ['sid="opaqueFixtureSession"; HttpOnly'], primaryKey: 'orders.id' };
+  const json = withoutSecrets(JSON.stringify(headers));
+  assert.deepEqual(JSON.parse(json), { Cookie: '[redacted]', 'set-cookie': '[redacted]', primaryKey: 'orders.id' });
+  assert.equal(containsSecret(json), false);
+  const answer = 'Upload retry passed.\nCookie: ' + headers.Cookie + '\nSet-Cookie: ' + headers['set-cookie'][0] + '\nNo other changes.';
+  assert.ok(containsSecret(answer));
+  const record = { commands: ['npm test'], edits: [], checks: [{ command: 'npm test', failed: false }] };
+  const turn = workTurnOf({ turn: 1, prompt: 'Fix upload retry', record, answer, now: 1 });
+  const session = sessionRecordOf({ turns: [turn], source: 'observed' });
+  const [body] = distillBodiesOf({ platform: 'copilot', sessionId: 'test-session', trigger: 'idle', session,
+    irs: [{ title: 'Repair upload retry' }], persist: false });
+  for (const text of [turn.answer, JSON.stringify(body)]) {
+    assert.doesNotMatch(text, secret);
+    assert.match(text, /\[redacted\]/);
+    assert.match(text, /No other changes\./);
+  }
+  assert.equal(containsSecret(turn.answer), false);
+  assert.equal(body.persist, false);
+});
+
 test('redaction stays linear on long adversarial input', () => {
   const size = 64 * 1024;
   const fill = (head, unit) => head + unit.repeat(Math.ceil(size / unit.length));
