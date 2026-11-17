@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -111,6 +112,23 @@ test('Desktop selection rejects a symlink or junction before resolving a package
   writeFileSync(join(target, 'node_modules', '@evomap', 'evolver', 'cli.cjs'), 'throw new Error("untrusted package");');
   symlinkSync(target, join(root, prefix), process.platform === 'win32' ? 'junction' : 'dir');
   assert.throws(() => desktopEngineOf(home), /could not be verified/);
+});
+
+test('Desktop accepts a Windows short name for a real profile directory', { skip: process.platform !== 'win32' }, (t) => {
+  const { home, write, select } = fixture(t);
+  const cmd = join(process.env.SystemRoot, 'System32', 'cmd.exe');
+  const shortHome = execFileSync(cmd, ['/d', '/u', '/c', 'for %i in ("%EVOLVER_TEST_HOME%") do @echo %~si'], {
+    env: { ...process.env, EVOLVER_TEST_HOME: home }, encoding: 'utf16le', windowsHide: true, windowsVerbatimArguments: true,
+  }).trim();
+  if (shortHome.toLowerCase() === home.toLowerCase()) {
+    t.skip('the test volume does not assign short names');
+    return;
+  }
+  assert.equal(realpathSync.native(shortHome), realpathSync.native(home));
+  write('node_modules/@evomap/evolver/package.json', { name: '@evomap/evolver', version, bin: { evolver: 'cli.cjs' } });
+  write('node_modules/@evomap/evolver/cli.cjs', 'console.log(42);');
+  select({ kind: 'npm', prefix: '.' });
+  assert.equal(desktopEngineOf(shortHome).version, version);
 });
 
 test('engine setup launches Desktop directly, never installs npm, and preserves a different running Proxy', async () => {
