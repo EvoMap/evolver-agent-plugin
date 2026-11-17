@@ -79,7 +79,7 @@ async function interactive(t) {
   };
 }
 
-async function verificationAttempt(host, exit) {
+async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit } = {}) {
   const transformedContent = await host.transform(PROMPT);
   assert.ok(transformedContent.includes(recipeMarker), 'the SDK hook passes the Recipe to the model');
   const interactionId = randomUUID(), messageId = randomUUID();
@@ -87,7 +87,8 @@ async function verificationAttempt(host, exit) {
   const call = { toolCallId: 'call_check', toolName: 'powershell', arguments: { command } };
   await host.emit('user.message', { content: PROMPT, transformedContent, interactionId, messageId, turnId: '0' });
   await host.emit('assistant.turn_start', testTurn);
-  await host.emit('assistant.message', { ...testTurn, originatingMessageId: messageId, content: '', toolRequests: [call] });
+  await host.emit('assistant.message', { ...testTurn, originatingMessageId: messageId, content: '',
+    toolRequests: [{ toolCallId: call.toolCallId, name: call.toolName, arguments: call.arguments }] });
   await host.emit('tool.execution_start', { ...call, turnId: '0' });
   await host.emit('tool.execution_complete', {
     ...testTurn, toolCallId: call.toolCallId, success: true, shellExecution: { exitCode: exit },
@@ -95,9 +96,26 @@ async function verificationAttempt(host, exit) {
     result: { content: 'Fixture shell output reports exit code 0.' },
   });
   await host.emit('assistant.turn_end', { turnId: '0' });
-  await host.emit('assistant.turn_start', { interactionId, turnId: '1' });
-  await host.emit('assistant.message', { interactionId, turnId: '1', originatingMessageId: messageId, content: answer, toolRequests: [] });
-  await host.emit('assistant.turn_end', { turnId: '1' });
+  if (followUp) {
+    const retry = { interactionId, turnId: '1' };
+    const requested = { toolCallId: 'call_follow_up', name: 'powershell', arguments: { command: followUp } };
+    await host.emit('assistant.turn_start', retry);
+    await host.emit('assistant.message', { ...retry, originatingMessageId: messageId, content: '', toolRequests: [requested] });
+    if (startFollowUp) {
+      await host.emit('tool.execution_start', { toolCallId: requested.toolCallId, toolName: requested.name, arguments: requested.arguments, turnId: '1' });
+    }
+    if (followUpExit !== undefined) {
+      await host.emit('tool.execution_complete', {
+        ...retry, toolCallId: requested.toolCallId, success: true, shellExecution: { exitCode: followUpExit },
+        toolTelemetry: { properties: { detached: 'false', executionMode: 'sync' } },
+      });
+    }
+    await host.emit('assistant.turn_end', { turnId: '1' });
+  }
+  const finalTurn = { interactionId, turnId: followUp ? '2' : '1' };
+  await host.emit('assistant.turn_start', finalTurn);
+  await host.emit('assistant.message', { ...finalTurn, originatingMessageId: messageId, content: answer, toolRequests: [] });
+  await host.emit('assistant.turn_end', { turnId: finalTurn.turnId });
   await host.stop();
   assert.deepEqual(host.queued, [], 'the first Stop is still provisional');
   assert.deepEqual(await host.candidates(), {});
@@ -141,6 +159,31 @@ test('Copilot records the structured exit code even when the tool result says su
   await verificationAttempt(host, 1);
   await host.emit('session.idle', { mode: 'interactive' });
   assert.deepEqual(host.queued.map(({ report }) => [report.outcome, report.evidence.check.passed]), [['failed', false], ['failed', false]]);
+  assert.deepEqual((await host.candidate()).steps.map(({ exit, failed }) => [exit, failed]), [[1, true]]);
+});
+
+test('a passing check cannot verify a later Copilot check whose native execution was not observed', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0, { followUp: 'npm test' });
+  await host.emit('session.idle', { mode: 'interactive' });
+  assert.equal(host.queued.length, 0, 'a requested check without a receipt cannot report success');
+  assert.deepEqual(await host.candidates(), {});
+});
+
+test('an earlier pass cannot cover a started Copilot check still missing its exit at idle', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0, { followUp: 'npm test', startFollowUp: true });
+  await host.emit('session.idle', { mode: 'interactive' });
+  assert.deepEqual(host.queued, []);
+  assert.deepEqual(await host.candidates(), {});
+});
+
+test('Copilot records a failed check followed by a successful rerun with both native exits', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 1, { followUp: command, startFollowUp: true, followUpExit: 0 });
+  await host.emit('session.idle', { mode: 'interactive' });
+  assert.deepEqual(host.queued.map(({ report }) => [report.outcome, report.evidence.check.fail_then_pass]), [['success', true], ['success', true]]);
+  assert.deepEqual((await host.candidate()).steps.map(({ exit, failed }) => [exit, failed]), [[1, true], [0, false]]);
 });
 
 test('a verification call without a matching Copilot request keeps the interaction unverified', async (t) => {

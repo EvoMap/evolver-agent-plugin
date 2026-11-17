@@ -44,7 +44,7 @@ function toolStarted(turn, event) {
     turn.incomplete = true;
     return;
   }
-  turn.calls.set(data.toolCallId, { step: turn.step, command: withoutSecrets(command) });
+  turn.calls.set(data.toolCallId, { step: turn.step, command: withoutSecrets(command), verification: isVerificationCommand(command) });
 }
 
 function toolCompleted(turn, data) {
@@ -60,6 +60,28 @@ function toolCompleted(turn, data) {
   }
 }
 
+function recordRequests(turn, requests) {
+  turn.step.requests = new Set();
+  for (const request of requests) {
+    const callId = id(request?.toolCallId);
+    if (callId) turn.step.requests.add(callId);
+    if (!SHELLS.has(request?.name) || !isVerificationCommand(request.arguments?.command)) continue;
+    if (!callId || turn.expectedChecks.has(callId) || turn.expectedChecks.size >= MAX_CALLS) {
+      turn.incomplete = true;
+      continue;
+    }
+    turn.expectedChecks.set(callId, turn.step);
+  }
+}
+
+function checksCompleted(turn) {
+  for (const [callId, step] of turn.expectedChecks) {
+    const call = turn.calls.get(callId);
+    if (!call?.verification || call.step !== step || call.exit === undefined) return false;
+  }
+  return true;
+}
+
 function noteEvent(turn, event) {
   const data = event.data ?? {};
   switch (event.type) {
@@ -73,8 +95,8 @@ function noteEvent(turn, event) {
       if (!turn.step || data.turnId !== turn.step.id || data.interactionId !== turn.step.interactionId
         || !turn.messageId || data.originatingMessageId !== turn.messageId) return;
       turn.step.messageEventId = event.id;
-      turn.step.requests = new Set((Array.isArray(data.toolRequests) ? data.toolRequests : []).map((call) => call?.toolCallId).filter(id));
-      turn.step.answer = turn.step.requests.size === 0 && typeof data.content === 'string' ? data.content.trim().slice(0, 10_000) : '';
+      recordRequests(turn, Array.isArray(data.toolRequests) ? data.toolRequests : []);
+      turn.step.answer = !data.toolRequests?.length && typeof data.content === 'string' ? data.content.trim().slice(0, 10_000) : '';
       break;
     case 'assistant.turn_end':
       if (turn.step?.id === data.turnId) turn.step.ended = true;
@@ -114,7 +136,7 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     const turn = current;
     if (!turn) return;
     current = null;
-    const answered = complete && turn.injected && !turn.incomplete && turn.step?.ended && turn.step.answer;
+    const answered = complete && turn.injected && !turn.incomplete && turn.step?.ended && turn.step.answer && checksCompleted(turn);
     const reason = aborted || turn.aborted ? 'aborted' : answered ? 'answer' : 'error';
     await raise('terminal', {
       ...turn.at, reason, ...(reason === 'answer' && { answer: turn.step.answer }),
@@ -134,7 +156,7 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     if (!session) await raise('session_start', at);
     session = at;
     const { strategy } = await raise('prompt', { ...at, prompt });
-    current = { at, prompt, strategy, calls: new Map() };
+    current = { at, prompt, strategy, calls: new Map(), expectedChecks: new Map() };
     return strategy ? { modifiedTransformedPrompt: transformedPrompt + '\n\n' + strategy } : {};
   };
   const eventOf = async (event) => {
