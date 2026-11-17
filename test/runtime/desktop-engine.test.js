@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { test } from 'node:test';
 
 import { profileNamed } from '../../lib/agent/registry.js';
@@ -30,14 +30,21 @@ function fixture(t) {
 }
 
 test('a Codex runtime checks the Desktop selection in its own home', async (t) => {
-  const { home, write } = fixture(t);
+  const { home, write, select } = fixture(t);
   write('plugin-engine.json', {});
   const profile = await profileNamed('codex');
-  const env = { HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: '1' };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: '1' };
   const { ports } = environmentFor({ profile, env, lifetime: EPHEMERAL });
   const status = await ports.proxy.request('GET', '/proxy/status');
   assert.equal(status.ok, false);
   assert.match(status.error, /Desktop installation could not be verified/);
+
+  write('node_modules/@evomap/evolver/package.json', { name: '@evomap/evolver', version, bin: { evolver: 'cli.cjs' } });
+  write('node_modules/@evomap/evolver/cli.cjs', 'console.log(require("node:os").homedir());');
+  select({ kind: 'npm', prefix: '.' });
+  const cli = await ports.cli.run(['--version']);
+  assert.equal(cli.ok, true, cli.text);
+  assert.equal(relative(home, cli.text), '');
 });
 
 test('Desktop native selection verifies digest and follows only the active installation', async (t) => {
