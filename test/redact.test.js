@@ -114,6 +114,11 @@ test('HTTP cookie credentials stay out of the saved work turn and private Proxy 
   assert.equal(body.persist, false);
 });
 
+test('redacting a quoted Cookie header preserves the following verification command', () => {
+  const command = 'curl -H "Cookie: sid=opaqueFixtureSession; route=opaqueFixtureRoute" https://example.test && npm test';
+  assert.equal(withoutSecrets(command), 'curl -H "[redacted]" https://example.test && npm test');
+});
+
 test('redaction stays linear on long adversarial input', () => {
   const size = 64 * 1024;
   const fill = (head, unit) => head + unit.repeat(Math.ceil(size / unit.length));
