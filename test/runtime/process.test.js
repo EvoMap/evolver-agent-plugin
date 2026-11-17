@@ -106,6 +106,37 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
+test('the isolated Windows worker leaves the host output pipe free while it runs', { skip: process.platform !== 'win32' }, async (t) => {
+  const runtime = new URL('../../lib/runtime/process/spawn.js', import.meta.url).href;
+  const dir = mkdtempSync(join(tmpdir(), 'evolver worker-'));
+  const marker = join(dir, 'worker.json');
+  const launcher = join(dir, 'launcher.mjs');
+  const args = ['with space', 'with "quotes"', 'with trailing slash\\'];
+  const worker = 'const fs=require("node:fs"); fs.writeFileSync(process.env.QA_MARKER,JSON.stringify({pid:process.pid,args:process.argv.slice(1),launchSpec:process.env.EVOLVER_WINDOWS_WORKER??null})); setTimeout(()=>{},15000)';
+  writeFileSync(launcher, `
+    import { startDetached } from ${JSON.stringify(runtime)};
+    const pid = startDetached(process.execPath, ['-e', ${JSON.stringify(worker)}, '--', ...${JSON.stringify(args)}], { isolateWindowsHandles: true });
+    process.stdout.write(JSON.stringify({pid}));
+  `);
+  const ps = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  let pid;
+  t.after(() => {
+    if (pid && !ownerIsGone(pid)) process.kill(pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  });
+  const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command', '& $env:QA_NODE $env:QA_LAUNCHER'], {
+    env: { ...process.env, QA_NODE: node, QA_LAUNCHER: launcher, QA_MARKER: marker, EVOLVER_WINDOWS_WORKER: 'fixture' },
+    timeout: 8_000,
+    windowsHide: true,
+  });
+  ({ pid } = JSON.parse(stdout));
+  assert.ok(Number.isSafeInteger(pid) && pid > 0);
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(JSON.parse(readFileSync(marker, 'utf8')), { pid, args, launchSpec: null });
+  assert.equal(ownerIsGone(pid), false);
+});
+
 test('a hook process arms one sleeping waiter, another only for an earlier time or when its pid now names another process; a waiter that wakes gives up its record and runs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-wake-up-'));
   const env = { ...process.env, HOME: home, USERPROFILE: home, EVOLVER_AUTO_DISTILL: 'off', MINIMAX_DATA_DIR: home, PLUGIN_DATA: '' };
