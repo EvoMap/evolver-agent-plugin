@@ -118,8 +118,8 @@ export async function stepHost(t, { env: envPatch = {}, ...options } = {}) {
 
 export const requestsTo = (host, path) => host.proxy.requests.filter(request => request.path === path);
 
-export async function until(condition, what) {
-  const deadline = Date.now() + 10_000;
+export async function until(condition, what, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
   while (!(await condition())) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise(resolve => setTimeout(resolve, 20));
