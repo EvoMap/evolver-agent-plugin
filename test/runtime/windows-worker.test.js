@@ -111,7 +111,7 @@ test('a Windows worker keeps Unicode arguments and cwd outside its compiled code
   const dir = mkdtempSync(join(tmpdir(), 'evolver-worker-中文-'));
   t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
   const marker = join(dir, 'worker.json');
-  const script = "require('node:fs').writeFileSync(process.env.QA_MARKER,JSON.stringify({pid:process.pid,args:process.argv.slice(1),cwd:process.cwd(),spec:process.env.EVOLVER_WINDOWS_WORKER??null}))";
+  const script = "const fs=require('node:fs');const marker=process.env.QA_MARKER;const result=JSON.stringify({pid:process.pid,args:process.argv.slice(1),cwd:process.cwd(),spec:process.env.EVOLVER_WINDOWS_WORKER??null});process.chdir(require('node:os').tmpdir());fs.writeFileSync(marker+'.tmp',result);fs.renameSync(marker+'.tmp',marker)";
   const args = ['方案🌿', 'with "quotes"', 'with trailing slash\\'];
   const pid = startDetached(node, ['-e', script, '--', ...args], {
     cwd: dir, env: { ...process.env, QA_MARKER: marker }, isolateWindowsHandles: true,
