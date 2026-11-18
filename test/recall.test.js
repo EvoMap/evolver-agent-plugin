@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { recallStrategy, promptTextOf, taskTextOf } from '../lib/recall.js';
+import { recallStrategy, promptTextOf, recentTurnsOf, taskTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
@@ -60,18 +60,50 @@ test('quoted JSON credentials are redacted from the recall query and task contex
   }
 });
 
-test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+test('a CJK task of 4000 characters leaves for the Proxy whole within its 16 KiB', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const task = taskTextOf('上传失败后重试'.repeat(600));
-  const context = { task, trigger: 'check_failed', language: ['TypeScript', 'Go'] };
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start' } });
+  assert.equal(task.length, 4000);
+  for (const sent of [calls[0].body.context, searches[0].context]) assert.equal(sent.task, task);
+});
+
+test('recent turns over the Proxy limit go oldest first, and the task stays whole', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('上传失败后重试'.repeat(600));
+  const turns = ['一', '二', '三', '四'].map((mark) => ({ role: 'user', text: mark.repeat(1000) }));
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start', recent_turns: turns } });
+  for (const sent of [calls[0].body.context, searches[0].context]) {
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 16_384);
+    assert.equal(sent.task, task);
+    assert.ok(sent.recent_turns.length > 0 && sent.recent_turns.length < turns.length);
+    assert.deepEqual(sent.recent_turns, turns.slice(-sent.recent_turns.length), 'the newest turns are the ones kept');
+  }
+});
+
+test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('🔁'.repeat(4000));
+  const context = { task, trigger: 'check_failed', language: Array.from({ length: 40 }, (_, index) => `Language${index}`) };
   await recallStrategy(proxyFetch, 'upload retry fails', { context });
   for (const sent of [calls[0].body.context, searches[0].context]) {
-    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 4096);
-    assert.ok(sent.task.length > 1300);
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 16_384);
+    assert.ok(sent.task.length > 1000);
     assert.ok(task.startsWith(sent.task));
     assert.doesNotMatch(sent.task, /\uFFFD/u);
-    assert.deepEqual(sent.language, ['TypeScript', 'Go']);
+    assert.deepEqual(sent.language, context.language);
   }
+});
+
+test('recent turns are the newest earlier prompts that fit, cleaned like a prompt, oldest first', () => {
+  assert.deepEqual(recentTurnsOf([]), []);
+  assert.deepEqual(recentTurnsOf(undefined), []);
+  assert.deepEqual(recentTurnsOf(['first', '  second  ']), [{ role: 'user', text: 'first' }, { role: 'user', text: 'second' }]);
+  assert.deepEqual(recentTurnsOf(['1', '2', '3', '4', '5', '6', '7']).map(({ text }) => text), ['3', '4', '5', '6', '7']);
+  assert.equal(recentTurnsOf(['x'.repeat(1500)])[0].text.length, 1000);
+  const long = ['a', 'b', 'c', 'd', 'e'].map((mark) => mark.repeat(1000));
+  assert.deepEqual(recentTurnsOf(long).map(({ text }) => text[0]), ['b', 'c', 'd', 'e'], 'at most 4000 characters, the newest kept');
+  assert.doesNotMatch(JSON.stringify(recentTurnsOf(['use {"token":"fixtureCredential123456"} to retry'])), /fixtureCredential123456/);
 });
 
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {

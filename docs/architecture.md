@@ -277,10 +277,13 @@ scripts/               pack.mjs, publish-tag.sh
   Recipe whose required steps the session has seen is passed over before its steps are fetched, so an optional
   step the Hub did not return never brings it back.
 - **Task context.** Every recall sends `context` beside `text`: an object the Hub defines and the Proxy forwards
-  whole, here `{ task, trigger, language? }`. `task` is the session's first typed prompt (4000 characters, cleaned as
-  a prompt is, and cut further so the context stays within the Proxy's 4096-byte limit), `trigger` is `turn_start`
-  or `check_failed`, and `language` the touched files' languages. The Hub judges each recalled asset's fit to the
-  task with it, never recalls by it. The text recall also carries `project_dir`, the session's project directory,
+  whole, here `{ task, trigger, language?, recent_turns? }`. `task` is the session's first typed prompt (4000
+  characters, cleaned as a prompt is), `trigger` is `turn_start` or `check_failed`, and `language` the touched files'
+  languages. A prompt's recall also sends `recent_turns`: the session's typed prompts before it, oldest first, as
+  `{ role: 'user', text }` (at most 5, 1000 characters each and 4000 in all, cleaned as a prompt is; commands are
+  none). The Hub records them for evaluation and does not rank by them yet. The context stays within the Proxy's
+  16 KiB (2.0.50; 4096 bytes up to 2.0.48): the oldest recent turns go first, and only then is the task cut. The Hub
+  judges each recalled asset's fit to the task with it, never recalls by it. The text recall also carries `project_dir`, the session's project directory,
   for the Proxy to recognise the project by, so its local project notes and project-bound Genes can be recalled. A
   prompt's opening is often its boilerplate, and an error line alone names no
   task: an offline replay of 53 SWE runs fired on 15 failed
