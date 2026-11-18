@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
 import profile from '../../../hosts/minimax/profile.js';
+import { headlessMiniMax } from '../../../hosts/minimax/headless.js';
 import { modelArguments, sessionModelOf } from '../../../hosts/minimax/model.js';
 import { recordReaderOf } from '../../../lib/runtime/records.js';
+import { executableOf } from '../../../lib/runtime/process/which.js';
 
 test('the v2 read-only projection captures a session route and variant, independently of later defaults', () => {
   const root = mkdtempSync(join(tmpdir(), 'evolver-native-model-'));
@@ -76,4 +78,17 @@ test('unknown schemas, mismatched models and shell-shaped routes never select a 
   for (const model of ['unresolved', 'model-only', 'provider/model;whoami', 'provider/model#x#y']) assert.throws(() => modelArguments({ model }), /no completion/);
   assert.deepEqual(modelArguments({ model: 'native-default' }), []);
   assert.equal(recordReaderOf({ file: () => join(tmpdir(), 'absent-evolver-native-db'), query: 'SELECT 1' }, {})('s'), null);
+});
+
+test('the headless runner finds mcode in the installer\'s bin folder, without PATH', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'evolver-mcode-home-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const bin = join(home, '.minimax-code', 'bin');
+  const name = process.platform === 'win32' ? 'mcode.cmd' : 'mcode';
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, name), '');
+  chmodSync(join(bin, name), 0o755);
+  const env = { HOME: home, USERPROFILE: home, PATH: '' };
+  const found = executableOf({ ...headlessMiniMax.command, dirs: headlessMiniMax.command.dirs(env) }, { env });
+  assert.equal(found?.file, join(bin, name));
 });
