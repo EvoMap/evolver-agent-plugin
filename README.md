@@ -54,10 +54,10 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
-| Kimi Code CLI 2.4.1 and Desktop 1.2.1 | Direct install; Windows native checked | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
+| Kimi Code CLI 2.4.1 and Desktop 1.2.1 | Supported locally on Windows (direct install) | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
 | MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
-| ZCode CLI / Desktop | Supported locally on Windows and macOS | `hosts/zcode`, native hooks; installs `dist/zcode` |
-| Step Code CLI 0.1.7 | Draft, Windows | `hosts/stepcode`, a native resident extension; installs `dist/stepcode` |
+| ZCode Desktop 3.18.2 / CLI 0.17.1 | Supported locally on Windows and macOS | `hosts/zcode`, native hooks; installs `dist/zcode` |
+| Step Code CLI 0.1.7 | Draft, Windows CLI only | `hosts/stepcode`, a native resident extension; installs `dist/stepcode`; paid-provider and real Hub acceptance pending |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
