@@ -80,14 +80,15 @@ test('unknown schemas, mismatched models and shell-shaped routes never select a 
   assert.equal(recordReaderOf({ file: () => join(tmpdir(), 'absent-evolver-native-db'), query: 'SELECT 1' }, {})('s'), null);
 });
 
-test('the headless runner finds mcode where the macOS and Linux installer puts it, without PATH', (t) => {
+test('the headless runner finds mcode in the installer\'s bin folder, without PATH', (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-mcode-home-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, '.minimax-code', 'bin');
+  const name = process.platform === 'win32' ? 'mcode.cmd' : 'mcode';
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, 'mcode'), '#!/bin/sh\n');
-  chmodSync(join(bin, 'mcode'), 0o755);
-  const env = { HOME: home, PATH: '' };
-  const found = executableOf({ ...headlessMiniMax.command, dirs: headlessMiniMax.command.dirs(env) }, { env, platform: 'darwin' });
-  assert.equal(found?.file, join(bin, 'mcode'));
+  writeFileSync(join(bin, name), '');
+  chmodSync(join(bin, name), 0o755);
+  const env = { HOME: home, USERPROFILE: home, PATH: '' };
+  const found = executableOf({ ...headlessMiniMax.command, dirs: headlessMiniMax.command.dirs(env) }, { env });
+  assert.equal(found?.file, join(bin, name));
 });
