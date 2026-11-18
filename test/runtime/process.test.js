@@ -109,7 +109,8 @@ test('a cancelled run is ended and reported cancelled', async () => {
 
 test('a Windows worker PID acknowledged before the launcher times out is retained', () => {
   const launch = (stdout) => startWithoutInheritedHandles(tmpdir(), node, '"node"', {
-    cwd: tmpdir(), env: {}, run: () => ({ stdout, error: { code: 'ETIMEDOUT' }, status: null }),
+    cwd: tmpdir(), env: {}, run: (command) => command.endsWith('csc.exe')
+      ? { status: 0 } : { stdout, error: { code: 'ETIMEDOUT' }, status: null },
   });
   assert.equal(launch('1234\r\n'), 1234);
   assert.equal(launch('1234'), undefined, 'partial PID output cannot confirm a worker launch');
@@ -137,11 +138,13 @@ test('the isolated Windows worker leaves the host output pipe free while it runs
   const ps = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   // Deleting this fixture's directory releases its worker even if execFile never returns a PID.
   t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
-  const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command', '& $env:QA_NODE $env:QA_LAUNCHER'], {
+  const completion = promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command', '& $env:QA_NODE $env:QA_LAUNCHER'], {
     env: { ...process.env, QA_NODE: node, QA_LAUNCHER: launcher, QA_MARKER: marker, EVOLVER_WINDOWS_WORKER: 'fixture' },
     timeout: 8_000,
     windowsHide: true,
   });
+  const { stdout } = await completion;
+  assert.equal(completion.child.stdout.readableEnded, true, 'the pipe must reach EOF before the timeout destroys it');
   const { pid } = JSON.parse(stdout);
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
   const deadline = Date.now() + 5_000;

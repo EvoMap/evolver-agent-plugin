@@ -99,6 +99,12 @@ session id the use cases see is qualified with its host when it leaves (`claude-
 say which agent a report came from; a local ledger record's cycle is the host's bare session id, and its `platform`
 names the host.
 
+On Windows, handle-isolated workers require the system .NET Framework 4 C# compiler. The runtime builds a
+trusted Win32 bridge in its own temporary directory; compilation and launch share one two-second budget.
+It reads no project compiler configuration and writes no credentials to disk. The worker inherits no handles
+and stays in the host's job. A missing or blocked compiler refuses the launch, using the existing retry/notice
+flow; the runtime never guesses a PID. Cleanup of the bridge's temporary files is best-effort after the attempt.
+
 **Profiles.** `defineProfile` completes a host's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events
 (`sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene`); how to
