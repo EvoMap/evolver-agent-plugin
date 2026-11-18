@@ -106,8 +106,11 @@ and stays in the host's job. An additional private job is assigned atomically at
 before flushing the PID acknowledgement, Windows ends its worker and descendants. After acknowledgement the
 guard is disabled, allowing a persistent Proxy to outlive the worker without relaxing the host's job limits.
 This guard requires Windows 10 / Server 2016 or newer. A missing or blocked compiler or unavailable job guard
-refuses the launch, using the existing retry/notice
-flow; the runtime never guesses a PID. Cleanup of the bridge's temporary files is best-effort after the attempt.
+refuses the launch, using the existing retry/notice flow; the runtime never guesses a PID. On a bridge timeout,
+a complete PID is retained only for process tracking: `onUnconfirmed` signals the existing launch-failure notice
+even when a PID exists. SessionEnd reports that uncertainty on stderr with a nonzero exit; other hooks include
+the warning in their reply. Only a successful bridge exit confirms guard handoff. Cleanup of the bridge's
+temporary files is best-effort after the attempt.
 
 **Profiles.** `defineProfile` completes a host's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events

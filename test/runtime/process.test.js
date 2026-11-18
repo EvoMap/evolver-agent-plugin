@@ -107,13 +107,15 @@ test('a cancelled run is ended and reported cancelled', async () => {
   assert.equal(result.error.code, 'ABORT_ERR');
 });
 
-test('a Windows worker PID acknowledged before the launcher times out is retained', () => {
+test('a timed-out Windows worker keeps its PID for tracking and reports unconfirmed startup', () => {
+  let unconfirmed = 0;
   const launch = (stdout) => startWithoutInheritedHandles(tmpdir(), node, '"node"', {
-    cwd: tmpdir(), env: {}, run: (command) => command.endsWith('csc.exe')
+    cwd: tmpdir(), env: {}, onUnconfirmed: () => { unconfirmed++; }, run: (command) => command.endsWith('csc.exe')
       ? { status: 0 } : { stdout, error: { code: 'ETIMEDOUT' }, status: null },
   });
   assert.equal(launch('1234\r\n'), 1234);
   assert.equal(launch('1234'), undefined, 'partial PID output cannot confirm a worker launch');
+  assert.equal(unconfirmed, 1, 'a retained PID must not turn a timeout into confirmed startup');
 });
 
 test('the isolated Windows worker leaves the host output pipe free while it runs', { skip: process.platform !== 'win32' }, async (t) => {

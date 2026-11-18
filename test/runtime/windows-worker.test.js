@@ -91,7 +91,7 @@ test('an isolated Windows launch builds only trusted code and shares its fixed d
   assert.deepEqual(env, { EVOLVER_WINDOWS_WORKER: 'inherited value', QA_MARKER: 'fixture' });
 });
 
-test('an isolated Windows launch accepts only a complete successful PID acknowledgement', () => {
+test('an isolated Windows launch retains complete PID ownership and reports unconfirmed handoff', () => {
   for (const [result, expected] of [
     [{ status: 0, stdout: '1234\r\n' }, 1234],
     [{ status: null, stdout: '1234\n', error: { code: 'ETIMEDOUT' } }, 1234],
@@ -102,10 +102,24 @@ test('an isolated Windows launch accepts only a complete successful PID acknowle
     [{ status: 0, stdout: 'warning\n1234\n' }, undefined],
     [{ status: 0, stdout: '0\n' }, undefined],
   ]) {
+    let unconfirmed = 0;
     assert.equal(startWithoutInheritedHandles(tmpdir(), node, '"node"', {
-      cwd: tmpdir(), env: {}, run: (command) => command.endsWith('csc.exe') ? { status: 0 } : result,
+      cwd: tmpdir(), env: {}, onUnconfirmed: () => { unconfirmed++; },
+      run: (command) => command.endsWith('csc.exe') ? { status: 0 } : result,
     }), expected, JSON.stringify(result));
+    assert.equal(unconfirmed, expected && result.error?.code === 'ETIMEDOUT' ? 1 : 0, JSON.stringify(result));
   }
+});
+
+test('an unconfirmed-launch diagnostic cannot lose ownership of a possibly live worker', () => {
+  let unconfirmed = 0;
+  const pid = startWithoutInheritedHandles(tmpdir(), node, '"node"', {
+    cwd: tmpdir(), env: {}, onUnconfirmed: () => { unconfirmed++; throw new Error('diagnostic failed'); },
+    run: (command) => command.endsWith('csc.exe') ? { status: 0 }
+      : { status: null, stdout: '1234\n', error: { code: 'ETIMEDOUT' } },
+  });
+  assert.equal(pid, 1234);
+  assert.equal(unconfirmed, 1);
 });
 
 test('an unavailable compiler or exhausted launch budget never starts a worker', (t) => {
@@ -188,6 +202,38 @@ test('a Windows launch deadline before the PID acknowledgement cleans the worker
   assert.ok(existsSync(marker), 'the worker and descendant were actually created before the deadline');
   const family = JSON.parse(readFileSync(marker, 'utf8'));
   for (const pid of Object.values(family)) await until(() => !alive(pid));
+});
+
+test('a Windows launch deadline after PID output reports uncertainty while retaining process ownership', { skip: process.platform !== 'win32' }, async (t) => {
+  for (const handedOff of [false, true]) {
+    const { dir, marker, commandLine } = workerFamily(t);
+    let observed, unconfirmed = 0;
+    const pid = startWithoutInheritedHandles(join(process.env.SystemRoot, 'System32'), node, commandLine, {
+      cwd: dir, env: { ...process.env, QA_MARKER: marker, QA_KEEP_WORKER: '1' },
+      onUnconfirmed: () => { unconfirmed++; },
+      run(command, args, options) {
+        if (command.endsWith('csc.exe')) {
+          const source = args.at(-1), text = readFileSync(source, 'utf8');
+          const anchor = handedOff ? '      return 0;' : 'limits.Basic.Flags = 0x800;';
+          assert.ok(text.includes(anchor));
+          assert.ok(text.indexOf('Console.Out.Flush();') < text.indexOf(anchor));
+          writeFileSync(source, text.replace(anchor, 'System.Threading.Thread.Sleep(2500); ' + anchor));
+          return spawnSync(command, args, options);
+        }
+        assert.ok(options.timeout > 0 && options.timeout <= 2_000, 'the launch keeps its original shared deadline');
+        observed = spawnSync(command, args, options);
+        return observed;
+      },
+    });
+    assert.equal(observed.error?.code, 'ETIMEDOUT');
+    assert.match(observed.stdout, /^[1-9]\d*\r?\n$/, 'the bridge printed a complete PID before timeout');
+    assert.ok(existsSync(marker), 'the worker and descendant actually started');
+    const family = JSON.parse(readFileSync(marker, 'utf8'));
+    assert.equal(pid, family.worker, 'a possibly live worker must remain tracked');
+    if (handedOff) for (const pid of Object.values(family)) assert.equal(alive(pid), true);
+    else for (const pid of Object.values(family)) await until(() => !alive(pid));
+    assert.equal(unconfirmed, 1, 'timeout must never report a confirmed handoff, even with a complete PID');
+  }
 });
 
 test('a failed Windows launch guard does not leave an unacknowledged worker', { skip: process.platform !== 'win32' }, async (t) => {
