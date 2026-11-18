@@ -1,6 +1,6 @@
 # Evolver for MiniMax Code
 
-Local plugin for MiniMax Code CLI 0.7.4 and Desktop 3.1.6. Requires Node.js 22.13 or newer,
+Local plugin for MiniMax Code CLI 0.7.4 and Desktop 3.1.6 on Windows, and CLI 0.7.7 on macOS. Requires Node.js 22.13 or newer,
 compatible with MCode, and `node` and `mcode` on PATH. Sign in to MiniMax or configure a provider
 through MiniMax itself before using distillation. Credentials belong in the native account configuration.
 
