@@ -41,7 +41,7 @@ export const headlessMiniMax = Object.freeze({
   kind: 'cli',
   command: { names: ['mcode'], windowsShims: true, dirs: env => {
     const home = env.HOME || env.USERPROFILE || homedir();
-    return [join(home, '.minimax-code'), join(home, '.local', 'bin')];
+    return [join(home, '.minimax-code'), join(home, '.minimax-code', 'bin'), join(home, '.local', 'bin')];
   } },
   workdir: 'empty',
   env: env => { const root = dataDirOf(env); return { MINIMAX_DATA_DIR: root, MAVIS_DATA_DIR: root }; },

@@ -1,6 +1,6 @@
 # Evolver for Kimi Code
 
-The same package integrates Kimi Code CLI 2.4.1 and Desktop 1.2.1 on Windows.
+The same package integrates Kimi Code CLI 2.4.1 and Desktop 1.2.1 on Windows, and Kimi Code CLI 2.6.3 on macOS.
 Desktop uses the installed Kimi Code CLI for isolated ACP draft creation.
 Node.js 22.13+ must be available as `node` on the hook process PATH.
 
@@ -43,7 +43,7 @@ It refuses to replace a newer managed package with an older bundle or source bui
 An explicit `--version X.Y.Z` packs the checkout at that version instead.
 Packing source requires `npm ci` in that checkout; installing an existing release
 bundle does not download dependencies or change the native account configuration.
-The native manifest/registry contract is pinned to Kimi Code 2.4.1 and should be
+The native manifest/registry contract was checked with Kimi Code 2.4.1 on Windows and 2.6.3 on macOS, and should be
 retested when upgrading Kimi. This direct installation says nothing about
 Marketplace eligibility or support by an external Evolver CLI installer.
 

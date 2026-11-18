@@ -1,6 +1,6 @@
 # Evolver for Step Code CLI
 
-This adapter targets Step Code CLI 0.1.7 on Windows. It is a native extension, loaded through Step's `pi.extensions` package manifest.
+This adapter targets Step Code CLI 0.1.7 on Windows and macOS. It is a native extension, loaded through Step's `pi.extensions` package manifest.
 
 ```powershell
 npm ci
@@ -24,7 +24,7 @@ The `/evolver-*` commands expose status, configuration, draft review and explici
 
 ## Draft acceptance limits
 
-The native Step Code 0.1.7 Windows package has been exercised with a loopback model and Proxy for Recipe context, passing and failing checks, private drafts, and cancellation. Paid-provider and real Hub acceptance are still pending.
+The native Step Code 0.1.7 Windows package has been exercised with a loopback model and Proxy for Recipe context, passing and failing checks, private drafts, and cancellation. On macOS, the official Step Code 0.1.7 installer's binary loads the installed extension and writes its session state. Paid-provider and real Hub acceptance are still pending on both platforms.
 
 Esc and RPC abort stopped the fixture process in native tests. Double Ctrl-C can make Step exit without a terminal tool event while leaving its tool's shell/process alive. The adapter suppresses reports and candidates for that incomplete turn; it does not terminate processes owned by Step. This native runtime cleanup gate remains open.
 

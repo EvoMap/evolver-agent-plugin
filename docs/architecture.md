@@ -333,8 +333,9 @@ scripts/               pack.mjs, publish-tag.sh
   The Proxy forwards `evidence` whole, and a Hub that does not know `source` refuses the whole report as
   `validation_error`, which the Proxy passes on as a terminal rejection: on one machine from 5 to 8 November 2026,
   all 175 Claude Code reports a 2.0.49 Proxy relayed with `source` were refused that way. Such a report goes once
-  more at once, without `source`; that answer settles it, and the outbox keeps the report as last sent, so a retry
-  never carries `source` again.
+  more at once, without `source` and without the `reported_by` an agent's own report carries, which the Hub does not
+  know either; that answer settles it, and the outbox keeps the report as last sent, so a retry never carries them
+  again.
 - **Report outbox.** Reports are keyed by task id and asset, queued once and retried for 8 days, long enough for a
   retention follow-up a week later. A report counts as delivered once the Hub answers it at all: `recorded`,
   `duplicate_report`, or `eligible: false` (`daily_cap`, `same_owner`, `no_delivery_proof`) are final, so only an

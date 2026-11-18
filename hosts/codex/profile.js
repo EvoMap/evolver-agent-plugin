@@ -50,6 +50,8 @@ export default defineProfile({
   // UserPromptSubmit also answers the evolver-* commands, which may run the evolver CLI for ten minutes.
   budgets: { prompt: 660_000 },
   owner: { ancestor: /^codex/i },
+  isolateWindowsHandles: true,
+  useDesktopEngine: true,
   model: headlessCodex,
   legacy: [{ ledgers: /^codex-injected-[0-9a-f]{16}\.json$/ }],
 });

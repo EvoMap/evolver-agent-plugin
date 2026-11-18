@@ -55,7 +55,7 @@ sets it. Headless distillation uses the configured standalone CLI bundle or the 
 with a private copy of the recorded provider route.
 [The ZCode adapter guide](zcode/dist/README.md) describes local installation and the runtime configuration paths.
 
-Step Code CLI 0.1.7 on Windows uses a resident native extension. Recipe guidance is projected into each model request
+Step Code CLI 0.1.7 on Windows and macOS uses a resident native extension. Recipe guidance is projected into each model request
 of the current prompt and is not persisted into the transcript. A plugin turn spans native model steps and ends only
 at `agent_settled`; a latched abort, unfinished command or unsupported inline/background check prevents reporting
 and candidate creation. Native shell starts and terminal exit metadata are paired by call. SDK completion receives
@@ -71,7 +71,7 @@ profile setup and the manual private draft flow.
 
 ## Adding a host
 
-Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows for the main agent in local sessions
+Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows, and CLI 2.6.3 on macOS, for the main agent in local sessions
 with an API/BYOK provider. It also resolves the managed `kimi.com` route with an existing access token. Live managed inference
 requires separate acceptance. Its native
 root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
