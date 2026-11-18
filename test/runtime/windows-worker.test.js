@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -9,6 +9,49 @@ import { startDetached } from '../../lib/runtime/process/spawn.js';
 import { startWithoutInheritedHandles } from '../../lib/runtime/process/windows-worker.js';
 
 const node = process.execPath;
+
+function alive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+}
+
+async function until(check) {
+  const deadline = Date.now() + 2_000;
+  while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(check());
+}
+
+function workerFamily(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'evolver-worker-family-'));
+  const marker = join(dir, 'family.json');
+  const worker = join(dir, 'worker.cjs');
+  writeFileSync(join(dir, 'child.cjs'), `
+    const fs = require('node:fs');
+    const marker = process.env.QA_MARKER;
+    process.chdir(require('node:os').tmpdir());
+    fs.writeFileSync(marker + '.tmp', JSON.stringify({ worker: Number(process.env.QA_WORKER_PID), child: process.pid }));
+    fs.renameSync(marker + '.tmp', marker);
+    setInterval(() => { if (!fs.existsSync(require('node:path').dirname(marker))) process.exit(0); }, 20);
+    setTimeout(() => process.exit(0), 15_000);
+  `);
+  writeFileSync(worker, `
+    const child = require('node:child_process').spawn(process.execPath, [require('node:path').join(process.cwd(), 'child.cjs')], {
+      detached: true, stdio: 'ignore', env: { ...process.env, QA_WORKER_PID: String(process.pid) },
+    });
+    child.unref();
+    process.chdir(require('node:os').tmpdir());
+    if (process.env.QA_KEEP_WORKER) {
+      setInterval(() => { if (!require('node:fs').existsSync(require('node:path').dirname(process.env.QA_MARKER))) process.exit(0); }, 20);
+      setTimeout(() => process.exit(0), 15_000);
+    }
+  `);
+  t.after(async () => {
+    const family = existsSync(marker) ? JSON.parse(readFileSync(marker, 'utf8')) : {};
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    for (const pid of Object.values(family)) await until(() => !alive(pid));
+  });
+  return { dir, marker, commandLine: `"${node}" "${worker}"` };
+}
 
 test('an isolated Windows launch builds only trusted code and shares its fixed deadline', (t) => {
   const env = { EVOLVER_WINDOWS_WORKER: 'inherited value', QA_MARKER: 'fixture' };
@@ -120,4 +163,74 @@ test('a Windows worker keeps Unicode arguments and cwd outside its compiled code
   const deadline = Date.now() + 5_000;
   while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(JSON.parse(readFileSync(marker, 'utf8')), { pid, args, cwd: dir, spec: null });
+});
+
+test('a Windows launch deadline before the PID acknowledgement cleans the worker and its descendants', { skip: process.platform !== 'win32' }, async (t) => {
+  const { dir, marker, commandLine } = workerFamily(t);
+  let observed;
+  const pid = startWithoutInheritedHandles(join(process.env.SystemRoot, 'System32'), node, commandLine, {
+    cwd: dir, env: { ...process.env, QA_MARKER: marker, QA_KEEP_WORKER: '1' },
+    run(command, args, options) {
+      if (command.endsWith('csc.exe')) {
+        const source = args.at(-1), text = readFileSync(source, 'utf8');
+        assert.ok(text.includes('Console.WriteLine(info.Pid);'));
+        writeFileSync(source, text.replace('Console.WriteLine(info.Pid);', 'System.Threading.Thread.Sleep(2500); Console.WriteLine(info.Pid);'));
+        return spawnSync(command, args, options);
+      }
+      assert.ok(options.timeout > 0 && options.timeout <= 2_000, 'the launch keeps its original shared deadline');
+      observed = spawnSync(command, args, options);
+      return observed;
+    },
+  });
+  assert.equal(pid, undefined);
+  assert.equal(observed.error?.code, 'ETIMEDOUT');
+  assert.equal(observed.stdout, '', 'there was no PID acknowledgement to recover');
+  assert.ok(existsSync(marker), 'the worker and descendant were actually created before the deadline');
+  const family = JSON.parse(readFileSync(marker, 'utf8'));
+  for (const pid of Object.values(family)) await until(() => !alive(pid));
+});
+
+test('a failed Windows launch guard does not leave an unacknowledged worker', { skip: process.platform !== 'win32' }, async (t) => {
+  for (const handoff of [false, true]) {
+    const { dir, marker, commandLine } = workerFamily(t);
+    let observed;
+    const pid = startWithoutInheritedHandles(join(process.env.SystemRoot, 'System32'), node, commandLine, {
+      cwd: dir, env: { ...process.env, QA_MARKER: marker, QA_KEEP_WORKER: '1' },
+      run(command, args, options) {
+        if (command.endsWith('csc.exe')) {
+          const source = args.at(-1), text = readFileSync(source, 'utf8');
+          const anchor = handoff ? 'limits.Basic.Flags = 0x800;' : 'Flags = 0x2000';
+          assert.ok(text.includes(anchor));
+          writeFileSync(source, text.replace(anchor, handoff
+            ? 'while (!System.IO.File.Exists(Environment.GetEnvironmentVariable("QA_MARKER"))) System.Threading.Thread.Sleep(10); limits.Basic.Flags = 0xffffffffu;'
+            : 'Flags = 0xffffffffu'));
+          return spawnSync(command, args, options);
+        }
+        observed = spawnSync(command, args, options);
+        return observed;
+      },
+    });
+    assert.equal(pid, undefined);
+    assert.equal(observed.error, undefined);
+    assert.equal(observed.status, 1);
+    assert.equal(existsSync(marker), handoff, 'setup failure must stop before creation; handoff failure exercises a live family');
+    if (handoff) {
+      assert.match(observed.stdout, /^[1-9]\d*\r?\n$/, 'a failed handoff must not be accepted even after printing a PID');
+      const family = JSON.parse(readFileSync(marker, 'utf8'));
+      for (const pid of Object.values(family)) await until(() => !alive(pid));
+    } else assert.equal(observed.stdout, '');
+  }
+});
+
+test('an acknowledged Windows worker can leave a persistent descendant after it exits', { skip: process.platform !== 'win32' }, async (t) => {
+  const { dir, marker, commandLine } = workerFamily(t);
+  const pid = startWithoutInheritedHandles(join(process.env.SystemRoot, 'System32'), node, commandLine, {
+    cwd: dir, env: { ...process.env, QA_MARKER: marker },
+  });
+  assert.ok(Number.isSafeInteger(pid) && pid > 0);
+  await until(() => existsSync(marker));
+  const family = JSON.parse(readFileSync(marker, 'utf8'));
+  assert.equal(family.worker, pid);
+  await until(() => !alive(pid));
+  assert.equal(alive(family.child), true, 'the launch guard must not kill a successfully handed-off Proxy');
 });
