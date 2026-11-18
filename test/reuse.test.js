@@ -13,6 +13,7 @@ import {
   deliverPending,
   deliveryOf,
   postPending,
+  agentReportedReportOf,
   immediateReportOf,
   reportedReuseOf,
   retentionReportOf,
@@ -397,6 +398,15 @@ test('a report the Hub refuses as invalid for its evidence source goes once more
   assert.equal(entry.report.evidence.source, undefined, 'the outbox keeps the report as last sent');
   assert.deepEqual(sinks.rejections, []);
   assert.deepEqual(sinks.locals, [{ assetId: 'sha256:a', outcome: 'success', sessionId: 'claude-code:s1', taskId: 'claude-code:s1:4', tier: 'L1', stage: 'immediate' }]);
+});
+
+test('a report the agent made about itself is resent with only the evidence fields the Hub knows', async () => {
+  const agentReported = agentReportedReportOf({ asset: ASSET, sessionId: 'claude-code:s1', turn: 4, turnReason: 'answer', checks: [{ command: 'npm test', failed: false }] });
+  const sinks = answering([refusedForSource, { ok: true, data: { recorded: true } }]);
+  const outbox = await deliverPending(sinks, queuedOne(agentReported), NOW);
+  assert.deepEqual(Object.keys(sinks.posts[1].body.evidence).sort(), ['aborted', 'applied', 'check', 'stage', 'tier']);
+  assert.equal(Object.values(outbox)[0].sentAt, NOW);
+  assert.deepEqual(sinks.rejections, []);
 });
 
 test('a report refused again without its source is settled as rejected and never sent a third time', async () => {

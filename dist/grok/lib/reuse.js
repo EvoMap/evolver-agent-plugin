@@ -148,16 +148,17 @@ const VALIDATION_ERROR = 'validation_error';
 
 const isRefusedForSource = (delivery, report) => delivery.verdict === REJECTED && delivery.reason === VALIDATION_ERROR && report.evidence?.source !== undefined;
 
-function withoutSource(report) {
-  const { source, ...evidence } = report.evidence;
+function withoutAnnotations(report) {
+  const { source, reported_by: reportedBy, ...evidence } = report.evidence;
   return { ...report, evidence };
 }
 
-// A Hub that does not know `evidence.source` refuses the whole report as invalid, though the rest of it is evidence it
-// takes: the report goes once more without it, and that answer settles it. The outbox keeps the report as last sent.
+// A Hub that does not know `evidence.source` (nor `reported_by`, its companion on an agent's own report) refuses the
+// whole report as invalid, though the rest of it is evidence it takes: the report goes once more without both, and
+// that answer settles it. The outbox keeps the report as last sent.
 async function postedOf(ledgers, entry) {
   const first = await postToHub(ledgers.proxyFetch, entry);
-  const resent = isRefusedForSource(first, entry.report) ? withoutSource(entry.report) : null;
+  const resent = isRefusedForSource(first, entry.report) ? withoutAnnotations(entry.report) : null;
   const delivery = resent ? await postToHub(ledgers.proxyFetch, { ...entry, report: resent }) : first;
   if (delivery.verdict === REJECTED) await ledgers.onRejected({ taskId: entry.report.task_id, assetId: entry.report.asset_id, ...delivery });
   return resent ? { ...delivery, report: resent } : delivery;
