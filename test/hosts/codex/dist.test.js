@@ -27,13 +27,14 @@ function packedPlugin() {
 }
 
 test('the hook registration covers exactly the profile\'s events, each running bin/hook.mjs for this agent', () => {
+  const windowsLoader = "process.argv.splice(1,0,require('node:path').join(process.env.PLUGIN_ROOT,'bin','hook.mjs'));import(require('node:url').pathToFileURL(process.argv[1]).href)";
   assert.deepEqual(Object.keys(hooks), Object.keys(codex.events));
   for (const [event, [entry, ...rest]] of Object.entries(hooks)) {
     assert.deepEqual(rest, [], event);
     assert.equal(entry.hooks.length, 1, event);
     assert.equal(handlerOf(event).type, 'command');
     assert.equal(handlerOf(event).command, `node "\${PLUGIN_ROOT}/bin/hook.mjs" codex ${event}`);
-    assert.equal(handlerOf(event).command_windows, `node "%PLUGIN_ROOT%\\bin\\hook.mjs" codex ${event}`);
+    assert.equal(handlerOf(event).command_windows, `node -e "${windowsLoader}" -- codex ${event}`);
     assert.ok(handlerOf(event).timeout > 0, event);
   }
   for (const event of SHORT_HOOKS) assert.ok(handlerOf(event).timeout <= 3, event);
