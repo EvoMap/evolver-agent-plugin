@@ -173,7 +173,9 @@ function lifecycleHost(t, handle) {
   });
   plugin.setup({ registerCommand: (command) => commands.set(command.name, command.handler) }, {
     cwd: tmpdir(), client: { name: 'cline-cli' }, session: { sessionId: 'conv_test' },
-    onDispose: (dispose) => t.after(dispose), logger: { log: ({ message }) => warnings.push(message) },
+    onDispose: (dispose) => t.after(dispose), logger: { log: (message, metadata) => {
+      if (typeof message === 'string') warnings.push({ message, metadata });
+    } },
   });
   return { hooks: plugin.hooks, events, commands, warnings, model };
 }
@@ -254,7 +256,7 @@ test('an overlapping Cline draft request reports busy before or after the comman
     const stopped = await hooks.beforeRun({ snapshot: snapshot('run_busy', [promptMessage('busy', queued.submitPrompt)]) });
     assert.match(later, /already preparing a private draft/i);
     assert.deepEqual(stopped, { stop: true, reason: later });
-    assert.deepEqual(warnings, [later]);
+    assert.deepEqual(warnings, [{ message: later, metadata: { severity: 'warn' } }]);
     assert.deepEqual(events.filter(([event]) => event === 'command'), [['command', 'run_draft']]);
   } finally {
     response.resolve({ ok: true });

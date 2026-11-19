@@ -194,7 +194,7 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
       if (!isAbsolute(text(project)) || isHeadlessRun(env, project)) return;
       cwd = project;
       nativeSession = ctx.client?.name === 'cline-cli' && id(ctx.session?.sessionId);
-      warn = (message) => ctx.logger?.log?.({ severity: 'warn', message });
+      warn = (message) => ctx.logger?.log?.(message, { severity: 'warn' });
       api.registerCommand?.({
         name: 'evolver-distill',
         description: 'Create a private Evolver draft from this Cline session.',
