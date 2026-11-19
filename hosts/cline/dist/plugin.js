@@ -14,6 +14,7 @@ import { createClineModel } from './model.js';
 const RETRYABLE_WRITE = new Set(['ELOCKED', 'ESTATEIO', 'EIO', 'EACCES', 'EBUSY', 'EPERM']);
 const FRESH_INPUT_MS = 10_000;
 const DRAFT_REQUEST = 'Evolver local draft request';
+const DRAFT_BUSY = 'Evolver is already preparing a private draft. Retry /evolver-distill when it finishes.';
 const NATIVE_USER_INPUT = /^<user_input mode="(?:act|plan|yolo)">([\s\S]*)<\/user_input>$/;
 const text = (value) => typeof value === 'string' ? value : '';
 const id = (value) => text(value).trim() && value.length <= 256 ? value : null;
@@ -46,16 +47,15 @@ function nativeCheck(command, callId, result) {
   };
 }
 
-export function createClinePlugin({ env = process.env } = {}) {
+export function createClinePlugin({ env = process.env, connect = createPluginChannel, model = createClineModel({ env }) } = {}) {
   let channel, cwd, current, warn, distillation, nativeSession, closing = false;
   const sessions = new Map();
   const seenInputs = new Map();
   const verifiedRoutes = new Map();
-  const model = createClineModel({ env });
 
   function channelOf() {
     try {
-      return channel ??= createPluginChannel({ profile, env, overrides: {
+      return channel ??= connect({ profile, env, overrides: {
         model, confirmTurnCompletion: true, persistDistillationInProxy: false,
       } });
     } catch {
@@ -66,7 +66,9 @@ export function createClinePlugin({ env = process.env } = {}) {
 
   const matches = (frame, snapshot) => frame && frame.turnId === snapshot?.runId
     && frame.sessionId === snapshot.conversationId && frame.agentId === snapshot.agentId;
-  const active = (snapshot) => !closing && !current?.finished && matches(current, snapshot) ? current : null;
+  const isCurrent = (frame) => !closing && frame === current && !frame.finished;
+  const live = (snapshot) => matches(current, snapshot) && isCurrent(current) ? current : null;
+  const active = (snapshot) => live(snapshot)?.ready ? current : null;
 
   function recall(frame, message) {
     const prompt = userInput(message);
@@ -86,12 +88,16 @@ export function createClinePlugin({ env = process.env } = {}) {
     if (prompt === DRAFT_REQUEST || prompt.startsWith(DRAFT_REQUEST + '\n')) {
       if (seenInputs.get(frame.sessionId) !== message.id) {
         seenInputs.set(frame.sessionId, message.id);
+        if (distillation) {
+          warn?.(DRAFT_BUSY);
+          return { stop: true, reason: DRAFT_BUSY };
+        }
         const route = nativeSession && model.capture();
-        if (route && route.configDigest === verifiedRoutes.get(frame.sessionId) && !distillation) {
+        if (route && route.configDigest === verifiedRoutes.get(frame.sessionId)) {
           distillation = channel.handle('command', { ...frame.at, command: 'evolver-distill', args: prompt.slice(DRAFT_REQUEST.length).trim() })
             .then((reply) => { if (!reply.ok) warn?.(withoutSecrets(reply.text || 'Cline distillation did not produce a draft.')); })
             .finally(() => { distillation = null; });
-        } else if (!distillation) {
+        } else {
           warn?.('Cline distillation needs a verified turn on the same model and account in this live session.');
         }
       }
@@ -119,6 +125,31 @@ export function createClinePlugin({ env = process.env } = {}) {
     })();
     return frame.finished;
   };
+
+  async function prepare(frame, previous, last) {
+    if (previous) {
+      await previous.preparing;
+      await finish(previous, 'aborted');
+    }
+    if (!isCurrent(frame)) return;
+    if (!sessions.has(frame.sessionId)) {
+      let failure;
+      await channel.handle('session_start', frame.at, { onError: (error) => { failure = error; } });
+      if (failure) {
+        if (isCurrent(frame)) {
+          current = null;
+          warn?.('Evolver could not start the Cline session. Retry the turn.');
+        }
+        return;
+      }
+      sessions.set(frame.sessionId, null);
+    }
+    if (!isCurrent(frame)) return;
+    frame.ready = true;
+    // The CLI seeds the current prompt before this hook. An old user message on resume cannot open a turn.
+    const age = Date.now() - last?.createdAt;
+    if (age >= 0 && age <= FRESH_INPUT_MS) return handleInput(frame, last);
+  }
 
   function beforeTool({ snapshot, toolCall, input }) {
     const frame = active(snapshot);
@@ -169,7 +200,7 @@ export function createClinePlugin({ env = process.env } = {}) {
       api.registerCommand?.({
         name: 'evolver-distill',
         description: 'Create a private Evolver draft from this Cline session.',
-        handler: (input) => ({
+        handler: (input) => distillation ? DRAFT_BUSY : ({
           reply: 'Evolver draft requested for this session. Use /evolver-drafts to check local drafts.',
           submitPrompt: [DRAFT_REQUEST, text(input).trim().slice(0, 2_000)].filter(Boolean).join('\n'),
         }),
@@ -190,7 +221,10 @@ export function createClinePlugin({ env = process.env } = {}) {
         channel.close();
         try {
           await distillation;
-          if (current) await finish(current, 'aborted');
+          if (current) {
+            await current.preparing;
+            await finish(current, 'aborted');
+          }
           for (const [sessionId, turnId] of sessions) {
             if (turnId) await channel.handle('session_end', { cwd, sessionId, turnId });
           }
@@ -201,22 +235,16 @@ export function createClinePlugin({ env = process.env } = {}) {
     },
     hooks: {
       async beforeRun({ snapshot }) {
-        if (!cwd || closing || snapshot?.parentAgentId || !id(snapshot?.conversationId) || !id(snapshot?.agentId) || !id(snapshot?.runId)
-          || matches(current, snapshot)) return;
-        if (current) await finish(current, 'aborted');
+        if (!cwd || closing || snapshot?.parentAgentId || !id(snapshot?.conversationId) || !id(snapshot?.agentId) || !id(snapshot?.runId)) return;
+        if (matches(current, snapshot)) return current.preparing;
         if (!channelOf()) return;
+        const previous = current;
         const at = { cwd, sessionId: snapshot.conversationId, turnId: snapshot.runId };
-        const history = messagesOf(snapshot.messages);
-        const frame = current = { ...at, at, agentId: snapshot.agentId, tail: history.at(-1)?.id,
+        const last = messagesOf(snapshot.messages).at(-1);
+        const frame = current = { ...at, at, agentId: snapshot.agentId, tail: last?.id,
           calls: new Map(), unsupported: false };
-        if (!sessions.has(at.sessionId)) {
-          await channel.handle('session_start', at);
-          sessions.set(at.sessionId, null);
-        }
-        // The CLI seeds the current prompt before this hook. An old trailing user message on resume cannot open a turn.
-        const last = history.at(-1);
-        const age = Date.now() - last?.createdAt;
-        if (age >= 0 && age <= FRESH_INPUT_MS) return handleInput(frame, last);
+        frame.preparing = prepare(frame, previous, last);
+        return frame.preparing;
       },
       async beforeModel({ snapshot, request }) {
         const frame = active(snapshot);
@@ -256,9 +284,9 @@ export function createClinePlugin({ env = process.env } = {}) {
       beforeTool,
       afterTool,
       async afterRun({ snapshot, result }) {
-        const frame = active(snapshot);
+        const frame = live(snapshot);
         if (!frame || !matches(frame, { ...snapshot, runId: result?.runId, agentId: result?.agentId })) return;
-        if (result.status === 'aborted') return finish(frame, 'aborted');
+        if (result.status === 'aborted' || !frame.ready) return finish(frame, 'aborted');
         const messages = messagesOf(result.messages);
         const input = messages.findIndex((message) => message.id === frame.promptId);
         const last = messages.at(-1);

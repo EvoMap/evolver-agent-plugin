@@ -6,6 +6,7 @@ import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
+import { createClinePlugin } from '../../../hosts/cline/dist/plugin.js';
 import { pack } from '../../../scripts/pack.mjs';
 import { PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
 import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
@@ -153,6 +154,109 @@ function shellResult(call, success = true, query = call.input.commands[0]) {
     },
   };
 }
+
+function lifecycleHost(t, handle) {
+  const events = [];
+  const warnings = [];
+  const commands = new Map();
+  const model = { capture: () => ({ configDigest: 'fixture-route', selection: { providerId: 'openai-compatible', modelId: 'fixture' } }) };
+  const plugin = createClinePlugin({
+    model,
+    connect: () => ({
+      handle: async (event, payload, options) => {
+        events.push([event, payload.turnId]);
+        return await handle(event, payload, options) ?? {};
+      },
+      close: () => {},
+      idle: async () => {},
+    }),
+  });
+  plugin.setup({ registerCommand: (command) => commands.set(command.name, command.handler) }, {
+    cwd: tmpdir(), client: { name: 'cline-cli' }, session: { sessionId: 'conv_test' },
+    onDispose: (dispose) => t.after(dispose), logger: { log: ({ message }) => warnings.push(message) },
+  });
+  return { hooks: plugin.hooks, events, commands, warnings, model };
+}
+
+test('a superseded Cline run cannot open a turn after session initialization', async t => {
+  const entered = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const { hooks, events } = lifecycleHost(t, async (event, { turnId }) => {
+    if (event === 'session_start' && turnId === 'run_stale') {
+      entered.resolve();
+      await resume.promise;
+    }
+  });
+  const stale = snapshot('run_stale', [promptMessage('stale', PROMPT)]);
+  const current = snapshot('run_current', [promptMessage('current', PROMPT)]);
+  const pending = hooks.beforeRun({ snapshot: stale });
+  await entered.promise;
+  const next = hooks.beforeRun({ snapshot: current });
+  resume.resolve();
+  await Promise.all([pending, next]);
+  assert.deepEqual(events, [['session_start', 'run_stale'], ['before_run', 'run_current']]);
+});
+
+test('a Cline abort during session initialization cannot open a turn', async t => {
+  const entered = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const { hooks, events } = lifecycleHost(t, async (event) => {
+    if (event === 'session_start') {
+      entered.resolve();
+      await resume.promise;
+    }
+  });
+  const state = snapshot('run_cancel_init', [promptMessage('cancelled', PROMPT)]);
+  const pending = hooks.beforeRun({ snapshot: state });
+  await entered.promise;
+  await hooks.afterRun(finish(state, 'aborted', ''));
+  resume.resolve();
+  await pending;
+  assert.deepEqual(events, [['session_start', 'run_cancel_init']]);
+});
+
+test('a failed Cline session start can be retried for the same run', async t => {
+  let starts = 0;
+  const { hooks, events } = lifecycleHost(t, (event, payload, options) => {
+    if (event === 'session_start' && ++starts === 1) options?.onError?.(Object.assign(new Error('locked fixture'), { code: 'ELOCKED' }));
+  });
+  const state = snapshot('run_retry_init', [promptMessage('retry', PROMPT)], 1);
+  await hooks.beforeRun({ snapshot: state });
+  await hooks.beforeModel(modelRequest(state));
+  assert.deepEqual(events, [['session_start', 'run_retry_init']]);
+  await hooks.beforeRun({ snapshot: state });
+  assert.deepEqual(events, [['session_start', 'run_retry_init'], ['session_start', 'run_retry_init'], ['before_run', 'run_retry_init']]);
+});
+
+test('an overlapping Cline draft request reports busy before or after the command prompt is queued', async t => {
+  const response = Promise.withResolvers();
+  const { hooks, events, commands, warnings, model } = lifecycleHost(t, (event) => {
+    if (event === 'command') return response.promise;
+  });
+  const verified = await startRun(hooks, 'run_verified');
+  const call = shellCall(verified, 'call_verified');
+  await hooks.beforeTool(call);
+  await hooks.afterTool(shellResult(call));
+  const terminal = finish(verified, 'completed', 'The retry test passed.');
+  terminal.result.messages.at(-1).modelInfo = { provider: 'openai-compatible', id: model.capture().selection.modelId };
+  await hooks.afterRun(terminal);
+
+  const request = commands.get('evolver-distill');
+  const first = request('');
+  const queued = request('');
+  try {
+    await hooks.beforeRun({ snapshot: snapshot('run_draft', [promptMessage('draft', first.submitPrompt)]) });
+    assert.deepEqual(events.filter(([event]) => event === 'command'), [['command', 'run_draft']]);
+    const later = request('');
+    const stopped = await hooks.beforeRun({ snapshot: snapshot('run_busy', [promptMessage('busy', queued.submitPrompt)]) });
+    assert.match(later, /already preparing a private draft/i);
+    assert.deepEqual(stopped, { stop: true, reason: later });
+    assert.deepEqual(warnings, [later]);
+    assert.deepEqual(events.filter(([event]) => event === 'command'), [['command', 'run_draft']]);
+  } finally {
+    response.resolve({ ok: true });
+  }
+});
 
 const reportRequests = (proxy) => proxy.requests.filter(({ path }) => path === '/asset/reuse-result');
 
