@@ -121,9 +121,10 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
     const terminal = frame.terminal;
     // A delayed save keeps the native evidence but cannot attribute the current worktree to it.
     const payload = frame.deferredSave ? { ...terminal, cwd: null } : terminal;
+    const retrySettlement = frame.retrySettlement ??= {};
     for (let attempt = 0; attempt < 3; attempt++) {
       let failure;
-      await channel.handle('after_run', payload, { onError: (error) => { failure = error; } });
+      await channel.handle('after_run', payload, { retrySettlement, onError: (error) => { failure = error; } });
       if (!failure || !RETRYABLE_WRITE.has(failure.code)) {
         session.pending = null;
         frame.terminal = null;

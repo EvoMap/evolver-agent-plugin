@@ -339,6 +339,72 @@ test('Cline retries the original terminal after state errors without duplicating
   });
 });
 
+test('Cline resumes an interrupted terminal settlement without replacing a newer turn', async t => {
+  for (const scenario of ['candidate missing', 'candidate already saved', 'newer generation']) await t.test(scenario, async t => {
+    const { ports, queued, scheduled } = memoryPorts();
+    ports.confirmTurnCompletion = true;
+    const driver = createDriver({ profile: cline, ports, transcripts: {}, lifetime: 'resident' });
+    const update = ports.sessions.update;
+    let attempts = 0;
+    const host = lifecycleHost(t, async (event, payload, options) => {
+      if (event === 'after_run' && ++attempts === 2 && scenario === 'newer generation') {
+        await update(payload.sessionId, (current) => ({
+          ...current, turn: current.turn + 1, sessionEpoch: current.sessionEpoch + 1, settling: null, open: true,
+        }));
+      }
+      return driver.handle(event, payload, options);
+    });
+    const state = await startRun(host.hooks, 'run_interrupted');
+    const call = shellCall(state, 'call_interrupted');
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(shellResult(call));
+
+    const failure = Object.assign(new Error('fixture state writer busy'), { code: 'ELOCKED' });
+    let candidateWrites = 0;
+    const writeCandidate = ports.candidates.update;
+    ports.candidates.update = (mutate) => {
+      if (++candidateWrites === 1 && scenario !== 'candidate already saved') throw failure;
+      return writeCandidate(mutate);
+    };
+    const settleFailures = scenario === 'candidate missing' ? 3 : 1;
+    let refused = 0;
+    ports.sessions.update = (sessionId, mutate) => update(sessionId, (current) => {
+      const next = mutate(current);
+      if (refused < settleFailures && Number.isFinite(current.settling) && next?.settling === null) {
+        refused++;
+        throw failure;
+      }
+      return next;
+    });
+    scheduled.length = 0;
+    const terminal = finish(state, 'completed', 'The verified test passed.');
+    await host.hooks.afterRun(terminal);
+    if (scenario === 'candidate missing') {
+      assert.equal(attempts, 3, 'the failed settlement is still pending when the first save ends');
+      assert.equal((await ports.candidates.read())[state.conversationId], undefined);
+    }
+    await host.hooks.afterRun(terminal);
+    const session = await ports.sessions.read(state.conversationId);
+    const candidate = (await ports.candidates.read())[state.conversationId];
+    assert.equal(refused, settleFailures);
+    assert.equal(attempts, settleFailures + 1);
+    assert.equal(queued.length, 1);
+    assert.equal(session.settling, null);
+    if (scenario === 'newer generation') {
+      assert.equal(session.open, true);
+      assert.equal(session.turn, 2);
+      assert.equal(candidate, undefined);
+      assert.equal(candidateWrites, 1);
+    } else {
+      assert.equal(session.open, false);
+      assert.equal(candidate?.turns.length, 1);
+      assert.equal(candidate.turns[0].answer, terminal.result.outputText);
+      assert.equal(candidateWrites, scenario === 'candidate already saved' ? 1 : 2);
+      assert.ok(scheduled.includes('drain'), 'the saved report can be delivered after settlement recovers');
+    }
+  });
+});
+
 const reportRequests = (proxy) => proxy.requests.filter(({ path }) => path === '/asset/reuse-result');
 
 async function noWork({ stores, proxy }) {
