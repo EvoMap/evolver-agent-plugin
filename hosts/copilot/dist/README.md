@@ -25,6 +25,9 @@ shell events and reads their structured exit codes. It waits for the live SDK `s
 before reporting verified work. Ctrl-C after a passing check, including while work requested by a competing Stop
 hook runs, leaves no reuse report or candidate for the cancelled interaction.
 
+Storage failures are reported on stderr. Pending turn evidence is retried while the extension remains alive;
+a forced exit before storage recovers can leave work unsaved and require a fresh verification run.
+
 The model can receive a recalled Recipe in the transformed prompt. Copilot stores this transformed content in
 its session history. To opt out of recall, set `EVOLVER_RECALL=off` before starting Copilot.
 

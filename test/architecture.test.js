@@ -82,6 +82,7 @@ test('each layer imports only the layers below it, and domain and app never touc
       }
       const target = layerOf(targetOf(file, specifier));
       if (target === 'external') {
+        // Copilot supplies this SDK; its packed-root loading contract is exercised by the host suite.
         const bundledSdk = isDynamic && file === 'hosts/copilot/dist/extension.mjs' && specifier === '@github/copilot-sdk/extension';
         if (!bundledSdk && !MAY_IMPORT_PACKAGES.has(layer) && !importsDeclaredPureParser(file, specifier)) problems.push(`${file} (${layer}) imports package ${specifier}`);
         continue;

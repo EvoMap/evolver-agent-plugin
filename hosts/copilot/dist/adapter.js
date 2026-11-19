@@ -121,10 +121,11 @@ function notesOf(turn) {
 }
 
 /** Attach the Evolver channel to one foreground Copilot CLI session. SDK Stop hooks never settle its turns. */
-export async function connectCopilot(joinSession, { env = process.env, overrides = {}, onError = () => {} } = {}) {
+export async function connectCopilot(joinSession, { env = process.env, overrides = {},
+  onError = () => console.error('Evolver could not record Copilot session evidence; pending work is unconfirmed. Check plugin storage and retry.') } = {}) {
   const channel = createPluginChannel({ profile, env, overrides: { ...overrides, confirmTurnCompletion: true } });
   const seen = new Set();
-  let native, session, current, pendingTerminal, unsubscribe, ending = false, closed = false, tail = Promise.resolve();
+  let native, session, current, promptAt, pendingTerminal, unsubscribe, ending = false, closed = false, tail = Promise.resolve();
 
   const reportError = (error) => {
     try { onError(error); } catch { /* Diagnostics must not block the session. */ }
@@ -159,26 +160,37 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
   const endSession = async () => {
     ending = true;
     if (!(await settle())) return;
-    if (session) await raise('session_end', session);
+    if (session) {
+      let failed = false;
+      await raise('session_end', session, (error) => {
+        failed = true;
+        reportError(error);
+      });
+      if (failed) return;
+    }
     session = null;
   };
   const transform = async ({ sessionId, workingDirectory, prompt, transformedPrompt, timestamp }) => {
+    const occurredAt = timestamp instanceof Date ? timestamp.getTime() : timestamp;
     if (closed || ending || current || !id(sessionId) || (native?.sessionId && native.sessionId !== sessionId)
       || (session && session.sessionId !== sessionId) || typeof workingDirectory !== 'string' || !isAbsolute(workingDirectory)
-      || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || isIrPrompt(prompt)
+      || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || !Number.isFinite(occurredAt) || isIrPrompt(prompt)
       || !(await flushTerminal())) return {};
     const at = { sessionId, cwd: workingDirectory, turnId: randomUUID() };
     if (!session) await raise('session_start', at);
     session = at;
     const { strategy } = await raise('prompt', { ...at, prompt });
-    current = { at, prompt, strategy, timestamp, calls: new Map(), expectedChecks: new Map() };
+    promptAt = occurredAt;
+    current = { at, prompt, strategy, calls: new Map(), expectedChecks: new Map() };
     return strategy ? { modifiedTransformedPrompt: transformedPrompt + '\n\n' + strategy } : {};
   };
   const eventOf = async (event) => {
     if (closed || !EVENTS.has(event?.type) || !id(event.id)) return;
-    // Native terminal events have no turn ID. An event dated before this prompt belongs to an older interaction.
-    if (current && ['session.idle', 'abort', 'session.shutdown'].includes(event.type)
-      && Number.isFinite(current.timestamp) && Date.parse(event.timestamp) < current.timestamp) return;
+    // Native terminal events have no turn ID; keep the prompt fence even after its turn has settled.
+    if (['session.idle', 'abort', 'session.shutdown'].includes(event.type)) {
+      const occurredAt = typeof event.timestamp === 'string' ? Date.parse(event.timestamp) : NaN;
+      if (!Number.isFinite(occurredAt) || (Number.isFinite(promptAt) && occurredAt < promptAt)) return;
+    }
     if (seen.has(event.id)) {
       if (event.type === 'session.idle') await flushTerminal();
       return;
@@ -196,7 +208,11 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
   try {
     native = await joinSession({ hooks: {
       onUserPromptTransformed: (input) => ordered(() => transform(input)),
-      onSessionEnd: () => ordered(endSession),
+      onSessionEnd: (input, invocation) => ordered(() => {
+        const sessionId = native?.sessionId ?? session?.sessionId;
+        if (sessionId && [input?.sessionId, invocation?.sessionId].some((value) => value !== undefined && value !== sessionId)) return;
+        return endSession();
+      }),
     } });
     unsubscribe = native.on((event) => ordered(() => eventOf(event)));
   } catch (error) {
@@ -207,9 +223,12 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     async idle() { await tail; await channel.idle(); },
     async close() {
       if (closed) return;
+      ending = true;
+      await ordered(endSession);
+      if (pendingTerminal || session) throw new Error('Copilot could not persist its final evidence; retry close after storage recovers.');
+      if (closed) return;
       closed = true;
       unsubscribe?.();
-      await ordered(endSession);
       channel.close();
     },
   };

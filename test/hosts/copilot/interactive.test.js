@@ -24,7 +24,7 @@ async function interactive(t, expectedErrors = []) {
   const handlers = new Map();
   const allHandlers = [];
   const errors = [];
-  let hooks, prior;
+  let hooks, prior, unsubscribes = 0;
   const attached = await connectCopilot(async (registration) => {
     hooks = registration.hooks;
     return {
@@ -32,12 +32,12 @@ async function interactive(t, expectedErrors = []) {
       on(type, listener) {
         if (typeof type === 'function') {
           allHandlers.push(type);
-          return () => allHandlers.splice(allHandlers.indexOf(type), 1);
+          return () => { unsubscribes++; allHandlers.splice(allHandlers.indexOf(type), 1); };
         }
         const callbacks = handlers.get(type) ?? [];
         callbacks.push(listener);
         handlers.set(type, callbacks);
-        return () => callbacks.splice(callbacks.indexOf(listener), 1);
+        return () => { unsubscribes++; callbacks.splice(callbacks.indexOf(listener), 1); };
       },
     };
   }, {
@@ -58,8 +58,8 @@ async function interactive(t, expectedErrors = []) {
     return event;
   }
 
-  async function transform(prompt) {
-    const input = { sessionId, workingDirectory, prompt, timestamp: Date.now() };
+  async function transform(prompt, { timestamp = Date.now() } = {}) {
+    const input = { sessionId, workingDirectory, prompt, timestamp };
     await hooks.onUserPromptSubmitted?.(input, invocation);
     return (await hooks.onUserPromptTransformed({ ...input, transformedPrompt: prompt }, invocation))?.modifiedTransformedPrompt ?? prompt;
   }
@@ -74,14 +74,17 @@ async function interactive(t, expectedErrors = []) {
   await hooks.onSessionStart?.({ sessionId, workingDirectory, timestamp: Date.now() }, invocation);
   return {
     emit, transform, candidate, queued, requests, ports, sessionId,
+    close: () => attached.close(),
+    unsubscribeCount: () => unsubscribes,
     candidates: ports.candidates.read,
+    end: (input = {}, invoked = invocation) => hooks.onSessionEnd?.({ sessionId, workingDirectory, timestamp: new Date(), reason: 'user_exit', ...input }, invoked),
     stop: () => hooks.onAgentStop?.({ sessionId, workingDirectory, timestamp: Date.now(), stopReason: 'end_turn', stopHookActive: false }, invocation),
   };
 }
 
 async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit, check = command,
-  output = 'Fixture shell output reports exit code 0.' } = {}) {
-  const transformedContent = await host.transform(PROMPT);
+  output = 'Fixture shell output reports exit code 0.', timestamp = Date.now() } = {}) {
+  const transformedContent = await host.transform(PROMPT, { timestamp });
   assert.ok(transformedContent.includes(recipeMarker), 'the SDK hook passes the Recipe to the model');
   const interactionId = randomUUID(), messageId = randomUUID();
   const testTurn = { interactionId, turnId: '0' };
@@ -202,6 +205,173 @@ test('Copilot settles pending evidence before the next prompt and a replayed idl
   await host.emit('session.idle', { aborted: true });
   assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
   assert.equal(host.queued.length, 2);
+});
+
+test('a failed Copilot close keeps pending terminal evidence retryable after storage recovers', async (t) => {
+  const failure = new Error('fixture candidate write refused during shutdown');
+  const host = await interactive(t, [failure, failure, failure, failure]);
+  await verificationAttempt(host, 0);
+  const update = host.ports.candidates.update;
+  let writable = false;
+  host.ports.candidates.update = async (...args) => {
+    if (!writable) throw failure;
+    return update(...args);
+  };
+  await host.emit('session.idle');
+  assert.deepEqual(await host.candidates(), {});
+  await assert.rejects(host.close(), /could not persist.*retry/i);
+  writable = true;
+  await host.close();
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+  assert.equal(host.queued.length, 2, 'retrying close must not duplicate reports');
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, false);
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+});
+
+test('a failed Copilot session-end write keeps close retryable', async (t) => {
+  const failure = new Error('fixture session-end write refused');
+  const host = await interactive(t, [failure]);
+  await verificationAttempt(host, 0);
+  await host.emit('session.idle');
+  const enqueue = host.ports.reports.enqueue;
+  let writable = false;
+  host.ports.reports.enqueue = async (...args) => {
+    if (!writable) throw failure;
+    return enqueue(...args);
+  };
+  await assert.rejects(host.close(), /could not persist.*retry/i);
+  writable = true;
+  await host.close();
+  assert.equal(host.queued.length, 2);
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, false);
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+});
+
+test('concurrent Copilot close calls unsubscribe only once', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  await host.emit('session.idle');
+  await Promise.all([host.close(), host.close()]);
+  assert.equal(host.unsubscribeCount(), 1);
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+  assert.equal(host.queued.length, 2);
+});
+
+test('Copilot native session-end and shutdown retry pending terminal evidence after storage recovers', async (t) => {
+  const failure = new Error('fixture native shutdown write refused');
+  const host = await interactive(t, [failure, failure, failure, failure]);
+  await verificationAttempt(host, 0);
+  const update = host.ports.candidates.update;
+  let writable = false;
+  host.ports.candidates.update = async (...args) => {
+    if (!writable) throw failure;
+    return update(...args);
+  };
+  await host.emit('session.idle');
+  await host.end();
+  assert.deepEqual(await host.candidates(), {});
+  writable = true;
+  await host.emit('session.shutdown');
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+  assert.equal(host.queued.length, 2);
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+});
+
+test('Copilot native shutdown retries a failed session-end write', async (t) => {
+  const failure = new Error('fixture native session-end write refused');
+  const host = await interactive(t, [failure]);
+  await verificationAttempt(host, 0);
+  await host.emit('session.idle');
+  const enqueue = host.ports.reports.enqueue;
+  let writable = false;
+  host.ports.reports.enqueue = async (...args) => {
+    if (!writable) throw failure;
+    return enqueue(...args);
+  };
+  await host.end();
+  assert.notEqual(Object.values(await host.candidates())[0].closed, true);
+  writable = true;
+  await host.emit('session.shutdown');
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+  assert.equal(host.queued.length, 2);
+});
+
+test('Copilot fences stale native terminal events when the SDK supplies a Date prompt timestamp', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0, { timestamp: new Date() });
+  for (const type of ['session.idle', 'abort', 'session.shutdown']) {
+    await host.emit(type, {}, { type, id: randomUUID(), timestamp: '2026-01-01T00:00:00Z', data: {} });
+  }
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, true);
+  assert.deepEqual(host.queued, []);
+  assert.deepEqual(await host.candidates(), {});
+  await host.emit('session.idle');
+  assert.equal(host.queued.length, 2, 'a current native idle still settles the valid check');
+});
+
+test('Copilot rejects stale shutdown even after its current turn has settled', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  await host.emit('session.idle');
+  await host.emit('session.shutdown', {}, { type: 'session.shutdown', id: randomUUID(), timestamp: '2026-01-01T00:00:00Z', data: {} });
+  assert.match(await host.transform(PROMPT), /\[Evolution Memory\]/);
+  assert.equal(host.requests.filter(({ path }) => path === '/recipe/search').length, 2);
+});
+
+test('Copilot cannot settle a verified turn from a missing or malformed terminal timestamp', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  for (const type of ['session.idle', 'abort', 'session.shutdown']) {
+    for (const timestamp of [undefined, 'invalid timestamp', 42]) {
+      await host.emit(type, {}, { type, id: randomUUID(), timestamp, data: {} });
+    }
+  }
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, true);
+  assert.deepEqual(host.queued, []);
+  assert.deepEqual(await host.candidates(), {});
+  await host.emit('abort', { reason: 'user' });
+  await host.emit('session.idle', { aborted: true });
+  assert.deepEqual(host.queued, []);
+  assert.deepEqual(await host.candidates(), {});
+});
+
+test('a Copilot session-end hook explicitly naming another session cannot close the current turn', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0);
+  await host.end({ sessionId: 'another-session' });
+  await host.end({}, { sessionId: 'another-session' });
+  assert.equal((await host.ports.sessions.read(host.sessionId)).open, true);
+  assert.deepEqual(host.queued, []);
+  assert.deepEqual(await host.candidates(), {});
+  await host.emit('session.idle');
+  assert.equal(host.queued.length, 2);
+});
+
+test('Copilot rejects invalid prompt timestamps without creating a session turn', async (t) => {
+  const host = await interactive(t);
+  for (const timestamp of [NaN, new Date(NaN)]) assert.equal(await host.transform(PROMPT, { timestamp }), PROMPT);
+  assert.equal(host.requests.filter(({ path }) => path === '/recipe/search').length, 0);
+  assert.match(await host.transform(PROMPT, { timestamp: new Date() }), /\[Evolution Memory\] Recipe:/);
+});
+
+test('Copilot default persistence diagnostics never include the thrown private error text', async (t) => {
+  const { ports } = memoryPorts({ recipes: [RECIPE], stepAssets: RECIPE_STEPS });
+  const update = ports.sessions.update;
+  let first = true, hooks, diagnostic = '';
+  ports.sessions.update = async (...args) => {
+    if (first) { first = false; throw new Error('opaqueFixtureDiagnosticSecret'); }
+    return update(...args);
+  };
+  t.mock.method(process.stderr, 'write', (text) => { diagnostic += text; return true; });
+  const sessionId = randomUUID(), workingDirectory = tmpdir();
+  const attached = await connectCopilot(async (registration) => {
+    hooks = registration.hooks;
+    return { sessionId, on: () => () => {} };
+  }, { env: { HOME: workingDirectory, USERPROFILE: workingDirectory, EVOLVER_AUTO_DISTILL: 'off' }, overrides: ports });
+  t.after(() => attached.close());
+  await hooks.onUserPromptTransformed({ sessionId, workingDirectory, prompt: PROMPT, transformedPrompt: PROMPT, timestamp: Date.now() });
+  assert.match(diagnostic, /Evolver.*Copilot.*unconfirmed/);
+  assert.doesNotMatch(diagnostic, /opaqueFixtureDiagnosticSecret/);
 });
 
 test('an old Copilot idle stays stale after its ID leaves the deduplication window', async (t) => {
