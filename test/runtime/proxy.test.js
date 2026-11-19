@@ -33,6 +33,16 @@ test('Proxy redirects cannot forward a request body to a different origin', asyn
   assert.equal(result.ok, false);
 });
 
+test('a timeout in fractional milliseconds, as a wait measured from the process start has, still reaches the Proxy', async (t) => {
+  const port = await listen(t, (request, response) => {
+    request.resume();
+    response.end('{"assets":[]}');
+  });
+  const proxyFetch = proxyFetchOf({ EVOMAP_PROXY_PORT: String(port), HOME: import.meta.dirname });
+  const result = await proxyFetch('POST', '/asset/fetch', {}, { timeoutMs: 5_234.567 });
+  assert.equal(result.ok, true, result.error);
+});
+
 test('only an authenticated Proxy matching the Desktop lifecycle receipt receives the request', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'evolver-proxy-version-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));

@@ -227,6 +227,9 @@ test('a hook waits what is left of its budget, never less than a floor', () => {
   assert.equal(waitBudgetOf({ prompt: 660_000 }, 'prompt', { startedAt: 0, now: 0 }), 6_000);
   assert.equal(waitBudgetOf({ prompt: 1_000 }, 'prompt', { startedAt: 0, now: 0 }), 500);
   assert.equal(waitBudgetOf({}, 'prompt', { lifetime: 'resident' }), 6_000);
+  assert.equal(waitBudgetOf({ prompt: 12_000, recallWait: 10_000 }, 'prompt', { startedAt: 0, now: 500 }), 10_000);
+  assert.equal(waitBudgetOf({ prompt: 8_000, recallWait: 10_000 }, 'prompt', { startedAt: 0, now: 500 }), 6_000);
+  assert.equal(waitBudgetOf({ prompt: 660_000, recallWait: 10_000 }, 'prompt', { startedAt: 0, now: 0 }), 10_000);
 });
 
 test('a session end waits for the last turn\'s end only as long as the host\'s session-end budget leaves', () => {
