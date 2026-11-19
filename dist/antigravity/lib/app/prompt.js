@@ -124,7 +124,8 @@ async function recalled(ports, sessionId, { turn, prompt, projectDir, waitMs, ke
   const session = sessionOf(await ports.sessions.read(sessionId));
   const listedIds = listedIdsOf(session);
   const context = session.task ? { task: session.task, trigger: 'turn_start' } : null;
-  const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy);
+  // Without a late answer the wait cancels every request when it ends anyway, so a request may run for all of it.
+  const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy, { timeoutMs: keepLate ? 0 : waitMs });
   const recipeCutoff = ports.clock.sleep(waitMs > 0 ? Math.max(0, waitMs - RECIPE_MARGIN_MS) : LATE_RECIPE_WAIT_MS, signal);
   const onWithheld = rememberWithheld(ports, sessionId, turn);
   const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { context, projectDir, listedIds, onWithheld, closingOf: () => CLOSING, recipeCutoff });

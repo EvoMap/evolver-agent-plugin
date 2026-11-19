@@ -277,7 +277,7 @@ export function fileStoresOf({ dir, agent }) {
     reports,
     outbox,
     retention,
-    engineState: tableStore(file('engine'), null),
+    engineState: { ...tableStore(file('engine'), null), readNow: () => readState(file('engine'), null) },
     engineAnnounced: tableStore(file('engine-announced'), {}),
     engineLock: file('engine', 'lock'),
     agentRelease: file('agent-release'),

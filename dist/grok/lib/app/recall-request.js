@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-export function recallRequestOf(proxy) {
+export function recallRequestOf(proxy, { timeoutMs } = {}) {
   const controller = new AbortController();
   const { signal } = controller;
   const pending = new Set();
@@ -16,7 +16,7 @@ export function recallRequestOf(proxy) {
       const request = new AbortController();
       pending.add(request);
       try {
-        return await proxy.request(method, path, body, { signal: request.signal });
+        return await proxy.request(method, path, body, { signal: request.signal, ...(timeoutMs > 0 ? { timeoutMs } : {}) });
       } finally {
         pending.delete(request);
       }

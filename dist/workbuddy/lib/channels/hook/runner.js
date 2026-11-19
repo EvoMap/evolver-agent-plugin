@@ -3,6 +3,7 @@
 
 import { runBackgroundTasks } from '../../app/background.js';
 import { createDriver } from '../../agent/driver.js';
+import { EVENTS } from '../../agent/events.js';
 import { profileNamed } from '../../agent/registry.js';
 import { EPHEMERAL, environmentFor } from '../../runtime/environment.js';
 import { isHeadlessRun } from '../../runtime/headless.js';
@@ -10,8 +11,10 @@ import { exitProcess } from '../../runtime/process/exit.js';
 import { transcripts } from '../../runtime/transcripts.js';
 import { readPayload } from './stdin.js';
 
+const WORKER_FAILURE = 'Evolver could not confirm that the Windows background worker started. Check whether Windows PowerShell is available and allowed. Pending work is retried in the next session.';
+
 /**
- * One command-hook invocation: the host's payload on stdin, the agent's answer as JSON on stdout, exit 0. Inside
+ * One command-hook invocation: the host's payload on stdin and the agent's answer as JSON on stdout. Inside
  * this plugin's own headless distillation the hook answers the agent's empty reply and does nothing else.
  * `startedAt` is when the host's clock on the hook began: the hook process passes its own start, so Node's start and
  * the imports count against the budget.
@@ -23,7 +26,10 @@ export async function runHookProcess(agent, hostEvent, { stdin = process.stdin, 
   if (!profile) return write({});
   const payload = await readPayload(stdin);
   if (isHeadlessRun(env)) return write(profile.reply.empty(hostEvent));
-  const { ports } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: runBackgroundTasks });
+  let workerLaunchFailed = false;
+  const { ports } = environmentFor({ profile, env, lifetime: EPHEMERAL, runBackground: runBackgroundTasks,
+    onWorkerLaunchFailure: () => { workerLaunchFailed = true; },
+  });
   const driver = createDriver({ profile, ports, transcripts, env, lifetime: EPHEMERAL, startedAt });
   let diagnostic;
   const answer = await driver.handle(hostEvent, payload, {
@@ -33,6 +39,11 @@ export async function runHookProcess(agent, hostEvent, { stdin = process.stdin, 
       }
     },
   });
-  if (diagnostic) return stderr.write(diagnostic, () => write(answer));
-  return write(answer);
+  // The host discards successful SessionEnd output, so use stderr and a nonzero exit to surface the failure.
+  if (workerLaunchFailed && profile.events[hostEvent] === EVENTS.SESSION_END) {
+    return stderr.write(`${diagnostic ?? ''}${WORKER_FAILURE}\n`, () => finish(1));
+  }
+  const reply = workerLaunchFailed ? { ...answer, systemMessage: [answer?.systemMessage, WORKER_FAILURE].filter(Boolean).join('\n') } : answer;
+  if (diagnostic) return stderr.write(diagnostic, () => write(reply));
+  return write(reply);
 }

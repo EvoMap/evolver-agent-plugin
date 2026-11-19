@@ -1,6 +1,6 @@
 {
   "name": "evolver-plugin",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Evolver recall, evidence-backed reuse reports and verified-turn drafts for Kimi Code.",
   "repository": "https://github.com/EvoMap/evolver-agent-plugin",
   "license": "MIT",

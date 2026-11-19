@@ -6,18 +6,19 @@
 const ANSWER_MARGIN_MS = 1_500;
 const MIN_WAIT_MS = 500;
 // A recall slower than this rarely lands at all (the Hub's text recall takes 3–11 s and sometimes times out), and
-// the person's prompt waits on it.
+// the person's prompt waits on it. A host whose Recipes need longer to land raises it with `budgets.recallWait`.
 const MAX_RECALL_WAIT_MS = 6_000;
 
 /**
- * Milliseconds a recall may wait: what the agent's budget for `event` leaves, at most MAX_RECALL_WAIT_MS. A resident
- * process starts no clock of its own, so its budget is the wait itself.
+ * Milliseconds a recall may wait: what the agent's budget for `event` leaves, at most `budgets.recallWait` (default
+ * MAX_RECALL_WAIT_MS). A resident process starts no clock of its own, so its budget is the wait itself.
  */
 export function waitBudgetOf(budgets, event, { lifetime, startedAt = Date.now(), now = Date.now() } = {}) {
   const budget = budgets?.[event];
-  if (lifetime === 'resident') return Math.min(MAX_RECALL_WAIT_MS, budget ?? MAX_RECALL_WAIT_MS);
+  const ceiling = budgets?.recallWait ?? MAX_RECALL_WAIT_MS;
+  if (lifetime === 'resident') return Math.min(ceiling, budget ?? ceiling);
   if (!Number.isFinite(budget)) return MIN_WAIT_MS;
-  return Math.min(MAX_RECALL_WAIT_MS, Math.max(MIN_WAIT_MS, budget - ANSWER_MARGIN_MS - (now - startedAt)));
+  return Math.min(ceiling, Math.max(MIN_WAIT_MS, budget - ANSWER_MARGIN_MS - (now - startedAt)));
 }
 
 // What a session-end hook needs besides its wait: what its process clock misses before `performance.timeOrigin`, then

@@ -9,6 +9,8 @@ import { PROMPT, requestsTo, stepHost, until } from './host.js';
 
 const assistant = (text, stopReason = 'stop') => ({ role: 'assistant', content: [{ type: 'text', text }], stopReason });
 
+const LEDGER_WAIT_MS = 40_000;
+
 test('packed Step fixtures record locally without global npm and keep successive profiles isolated', async t => {
   const outside = mkdtempSync(join(tmpdir(), 'evolver-step-outside-'));
   const previous = { EVOLVER_HOME: process.env.EVOLVER_HOME, EVOMAP_HOME: process.env.EVOMAP_HOME };
@@ -34,7 +36,8 @@ test('packed Step fixtures record locally without global npm and keep successive
     // lines the writer has finished.
     const reuseHits = () => (existsSync(ledger) ? readFileSync(ledger, 'utf8').split('\n').slice(0, -1).filter(Boolean) : [])
       .map(JSON.parse).filter(({ type }) => type === 'value.reuse_hit');
-    await until(() => reuseHits().length === 2, 'the local ledger records both Recipe steps');
+    // The ledger thread loads evolver-core cold before its first write, which took over 10 s on a loaded CI runner.
+    await until(() => reuseHits().length === 2, 'the local ledger records both Recipe steps', LEDGER_WAIT_MS);
     await host.shutdown();
     assert.deepEqual(reuseHits().map(({ payload }) => payload), [
       { assetId: 'sha256:step1', cycleId: 'native-step-session', platform: 'stepcode', taskId: 'stepcode:native-step-session:1', tier: 'L1', stage: 'immediate' },

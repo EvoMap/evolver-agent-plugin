@@ -40,8 +40,12 @@ function waiterOf(waiterFile) {
  * A wake-up is such a worker that first sleeps until its time (`--at=<ms>`): one per agent and state folder, kept in
  * `waiterFile` as `{ pid, startedAt, at }`, and started again only for an earlier time or once that one is gone.
  */
-export function detachedScheduler(agent, env, waiterFile, { windowsIdentity = false } = {}) {
-  const start = (args) => startDetached(nodeExecutable(), [WORKER, agent, ...args], { env });
+export function detachedScheduler(agent, env, waiterFile, { windowsIdentity = false, isolateWindowsHandles = false, onLaunchFailure } = {}) {
+  const start = (args) => {
+    const pid = startDetached(nodeExecutable(), [WORKER, agent, ...args], { env, isolateWindowsHandles });
+    if (!pid && isolateWindowsHandles && process.platform === 'win32') onLaunchFailure?.();
+    return pid;
+  };
   return {
     schedule: (tasks) => {
       if (tasks.length > 0) start(tasks);

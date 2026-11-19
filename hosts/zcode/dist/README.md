@@ -11,14 +11,16 @@ Use the CLI shipped with ZCode Desktop, or follow the [ZCode CLI build guide](ht
 
 To run the CLI shipped with macOS Desktop from a terminal, set `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` to the absolute path of `Contents/Resources/config/provider/zcode-builtin.json` inside the same app, for example `/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json`. A relative path is ignored.
 
-Install the plugin from the packed folder:
+Install the plugin from the EvoMap marketplace. ZCode reads it from GitHub and installs `dist/zcode` from the `release` branch, so `plugins update` follows each release:
 
 ```sh
-node <absolute-zcode.cjs> plugins marketplace add <absolute-dist/zcode>
-node <absolute-zcode.cjs> plugins install evolver-plugin@evolver-zcode-local --scope user
+node <absolute-zcode.cjs> plugins marketplace add https://raw.githubusercontent.com/EvoMap/evolver-agent-plugin/main/.zcode-plugin/marketplace.json
+node <absolute-zcode.cjs> plugins install evolver-plugin@evomap --scope user
 ```
 
-You can also append the absolute path of `dist/zcode` to `plugins.dirs` in `~/.zcode/cli/config.json`. Either way, set `plugins.enabled` and `hooks.enabled` to `true`, then start a new CLI session. Check the bundle with `node <absolute-zcode.cjs> plugins validate <absolute-plugin-folder> --json`.
+The manifest has its own URL because ZCode reads a repository's `.claude-plugin/marketplace.json` before any other, which here lists the Claude Code bundle.
+
+To run a local build instead, add the packed folder (`plugins marketplace add <absolute-dist/zcode>`, then install `evolver-plugin@evolver-zcode-local`) or append its absolute path to `plugins.dirs` in `~/.zcode/cli/config.json`. Install only one of the two: both load the same hooks, so each prompt would be recalled and reported twice. Either way, set `plugins.enabled` and `hooks.enabled` to `true`, then start a new CLI session. Check the bundle with `node <absolute-zcode.cjs> plugins validate <absolute-plugin-folder> --json`.
 
 Recipe recall runs in the prompt hook. The adapter observes foreground Bash calls and matches them to their native session and turn IDs. Reuse reports and candidates require an authoritative completion record from the same ZCode profile and fully resolved verification evidence. Cancelled or unconfirmed turns do not produce either. If the installed ZCode build does not expose a compatible read-only `turn_usage` record, recall still works.
 
@@ -35,7 +37,7 @@ Windows fixtures cover the standalone layout and protocol. Native model and Prox
 
 ## Desktop
 
-In Settings → Plugins, add the absolute `dist/zcode` folder as a local marketplace. The packed `marketplace.json` registers `evolver-zcode-local`. Install `evolver-plugin` from it, enable the plugin and hooks, and start a new session. Desktop and CLI use the same hook adapter and package.
+In Settings → Plugins, add the marketplace URL `https://raw.githubusercontent.com/EvoMap/evolver-agent-plugin/main/.zcode-plugin/marketplace.json`, which registers `evomap`. Install `evolver-plugin` from it, enable the plugin and hooks, and start a new session. A local build works the same way from the absolute `dist/zcode` folder, which registers `evolver-zcode-local`. Desktop and CLI use the same hook adapter and package.
 
 With `ZCODE_CLI_PATH` unset, distillation runs the CLI that Desktop ships, at the paths listed above. On macOS it tries `~/Applications` before `/Applications`. An explicit CLI path takes precedence. A nonempty invalid path blocks distillation. Set `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` to the provider configuration used by Desktop at runtime, typically under `.zcode/v2/runtime/provider/`. For a terminal distill command, also point `ZCODE_PLUGIN_DATA` to the active plugin data folder and use the same personal provider configuration as Desktop.
 

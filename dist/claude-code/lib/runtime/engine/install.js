@@ -5,8 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { nodeExecutable } from '../process/node.js';
+import { desktopHomeOf } from './desktop.js';
 import { runProcess } from '../process/spawn.js';
-import { runningProxy } from '../proxy.js';
+import { desktopProxyMayStart, runningProxy } from '../proxy.js';
 import { versionOf } from '../../engine/version.js';
 
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -30,8 +31,20 @@ function run(command, args, { timeoutMs, env, shim = false }) {
 // Evolver's first start otherwise migrates itself to a standalone binary and
 // registers a launchd/systemd/scheduled-task service, which a plugin must not
 // do on the person's behalf; an explicit setting of theirs still wins.
-function lifecycleEnv(clientEnv) {
-  return { ...process.env, ...clientEnv(), EVOLVER_SELF_UPDATE: process.env.EVOLVER_SELF_UPDATE || 'off' };
+function lifecycleEnv(clientEnv, env = process.env) {
+  return { ...env, ...clientEnv(), EVOLVER_SELF_UPDATE: env.EVOLVER_SELF_UPDATE || 'off' };
+}
+
+function overridesDesktopLaunch(env) {
+  if (env.EVOLVER_LIFECYCLE_COMMAND?.trim() || env.EVOLVER_SELF_UPDATE_TARGET_PATH?.trim()) return true;
+  const file = env.EVOLVER_ENV_FILE?.trim();
+  if (!file) return false;
+  try {
+    const input = fs.readFileSync(path.resolve(desktopHomeOf(env), file.startsWith('~/') ? file.slice(2) : file), 'utf8');
+    return /^\s*(?:export\s+)?EVOLVER_(?:HOME|LIFECYCLE_[A-Z_]+|SELF_UPDATE[A-Z_]*|PROXY_SETTINGS_FILE|SETTINGS_DIR)\s*=|^\s*(?:export\s+)?EVOMAP_HOME\s*=/m.test(input);
+  } catch {
+    return true;
+  }
 }
 
 function bundledNpmCli() {
@@ -80,25 +93,39 @@ async function pathEngine(clientEnv = () => ({})) {
   };
 }
 
-async function waitForProxy(deadlineMs, isWanted) {
+async function waitForProxy(inspectProxy, deadlineMs, isWanted) {
   const deadline = Date.now() + deadlineMs;
   let seen = null;
   while (Date.now() < deadline) {
-    seen = await runningProxy();
+    seen = await inspectProxy();
     if (seen && isWanted(seen)) return seen;
     await new Promise((resolve) => setTimeout(resolve, PROXY_POLL_MS));
   }
   return seen;
 }
 
-export function engineRuntime({ prefix, clientEnv = () => ({}), npm = defaultNpmCommand(), proxyWaitMs = PROXY_WAIT_MS } = {}) {
+export function engineRuntime({ prefix, env = process.env, clientEnv = () => ({}), desktopEngine, inspectProxy = runningProxy, npm = defaultNpmCommand(), proxyWaitMs = PROXY_WAIT_MS } = {}) {
   return {
     nodeVersion: process.versions.node,
     now: () => Date.now(),
+    desktopEngine,
+    runDesktop: ({ command, args: base, version }, args) => {
+      const startEnv = lifecycleEnv(clientEnv, env);
+      if (overridesDesktopLaunch(startEnv)) return { ok: false, error: 'The Evolver lifecycle configuration overrides the Desktop installation. Review the configured command, paths and environment file.' };
+      if (!desktopProxyMayStart(startEnv)) return { ok: false, error: 'An existing Evolver process could not be verified. Stop it before starting the Desktop installation.' };
+      // The cold-start probe can race another launcher. Never let lifecycle start stop an unhealthy daemon.
+      startEnv.EVOLVER_LIFECYCLE_REQUIRE_PROXY_STATUS = '0';
+      const current = desktopEngine?.();
+      if (!current || current.version !== version || current.command !== command ||
+          current.args.length !== base.length || base.some((arg, index) => arg !== current.args[index])) {
+        return { ok: false, error: 'The EvoMap Desktop installation changed. Start a new session to use the selected installation.' };
+      }
+      return run(command, [...base, ...args], { timeoutMs: LIFECYCLE_TIMEOUT_MS, env: startEnv });
+    },
     managedEngine: async () => managedEngineAt(prefix, clientEnv),
     pathEngine: () => pathEngine(clientEnv),
-    runningProxy,
-    waitForProxy: (isWanted = () => true) => waitForProxy(proxyWaitMs, isWanted),
+    runningProxy: inspectProxy,
+    waitForProxy: (isWanted = () => true) => waitForProxy(inspectProxy, proxyWaitMs, isWanted),
     installLatest: () => {
       fs.mkdirSync(prefix, { recursive: true });
       const args = [...npm.args, 'install', '--prefix', prefix, '--no-audit', '--no-fund', '--loglevel=error', `${PACKAGE}@latest`];

@@ -61,7 +61,8 @@ export default defineProfile({
       ), 'pending') AS status`,
     },
   },
-  budgets: { prompt: 8_000 },
+  // Recipes need a second Proxy round trip for their steps; at 6 s they missed most ZCode turns, at 10 s most land.
+  budgets: { prompt: 12_000, recallWait: 10_000 },
   owner: 'spawner',
   stateDir: (env) => isAbsolute(env.ZCODE_PLUGIN_DATA || '') ? env.ZCODE_PLUGIN_DATA : join(homeOf(env), '.zcode', 'cli', 'evolver-plugin'),
 });

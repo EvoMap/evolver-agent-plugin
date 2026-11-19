@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { headlessEnv } from '../headless.js';
+import { startWithoutInheritedHandles } from './windows-worker.js';
 
 // The one place this plugin starts a process: every platform difference (Windows .cmd shims, argument quoting,
 // killing a whole process tree) and every lifecycle rule (timeout, cancellation, the headless marker) lives here.
@@ -30,9 +31,10 @@ const TASKKILL_DIR = IS_WINDOWS ? SYSTEM32 ?? windowsSystemDirectory() : null;
 // arguments, so each argument is quoted for the C runtime and its cmd metacharacters are caret-escaped twice.
 const CMD_METACHARACTERS = /([()\][%!^"`<>&|;, *?])/g;
 
+const windowsArgument = (arg) => `"${String(arg).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+
 export function cmdArgument(arg) {
-  const quoted = `"${String(arg).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
-  return quoted.replace(CMD_METACHARACTERS, '^$1').replace(CMD_METACHARACTERS, '^$1');
+  return windowsArgument(arg).replace(CMD_METACHARACTERS, '^$1').replace(CMD_METACHARACTERS, '^$1');
 }
 
 const cmdLine = (command, args) => [String(command).replace(CMD_METACHARACTERS, '^$1'), ...args.map(cmdArgument)].join(' ');
@@ -124,7 +126,10 @@ export function runProcess(command, args = [], { input, closeInputOn, env = proc
 }
 
 /** Starts a process that outlives this one, detached and silent; answers its pid, undefined when it did not start. */
-export function startDetached(command, args, { env = process.env, cwd = os.homedir() } = {}) {
+export function startDetached(command, args, { env = process.env, cwd = os.homedir(), isolateWindowsHandles = false } = {}) {
+  if (IS_WINDOWS && isolateWindowsHandles) {
+    return startWithoutInheritedHandles(windowsSystemDirectory() ?? SYSTEM32, command, [command, ...args].map(windowsArgument).join(' '), { env, cwd });
+  }
   const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true, cwd, env });
   child.on('error', () => {});
   child.unref();

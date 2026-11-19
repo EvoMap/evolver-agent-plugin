@@ -168,12 +168,13 @@ injections, undelivered reports), so nothing is lost on the way over.
   `evolver-jobs`, `evolver-jobs job <id>` or `evolver-jobs cancel <id>` to inspect or cancel them.
   [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
   configuration copies and recovery when a host exits without `SessionEnd`.
-- **ZCode CLI on Windows and macOS:** build `dist/zcode` with `npm run pack`, then add it as a local marketplace and
-  install `evolver-plugin` from it, or add the folder to the CLI's `plugins.dirs`. Enable plugins and hooks, then
+- **ZCode CLI on Windows and macOS:** add the marketplace
+  `https://raw.githubusercontent.com/EvoMap/evolver-agent-plugin/main/.zcode-plugin/marketplace.json` with
+  `plugins marketplace add`, then `plugins install evolver-plugin@evomap --scope user`. Enable plugins and hooks, then
   start a new session. The [ZCode adapter guide](hosts/zcode/dist/README.md) covers native verification and private
   distillation with a standalone CLI bundle.
-- **ZCode Desktop on Windows and macOS:** add the packed `dist/zcode` folder as a local marketplace in Settings → Plugins.
-  Install and enable `evolver-plugin` from that marketplace, then start a new session.
+- **ZCode Desktop on Windows and macOS:** add the same marketplace URL in Settings → Plugins, install and enable
+  `evolver-plugin`, then start a new session.
 - **Step Code CLI 0.1.7 on Windows and macOS (draft):** build `dist/stepcode` with `npm run pack`, then run
   `step install ./dist/stepcode` and start a new session. This uses Step's native extension interface.
   Read the [Step Code adapter guide](hosts/stepcode/dist/README.md) for foreground verification requirements
