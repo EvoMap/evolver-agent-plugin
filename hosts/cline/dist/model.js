@@ -12,6 +12,7 @@ const PROVIDER = 'openai-compatible';
 const MAX_CONFIG = 1024 * 1024;
 const MAX_REPLY = 1024 * 1024;
 const MAX_TOKENS = 2_048;
+const LAUNCH_PROBE_COOLDOWN_MS = 30_000;
 const identityOf = ({ dev, ino, size, mtimeNs, ctimeNs }) => [dev, ino, size, mtimeNs, ctimeNs].join(':');
 const unavailable = (reason) => Object.assign(new Error('The Cline model route is unavailable'), { code: 'MODEL_UNAVAILABLE', reason });
 
@@ -97,15 +98,19 @@ async function responseBody(response) {
 }
 
 /** The opaque binding is usable only by this live hook sandbox and is never an API key or a URL. */
-export function createClineModel({ env = process.env, startedAt = clineStartTime } = {}) {
+export function createClineModel({ env = process.env, startedAt = clineStartTime, now = () => performance.now() } = {}) {
   const secret = randomBytes(32);
   let boot;
-  let timeouts = 0;
+  let timedOut = false;
+  let probeAfter = 0;
   function readRoute() {
     if (env.CLINE_SESSION_BACKEND_MODE !== 'local' || !env.CLINE_PROVIDER_SETTINGS_PATH) return null;
-    if (boot === undefined) {
+    if (boot === undefined && now() >= probeAfter) {
       boot = startedAt();
-      if (boot === undefined && ++timeouts === 2) boot = null;
+      if (boot === undefined) {
+        if (timedOut) probeAfter = now() + LAUNCH_PROBE_COOLDOWN_MS;
+        timedOut = true;
+      }
     }
     const route = boot && savedRoute(env, boot);
     if (!route) return null;

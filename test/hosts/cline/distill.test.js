@@ -114,6 +114,34 @@ test('Cline retries one launch probe timeout and keeps a rejected launch unavail
   assert.deepEqual(server.requests, []);
 });
 
+test('Cline can recover after repeated launch probe timeouts without probing every hook', async t => {
+  const server = await endpoint(t, completion);
+  const { env, processStart } = clineFixture(t, server.url);
+  let clock = 0;
+  let probes = 0;
+  const model = createClineModel({
+    env, now: () => clock, startedAt: () => ++probes <= 3 ? undefined : processStart,
+  });
+
+  assert.equal(model.capture(), null);
+  assert.equal(model.capture(), null);
+  clock += 29_999;
+  assert.equal(model.capture(), null);
+  assert.equal(probes, 2);
+  clock++;
+  assert.equal(model.capture(), null);
+  assert.equal(probes, 3, 'the probe runs again after the cooldown');
+  assert.equal(model.capture(), null);
+  assert.equal(probes, 3, 'another timeout starts a new cooldown');
+  clock += 30_000;
+  const route = model.capture();
+  assert.equal(route?.selection.modelId, modelId);
+  assert.deepEqual(model.capture(), route);
+  assert.equal(probes, 4);
+  assert.deepEqual(server.requests, []);
+  assert.equal((await model.complete(route, prompt, AbortSignal.timeout(2_000))).answer, answer);
+});
+
 test('Cline refuses changed model or credentials before sending the distillation prompt', async t => {
   const server = await endpoint(t, completion);
   const { model, writeSettings } = clineFixture(t, server.url);
