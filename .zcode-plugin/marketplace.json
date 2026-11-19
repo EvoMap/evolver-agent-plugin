@@ -1,0 +1,37 @@
+{
+  "name": "evomap",
+  "description": "EvoMap plugin marketplace for ZCode.",
+  "owner": {
+    "name": "EvoMap",
+    "email": "team@evomap.ai",
+    "url": "https://evomap.ai"
+  },
+  "plugins": [
+    {
+      "name": "evolver-plugin",
+      "description": "Evolver for ZCode CLI and Desktop: recalls a proven strategy for each prompt, reports how it was reused with the checks the turn ran, and distills verified work into drafts, all from hooks, with no tools in the model's context.",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/EvoMap/evolver-agent-plugin.git",
+        "path": "dist/zcode",
+        "ref": "release"
+      },
+      "author": {
+        "name": "EvoMap",
+        "email": "team@evomap.ai",
+        "url": "https://evomap.ai"
+      },
+      "homepage": "https://evomap.ai",
+      "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "evolver",
+        "evomap",
+        "gep",
+        "agent-evolution",
+        "zcode"
+      ]
+    }
+  ]
+}
