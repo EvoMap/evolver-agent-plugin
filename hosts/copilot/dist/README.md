@@ -21,7 +21,8 @@ On first use, Copilot asks whether Evolver can register hooks. Review the reques
 to enable recall and verification.
 
 Run a foreground test, build, lint or type check in a separate native shell call. The adapter pairs native
-shell events and reads their structured exit codes. It waits for the live SDK `session.idle` event
+shell events and reads their structured exit codes. The executed shell tool and command must match the model's
+original request; turns whose commands were rewritten by pre-tool hooks are not verified. It waits for the live SDK `session.idle` event
 before reporting verified work. Ctrl-C after a passing check, including while work requested by a competing Stop
 hook runs, leaves no reuse report or candidate for the cancelled interaction.
 

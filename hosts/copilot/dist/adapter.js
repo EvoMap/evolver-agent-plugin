@@ -35,8 +35,13 @@ function toolStarted(turn, event) {
   const { data, parentId } = event;
   const command = data.arguments?.command;
   if (!SHELLS.has(data.toolName)) return;
-  if (!turn.step?.requests?.has(data.toolCallId) || parentId !== turn.step.messageEventId || data.turnId !== turn.step.id) {
+  const request = turn.step?.requests?.get(data.toolCallId);
+  if (!request || parentId !== turn.step.messageEventId || data.turnId !== turn.step.id) {
     if (isVerificationCommand(command)) turn.incomplete = true;
+    return;
+  }
+  if (request.name !== data.toolName || request.command !== command) {
+    turn.incomplete = true;
     return;
   }
   if (!id(data.toolCallId) || typeof command !== 'string' || !command.trim() || command.length > 4000
@@ -51,22 +56,33 @@ function toolCompleted(turn, data) {
   const call = turn.calls.get(data.toolCallId);
   if (!call) return;
   if (call.step.id !== data.turnId || call.step.interactionId !== data.interactionId) return;
+  if (call.completed) { turn.incomplete = true; return; }
+  call.completed = true;
   const exit = data.shellExecution?.exitCode;
   const telemetry = data.toolTelemetry?.properties;
   if (Number.isSafeInteger(exit) && telemetry?.executionMode === 'sync' && telemetry.detached === 'false') {
-    if (call.exit !== undefined) turn.incomplete = true;
     call.exit = exit;
     call.output = withoutSecrets(data.result?.content).slice(-2000);
   }
 }
 
 function recordRequests(turn, requests) {
-  turn.step.requests = new Set();
+  turn.step.requests = new Map();
   for (const request of requests) {
     const callId = id(request?.toolCallId);
-    if (callId) turn.step.requests.add(callId);
-    if (!SHELLS.has(request?.name) || !isVerificationCommand(request.arguments?.command)) continue;
-    if (!callId || turn.expectedChecks.has(callId) || turn.expectedChecks.size >= MAX_CALLS) {
+    if (!callId || turn.step.requests.has(callId) || turn.step.requests.size >= MAX_CALLS) {
+      turn.incomplete = true;
+      continue;
+    }
+    if (!SHELLS.has(request?.name)) { turn.step.requests.set(callId, { name: null }); continue; }
+    const command = request.arguments?.command;
+    if (typeof command !== 'string' || !command.trim() || command.length > 4000) {
+      turn.incomplete = true;
+      continue;
+    }
+    turn.step.requests.set(callId, { name: request.name, command });
+    if (!isVerificationCommand(command)) continue;
+    if (turn.expectedChecks.has(callId) || turn.expectedChecks.size >= MAX_CALLS) {
       turn.incomplete = true;
       continue;
     }

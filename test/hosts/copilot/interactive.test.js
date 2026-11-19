@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { connectCopilot } from '../../../hosts/copilot/dist/adapter.js';
+import profile from '../../../hosts/copilot/profile.js';
 import { irPromptOf } from '../../../lib/distill/ir-prompt.js';
 import { memoryPorts, PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
 
@@ -83,7 +84,8 @@ async function interactive(t, expectedErrors = []) {
 }
 
 async function verificationAttempt(host, exit, { followUp, startFollowUp = false, followUpExit, check = command,
-  output = 'Fixture shell output reports exit code 0.', timestamp = Date.now() } = {}) {
+  output = 'Fixture shell output reports exit code 0.', timestamp = Date.now(), requestedTool = 'powershell', requestedCommand = check,
+  duplicateCompletion, replayCompletion = false, requestExtras = [] } = {}) {
   const transformedContent = await host.transform(PROMPT, { timestamp });
   assert.ok(transformedContent.includes(recipeMarker), 'the SDK hook passes the Recipe to the model');
   const interactionId = randomUUID(), messageId = randomUUID();
@@ -92,12 +94,17 @@ async function verificationAttempt(host, exit, { followUp, startFollowUp = false
   await host.emit('user.message', { content: PROMPT, transformedContent, interactionId, messageId, turnId: '0' });
   await host.emit('assistant.turn_start', testTurn);
   await host.emit('assistant.message', { ...testTurn, originatingMessageId: messageId, content: '',
-    toolRequests: [{ toolCallId: call.toolCallId, name: call.toolName, arguments: call.arguments }] });
+    toolRequests: [{ toolCallId: call.toolCallId, name: requestedTool, arguments: { command: requestedCommand } }, ...requestExtras] });
   await host.emit('tool.execution_start', { ...call, turnId: '0' });
-  await host.emit('tool.execution_complete', {
+  const completed = {
     ...testTurn, toolCallId: call.toolCallId, success: true, shellExecution: { exitCode: exit },
     toolTelemetry: { properties: { detached: 'false', executionMode: 'sync' } },
     result: { content: output },
+  };
+  const receipt = await host.emit('tool.execution_complete', completed);
+  if (replayCompletion) await host.emit(receipt.type, receipt.data, receipt);
+  if (duplicateCompletion) await host.emit('tool.execution_complete', {
+    ...completed, shellExecution: { exitCode: duplicateCompletion.exit }, result: { content: duplicateCompletion.output },
   });
   await host.emit('assistant.turn_end', { turnId: '0' });
   if (followUp) {
@@ -190,6 +197,59 @@ test('only a completed Copilot session.idle reports the passing check and saves 
   await host.emit('session.idle', { mode: 'interactive' }, settlement);
   assert.deepEqual(outcomes(), expected, 'replaying idle adds no report');
   assert.deepEqual((await host.candidate()).steps.map(({ kind, command, exit }) => [kind, command, exit]), [['check', command, 0]]);
+});
+
+test('Copilot cannot verify an execution whose tool name or command differs from its request', async (t) => {
+  for (const mismatch of [{ requestedTool: 'read_file' }, { requestedTool: 'bash' }, { requestedCommand: 'node fixture-hold.cjs' }, {
+    requestedCommand: 'curl -H Cookie:sid=opaqueRequested https://example.test && npm test',
+    check: 'curl -H Cookie:sid=opaqueExecuted https://example.test && npm test', output: '# pass 3\n# fail 0',
+  }]) {
+    await t.test(JSON.stringify(mismatch), async (t) => {
+      const host = await interactive(t);
+      await verificationAttempt(host, 0, mismatch);
+      await host.emit('session.idle');
+      assert.deepEqual(host.queued, [], 'a rewritten or unrelated execution has no exact request provenance');
+      assert.deepEqual(await host.candidates(), {});
+    });
+  }
+});
+
+test('Copilot bounds its request bindings and rejects duplicate call IDs or oversized commands', async (t) => {
+  const overflow = Array.from({ length: 256 }, (_, index) => ({ toolCallId: `extra_${index}`, name: 'read_file', arguments: {} }));
+  for (const invalid of [{ requestExtras: overflow }, { requestExtras: [{ toolCallId: 'call_check', name: 'read_file', arguments: {} }] },
+    { requestedCommand: 'x'.repeat(4001) }]) {
+    const host = await interactive(t);
+    await verificationAttempt(host, 0, invalid);
+    await host.emit('session.idle');
+    assert.deepEqual(host.queued, []);
+    assert.deepEqual(await host.candidates(), {});
+  }
+});
+
+test('Copilot preserves the first completion and refuses ambiguous completions with different event IDs', async (t) => {
+  for (const [first, second] of [[1, 0], [0, 1], [0, 0], [0, undefined], [undefined, 0]]) await t.test(`${first} then ${second}`, async (t) => {
+    const observed = [];
+    const original = profile.evidence.turnRecord;
+    t.mock.method(profile.evidence, 'turnRecord', (payload, ...args) => {
+      observed.push(structuredClone(payload.notes));
+      return original(payload, ...args);
+    });
+    const host = await interactive(t);
+    await verificationAttempt(host, first, { output: 'first native completion', duplicateCompletion: { exit: second, output: 'later conflicting completion' } });
+    await host.emit('session.idle');
+    assert.deepEqual(observed.flat().filter((note) => note.exit !== undefined).map(({ exit, output }) => ({ exit, output })),
+      first === undefined ? [] : [{ exit: first, output: 'first native completion' }]);
+    assert.deepEqual(host.queued, []);
+    assert.deepEqual(await host.candidates(), {});
+  });
+});
+
+test('a replay of the identical Copilot completion event keeps its check eligible', async (t) => {
+  const host = await interactive(t);
+  await verificationAttempt(host, 0, { replayCompletion: true });
+  await host.emit('session.idle');
+  assert.equal(host.queued.length, 2);
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
 });
 
 test('Copilot idle retries a candidate write without losing the terminal evidence or repeating the reports', async (t) => {
@@ -438,6 +498,7 @@ test('redacting an unquoted Cookie argument leaves the Copilot check eligible fo
   assert.deepEqual(host.queued.map(({ report }) => report.outcome), ['success', 'success']);
   assert.deepEqual((await host.candidate()).steps.map(({ command, exit, failed }) => [command, exit, failed]),
     [['curl -H [redacted]' + suffix, null, false]]);
+  assert.doesNotMatch(JSON.stringify([await host.candidates(), await host.ports.sessions.read(host.sessionId), host.queued]), /opaqueFixtureSession/);
 });
 
 test('a delayed Copilot prompt does not reopen a shut-down native session', async (t) => {
