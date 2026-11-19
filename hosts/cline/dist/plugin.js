@@ -126,7 +126,7 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
     return frame.finished;
   };
 
-  async function prepare(frame, previous, last) {
+  async function prepare(frame, previous, input) {
     if (previous) {
       await previous.preparing;
       await finish(previous, 'aborted');
@@ -146,9 +146,7 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
     }
     if (!isCurrent(frame)) return;
     frame.ready = true;
-    // The CLI seeds the current prompt before this hook. An old user message on resume cannot open a turn.
-    const age = Date.now() - last?.createdAt;
-    if (age >= 0 && age <= FRESH_INPUT_MS) return handleInput(frame, last);
+    if (input) return handleInput(frame, input);
   }
 
   function beforeTool({ snapshot, toolCall, input }) {
@@ -243,7 +241,9 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
         const last = messagesOf(snapshot.messages).at(-1);
         const frame = current = { ...at, at, agentId: snapshot.agentId, tail: last?.id,
           calls: new Map(), unsupported: false };
-        frame.preparing = prepare(frame, previous, last);
+        // Check the seeded input on arrival, before waiting for the previous run.
+        const age = Date.now() - last?.createdAt;
+        frame.preparing = prepare(frame, previous, age >= 0 && age <= FRESH_INPUT_MS ? last : null);
         return frame.preparing;
       },
       async beforeModel({ snapshot, request }) {

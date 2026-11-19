@@ -179,6 +179,8 @@ function lifecycleHost(t, handle) {
 }
 
 test('a superseded Cline run cannot open a turn after session initialization', async t => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const entered = Promise.withResolvers();
   const resume = Promise.withResolvers();
   const { hooks, events } = lifecycleHost(t, async (event, { turnId }) => {
@@ -192,6 +194,7 @@ test('a superseded Cline run cannot open a turn after session initialization', a
   const pending = hooks.beforeRun({ snapshot: stale });
   await entered.promise;
   const next = hooks.beforeRun({ snapshot: current });
+  now += 10_001;
   resume.resolve();
   await Promise.all([pending, next]);
   assert.deepEqual(events, [['session_start', 'run_stale'], ['before_run', 'run_current']]);
