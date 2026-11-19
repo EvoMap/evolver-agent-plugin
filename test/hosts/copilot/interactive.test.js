@@ -368,6 +368,26 @@ test('Copilot native session-end and shutdown retry pending terminal evidence af
   assert.equal(Object.values(await host.candidates())[0].closed, true);
 });
 
+test('replaying Copilot shutdown retries its pending evidence after storage recovers', async (t) => {
+  const failure = new Error('fixture repeated shutdown write refused');
+  const host = await interactive(t, [failure, failure, failure, failure]);
+  await verificationAttempt(host, 0);
+  const update = host.ports.candidates.update;
+  let writable = false;
+  host.ports.candidates.update = async (...args) => {
+    if (!writable) throw failure;
+    return update(...args);
+  };
+  await host.emit('session.idle');
+  const shutdown = await host.emit('session.shutdown');
+  assert.deepEqual(await host.candidates(), {});
+  writable = true;
+  await host.emit('session.shutdown', {}, shutdown);
+  assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
+  assert.equal(Object.values(await host.candidates())[0].closed, true);
+  assert.equal(host.queued.length, 2, 'retrying shutdown does not repeat the reports');
+});
+
 test('Copilot native shutdown retries a failed session-end write', async (t) => {
   const failure = new Error('fixture native session-end write refused');
   const host = await interactive(t, [failure]);

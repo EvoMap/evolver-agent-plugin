@@ -210,6 +210,7 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     }
     if (seen.has(event.id)) {
       if (event.type === 'session.idle') await flushTerminal();
+      if (event.type === 'session.shutdown') await endSession();
       return;
     }
     seen.add(event.id);
