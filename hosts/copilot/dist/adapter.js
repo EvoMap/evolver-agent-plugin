@@ -125,7 +125,8 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
   onError = () => console.error('Evolver could not record Copilot session evidence; pending work is unconfirmed. Check plugin storage and retry.') } = {}) {
   const channel = createPluginChannel({ profile, env, overrides: { ...overrides, confirmTurnCompletion: true } });
   const seen = new Set();
-  let native, session, current, promptAt, pendingTerminal, unsubscribe, ending = false, closed = false, tail = Promise.resolve();
+  // Hooks registered during join must stay inactive until native events can be observed.
+  let native, session, current, promptAt, pendingTerminal, unsubscribe, ending = false, closed = true, tail = Promise.resolve();
 
   const reportError = (error) => {
     try { onError(error); } catch { /* Diagnostics must not block the session. */ }
@@ -215,7 +216,10 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
       }),
     } });
     unsubscribe = native.on((event) => ordered(() => eventOf(event)));
+    closed = false;
   } catch (error) {
+    closed = true;
+    ending = true;
     channel.close();
     throw error;
   }

@@ -125,6 +125,37 @@ async function verificationAttempt(host, exit, { followUp, startFollowUp = false
   assert.deepEqual(await host.candidates(), {});
 }
 
+test('a failed Copilot event subscription deactivates retained and already queued SDK hooks', async (t) => {
+  for (const queued of [false, true]) await t.test(queued ? 'a prompt queued during joinSession' : 'callbacks retained after rejection', async () => {
+    const { ports, queued: reports, requests } = memoryPorts({ recipes: [RECIPE], stepAssets: RECIPE_STEPS });
+    const sessionId = randomUUID(), workingDirectory = tmpdir();
+    const input = { sessionId, workingDirectory, prompt: PROMPT, transformedPrompt: PROMPT, timestamp: new Date() };
+    const failure = new Error('fixture native event subscription refused');
+    const errors = [];
+    let hooks, listener, early;
+    await assert.rejects(connectCopilot(async (registration) => {
+      hooks = registration.hooks;
+      if (queued) early = hooks.onUserPromptTransformed(input);
+      return { sessionId, on(callback) { listener = callback; throw failure; } };
+    }, {
+      env: { HOME: workingDirectory, USERPROFILE: workingDirectory, EVOLVER_AUTO_DISTILL: 'off' },
+      overrides: ports, onError: (error) => errors.push(error),
+    }), (error) => error === failure);
+    const earlierReply = await early;
+    const reply = await hooks.onUserPromptTransformed(input);
+    await listener({ type: 'session.idle', id: randomUUID(), timestamp: new Date().toISOString(), data: {} });
+    await hooks.onSessionEnd(input, { sessionId });
+    await listener({ type: 'session.shutdown', id: randomUUID(), timestamp: new Date().toISOString(), data: {} });
+    if (queued) assert.deepEqual(earlierReply, {});
+    assert.deepEqual(reply, {});
+    assert.deepEqual(requests, [], 'a rejected attachment cannot recall through retained hooks');
+    assert.deepEqual(await ports.sessions.read(sessionId), {}, 'a rejected attachment cannot mutate session state');
+    assert.deepEqual(await ports.candidates.read(), {});
+    assert.deepEqual(reports, []);
+    assert.deepEqual(errors, []);
+  });
+});
+
 test('a blocked Copilot Stop followed by Ctrl-C after a passing check queues no report or candidate', async (t) => {
   const host = await interactive(t);
   await verificationAttempt(host, 0);
