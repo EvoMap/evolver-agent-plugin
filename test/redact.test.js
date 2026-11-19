@@ -167,12 +167,67 @@ test('Cookie redaction retains conservative header privacy and does not promote 
   for (const command of [
     String.raw`curl -HCookie:sid=opaqueFixtureSession\;route=opaqueFixtureRoute https://example.test`,
     String.raw`curl -H Cookie:sid=opaqueFixtureSession\;npm\ test https://example.test`,
+    'curl -HCookie:sid=opaqueFixtureSession`x https://example.test && npm test',
+    'curl -HCookie:sid=opaqueFixtureSession` x https://example.test && npm test',
+    'curl -HCookie:si`d=opaqueFixtureSession https://example.test && npm test',
+    "curl -HCookie:si'd=opaqueFixtureSession https://example.test && npm test",
   ]) {
     const redacted = withoutSecrets(command);
     assert.doesNotMatch(redacted, /opaqueFixture/);
     assert.equal(isVerificationCommand(command), false);
     assert.equal(isVerificationCommand(redacted), false);
     assert.equal(containsSecret(redacted), false);
+  }
+});
+
+test('Cookie shell continuations keep every credential fragment private without promoting verification', () => {
+  for (const escape of ['\\', '`', '^']) for (const newline of ['\n', '\r\n']) {
+    for (const [head, tail, expected] of [
+      ['curl -H "Cookie: sid=opaqueFixtureSession', 'opaqueFixtureTail" https://example.test && npm test', 'curl -H "[redacted]" https://example.test && npm test'],
+      ['curl -HCookie:sid=opaqueFixtureSession', 'opaqueFixtureTail https://example.test && npm test', escape === '`' ? 'curl -H[redacted]' : 'curl -H[redacted] https://example.test && npm test'],
+      ['curl -HCookie:sid="opaqueFixtureSession', 'opaqueFixtureTail" https://example.test && npm test', 'curl -H[redacted]'],
+    ]) {
+      const command = head + escape + newline + tail;
+      const redacted = withoutSecrets(command);
+      assert.equal(redacted, expected, JSON.stringify(command));
+      assert.doesNotMatch(redacted, /opaqueFixture/);
+      assert.equal(containsSecret(command), true);
+      assert.equal(containsSecret(redacted), false);
+      if (!isVerificationCommand(command)) assert.equal(isVerificationCommand(redacted), false);
+      if (expected.endsWith('&& npm test')) assert.equal(isVerificationCommand(redacted), true);
+    }
+  }
+});
+
+test('multiline quoted and folded HTTP Cookie headers leave later unindented text intact', () => {
+  for (const [text, expected] of [
+    ['Cookie: sid=opaqueFixtureSession\r\n route=opaqueFixtureRoute\r\nContent-Type: text/plain', '[redacted]\r\nContent-Type: text/plain'],
+    ['Cookie: sid=opaqueFixtureSession\n\troute=opaqueFixtureRoute\nNext line.', '[redacted]\nNext line.'],
+    ['curl -H "Cookie: sid=opaqueFixtureSession\nroute=opaqueFixtureRoute" https://example.test && npm test', 'curl -H "[redacted]" https://example.test && npm test'],
+    ['Cookie:\r\n sid=opaqueFixtureSession; route=opaqueFixtureRoute\r\nNext: value', '[redacted]\r\nNext: value'],
+    ['Set-Cookie:\n\tsid=opaqueFixtureSession\nNext: value', '[redacted]\nNext: value'],
+  ]) {
+    const redacted = withoutSecrets(text);
+    assert.equal(redacted, expected);
+    assert.doesNotMatch(redacted, /opaqueFixture/);
+    assert.equal(containsSecret(text), true);
+    assert.equal(containsSecret(redacted), false);
+    if (!isVerificationCommand(text)) assert.equal(isVerificationCommand(redacted), false);
+  }
+  for (const newline of ['\n', '\r\n']) for (const text of [
+    'curl -H "Cookie:sid=opaqueFixtureSession' + newline + 'opaqueFixtureTail',
+    'curl -HCookie:sid="opaqueFixtureSession' + newline + 'opaqueFixtureTail" https://example.test && npm test',
+  ]) {
+    const redacted = withoutSecrets(text);
+    assert.doesNotMatch(redacted, /opaqueFixture/);
+    assert.match(redacted, /\[redacted\]$/);
+    assert.equal(containsSecret(text), true);
+    assert.equal(containsSecret(redacted), false);
+    if (!isVerificationCommand(text)) assert.equal(isVerificationCommand(redacted), false);
+  }
+  for (const text of ['node --test native.test.js\nNext line.', 'npm test\r\n  Verification passed.', 'A normal paragraph.\n\tContinued prose.']) {
+    assert.equal(withoutSecrets(text), text);
+    assert.equal(containsSecret(text), false);
   }
 });
 
@@ -192,6 +247,9 @@ test('redaction stays linear on long adversarial input', () => {
     fill('curl -H Cookie:', 'a'),
     fill('curl -H"Cookie:sid=', 'a'),
     fill('Cookie: "', 'a'),
+    fill('curl -H "Cookie:sid=', 'a\\\n'),
+    fill('curl -HCookie:sid="', 'a`\r\n'),
+    fill('Cookie:\r\n ', 'sid=a; \r\n '),
   ]) {
     const started = performance.now();
     withoutSecrets(text);
