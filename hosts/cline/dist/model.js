@@ -42,6 +42,7 @@ function clineStartTime() {
   `;
   const shell = join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', probe], { timeout: 2_000, windowsHide: true });
+  if (result.error?.code === 'ETIMEDOUT') return undefined;
   return result.status === 0 ? processStartTime(process.pid) : null;
 }
 
@@ -99,9 +100,13 @@ async function responseBody(response) {
 export function createClineModel({ env = process.env, startedAt = clineStartTime } = {}) {
   const secret = randomBytes(32);
   let boot;
+  let timeouts = 0;
   function readRoute() {
     if (env.CLINE_SESSION_BACKEND_MODE !== 'local' || !env.CLINE_PROVIDER_SETTINGS_PATH) return null;
-    boot ??= startedAt() || 0;
+    if (boot === undefined) {
+      boot = startedAt();
+      if (boot === undefined && ++timeouts === 2) boot = null;
+    }
     const route = boot && savedRoute(env, boot);
     if (!route) return null;
     const { apiKey, endpoint, model, identity } = route;
@@ -141,9 +146,12 @@ export function createClineModel({ env = process.env, startedAt = clineStartTime
       signal.throwIfAborted();
       checkedRoute();
       const choice = data?.choices?.length === 1 ? data.choices[0] : null;
-      const answer = choice?.message?.content;
-      if (data?.model !== model || choice?.finish_reason !== 'stop' || choice.message?.role !== 'assistant'
-        || choice.message?.tool_calls || choice.message?.function_call || typeof answer !== 'string' || !answer.trim()) {
+      const message = choice?.message;
+      const answer = message?.content;
+      const calls = message?.tool_calls;
+      const withoutTools = calls == null || (Array.isArray(calls) && calls.length === 0);
+      if (data?.model !== model || choice?.finish_reason !== 'stop' || message?.role !== 'assistant'
+        || !withoutTools || message.function_call != null || typeof answer !== 'string' || !answer.trim()) {
         throw new Error('Cline returned no complete answer on the captured model');
       }
       const { prompt_tokens: inputTokens, completion_tokens: outputTokens } = data?.usage ?? {};

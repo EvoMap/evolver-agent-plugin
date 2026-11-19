@@ -14,6 +14,7 @@ import { createClineModel } from './model.js';
 const RETRYABLE_WRITE = new Set(['ELOCKED', 'ESTATEIO', 'EIO', 'EACCES', 'EBUSY', 'EPERM']);
 const FRESH_INPUT_MS = 10_000;
 const DRAFT_REQUEST = 'Evolver local draft request';
+const NATIVE_USER_INPUT = /^<user_input mode="(?:act|plan|yolo)">([\s\S]*)<\/user_input>$/;
 const text = (value) => typeof value === 'string' ? value : '';
 const id = (value) => text(value).trim() && value.length <= 256 ? value : null;
 const messagesOf = (value) => Array.isArray(value) ? value : [];
@@ -24,8 +25,12 @@ function userInput(message) {
   if (message?.role !== 'user' || !id(message.id) || message.metadata?.displayOnly || message.metadata?.userRunSpan === 0
     || (message.metadata?.displayRole && message.metadata.displayRole !== 'user')) return '';
   const input = messageText(message);
-  return /^<user_input mode="(?:act|plan)">([\s\S]*)<\/user_input>$/.exec(input)?.[1].trim() ?? input;
+  return NATIVE_USER_INPUT.exec(input)?.[1].trim() ?? input;
 }
+
+// Cline uses span zero for both reminders and user steering, but only the latter has its user-input wrapper.
+const isSteeringInput = (message) => message?.role === 'user' && message.metadata?.userRunSpan === 0
+  && !message.metadata?.displayOnly && NATIVE_USER_INPUT.test(messageText(message));
 
 function nativeCheck(command, callId, result) {
   const output = result?.output;
@@ -101,7 +106,8 @@ export function createClinePlugin({ env = process.env } = {}) {
       await frame.recall;
       for (let attempt = 0; attempt < 3; attempt++) {
         let failure;
-        await channel.handle('after_run', { ...frame.at, reason, answer, notes, model: frame.model }, { onError: (error) => { failure = error; } });
+        await channel.handle('after_run', { ...frame.at, reason, answer, notes, model: frame.model,
+          strategyDelivered: frame.sentStrategy === true }, { onError: (error) => { failure = error; } });
         if (!failure) {
           if (reason === 'answer' && frame.model) verifiedRoutes.set(frame.sessionId, frame.model.configDigest);
           return;
@@ -226,11 +232,13 @@ export function createClinePlugin({ env = process.env } = {}) {
             }
           }
         }
+        const index = messages.findIndex((message) => message.id === frame.promptId);
+        if (index >= 0 && messages.slice(index + 1).some(isSteeringInput)) frame.steered = true;
+        if (frame.steered) return;
         const selected = nativeSession ? model.capture() : null;
         if (frame.model === undefined) frame.model = selected;
         else if (frame.model?.configDigest !== selected?.configDigest) frame.model = null;
         if (!frame.strategy || !active(snapshot) || request?.signal?.aborted) return;
-        const index = messages.findIndex((message) => message.id === frame.promptId);
         if (index < 0) return;
         const context = { id: `evolver-${frame.turnId}`, role: 'user', createdAt: messages[index].createdAt,
           content: [{ type: 'text', text: frame.strategy }] };
@@ -258,6 +266,7 @@ export function createClinePlugin({ env = process.env } = {}) {
         const notes = [...frame.calls.values()].map(({ note }) => note);
         const complete = result.status === 'completed' && input >= 0 && input < messages.length - 1
           && last?.role === 'assistant' && messageText(last) && answer && notes.length > 0
+          && !frame.steered && !messages.slice(input + 1).some(isSteeringInput)
           && (!frame.strategy || frame.sentStrategy) && !frame.unsupported && notes.every(Boolean);
         if (frame.model) {
           const { selection, configDigest } = frame.model;

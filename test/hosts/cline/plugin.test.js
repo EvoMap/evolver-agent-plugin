@@ -220,7 +220,7 @@ test('the packed plugin leaves mismatched and conflicting test receipts unverifi
   });
 });
 
-test('a Recipe booked at beforeRun cannot be reported if no model request received it', async t => {
+test('an undelivered Recipe stays available for a new prompt in the same Cline session', async t => {
   const host = await packedHost(t);
   const state = snapshot('run_without_delivery', [promptMessage('omitted_prompt', PROMPT)]);
   await host.hooks.beforeRun({ snapshot: state });
@@ -230,8 +230,33 @@ test('a Recipe booked at beforeRun cannot be reported if no model request receiv
   const call = shellCall(state, 'call_after_missing_recipe');
   await host.hooks.beforeTool(call);
   await host.hooks.afterTool(shellResult(call));
-  await host.hooks.afterRun(finish(state, 'completed', 'The test passed.'));
+  const completed = finish(state, 'completed', 'The test passed.');
+  await host.hooks.afterRun(completed);
   await noWork(host);
+  const retry = snapshot('run_retry_delivery', [...completed.result.messages, promptMessage('retry_prompt', PROMPT)]);
+  await host.hooks.beforeRun({ snapshot: retry });
+  const reply = await host.hooks.beforeModel(modelRequest(retry));
+  assert.ok(JSON.stringify(reply?.messages ?? []).includes(marker), 'the missed Recipe must reach the next prompt');
+});
+
+test('a native steering prompt ends Recipe attribution for the original input', async t => {
+  for (const mode of ['act', 'plan', 'yolo', 'terminal only']) await t.test(mode, async t => {
+    const host = await packedHost(t);
+    const state = await startRun(host.hooks, 'run_steered');
+    const call = shellCall(state, 'call_before_steer');
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(shellResult(call));
+    const steer = message('native_steer', 'user', `<user_input mode="${mode === 'terminal only' ? 'act' : mode}">Change direction.</user_input>`,
+      { userRunSpan: 0 });
+    const steered = { ...state, messages: [...state.messages, steer], iteration: 2 };
+    if (mode !== 'terminal only') {
+      const request = modelRequest(steered);
+      const reply = await host.hooks.beforeModel(request);
+      assert.ok(!JSON.stringify(reply?.messages ?? request.request.messages).includes(marker), 'the old Recipe belongs to the original prompt');
+    }
+    await host.hooks.afterRun(finish(steered, 'completed', 'The unrelated parsing task is complete.'));
+    await noWork(host);
+  });
 });
 
 test('Cline without a configured distillation route still keeps successive verified turns', async t => {

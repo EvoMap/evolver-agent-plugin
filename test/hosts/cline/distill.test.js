@@ -52,7 +52,7 @@ function clineFixture(t, baseUrl) {
     utimesSync(path, modifiedAt, modifiedAt);
   };
   writeSettings();
-  return { model: createClineModel({ env, startedAt: () => processStart }), writeSettings, processStart };
+  return { model: createClineModel({ env, startedAt: () => processStart }), env, writeSettings, processStart };
 }
 
 test('Cline distills on the captured endpoint, provider model and account using only the private model prompt', async t => {
@@ -77,6 +77,41 @@ test('Cline distills on the captured endpoint, provider model and account using 
   assert.equal(request.body.conversation, undefined);
   assert.equal(request.body.store, false);
   assert.equal(request.body.stream, false);
+});
+
+test('Cline accepts a complete text reply with an empty tool-call list', async t => {
+  const server = await endpoint(t, (res) => completion(res, { message: { tool_calls: [] } }));
+  const { model } = clineFixture(t, server.url);
+  const route = await model.capture();
+  assert.ok(route);
+  const result = await model.complete(route, prompt, AbortSignal.timeout(2_000));
+  assert.equal(result.answer, answer);
+  assert.equal(server.requests.length, 1);
+});
+
+test('Cline can capture a later turn after a transient launch probe timeout', async t => {
+  const server = await endpoint(t, completion);
+  const { env, processStart } = clineFixture(t, server.url);
+  let probes = 0;
+  const model = createClineModel({ env, startedAt: () => ++probes === 1 ? undefined : processStart });
+  assert.equal(model.capture(), null);
+  const route = model.capture();
+  assert.equal(route?.selection.modelId, modelId);
+  assert.deepEqual(model.capture(), route);
+  assert.equal(probes, 2, 'a verified launch is cached');
+  assert.equal((await model.complete(route, prompt, AbortSignal.timeout(2_000))).answer, answer);
+});
+
+test('Cline retries one launch probe timeout and keeps a rejected launch unavailable', async t => {
+  const server = await endpoint(t, completion);
+  const { env } = clineFixture(t, server.url);
+  for (const [result, limit] of [[undefined, 2], [null, 1]]) {
+    let probes = 0;
+    const model = createClineModel({ env, startedAt: () => { probes++; return result; } });
+    for (let attempt = 0; attempt < 3; attempt++) assert.equal(model.capture(), null);
+    assert.equal(probes, limit);
+  }
+  assert.deepEqual(server.requests, []);
 });
 
 test('Cline refuses changed model or credentials before sending the distillation prompt', async t => {
@@ -137,7 +172,7 @@ test('Cline will not follow a redirect to another endpoint', async t => {
   assert.deepEqual(target.requests, []);
 });
 
-test('Cline rejects replies from another model, truncated text and model tool calls', async t => {
+test('Cline rejects replies from another model, truncated text and invalid tool evidence', async t => {
   let reply;
   const server = await endpoint(t, (res) => completion(res, reply));
   const { model } = clineFixture(t, server.url);
@@ -147,11 +182,13 @@ test('Cline rejects replies from another model, truncated text and model tool ca
     { model: 'gpt-4o' },
     { finishReason: 'length' },
     { message: { tool_calls: [{ id: 'tool-fixture', type: 'function', function: { name: 'shell' } }] } },
+    { message: { tool_calls: false } },
+    { message: { function_call: false } },
   ]) {
     reply = invalid;
     await assert.rejects(() => model.complete(route, prompt, AbortSignal.timeout(2_000)));
   }
-  assert.equal(server.requests.length, 3);
+  assert.equal(server.requests.length, 5);
 });
 
 test('Cline stops a pending completion and closes the HTTP response on abort', async t => {

@@ -44,6 +44,7 @@ export default defineProfile({
     reason: ({ reason }) => reason,
     answer: ({ answer }) => withoutSecrets(answer ?? ''),
     modelOf: () => null,
+    discardUndeliveredRecall: ({ strategyDelivered }) => strategyDelivered === false,
   },
   commands: { parse: ({ command, args }) => command ? { name: command, args } : null },
   stateDir,
