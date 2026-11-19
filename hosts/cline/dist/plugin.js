@@ -15,6 +15,7 @@ const RETRYABLE_WRITE = new Set(['ELOCKED', 'ESTATEIO', 'EIO', 'EACCES', 'EBUSY'
 const FRESH_INPUT_MS = 10_000;
 const DRAFT_REQUEST = 'Evolver local draft request';
 const DRAFT_BUSY = 'Evolver is already preparing a private draft. Retry /evolver-distill when it finishes.';
+const DRAFT_WAITING_FOR_SAVE = 'Evolver is still saving the previous turn. Retry /evolver-distill when its result is saved.';
 const NATIVE_USER_INPUT = /^<user_input mode="(?:act|plan|yolo)">([\s\S]*)<\/user_input>$/;
 const text = (value) => typeof value === 'string' ? value : '';
 const id = (value) => text(value).trim() && value.length <= 256 ? value : null;
@@ -75,7 +76,7 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
     if (frame.recall || !prompt || seenInputs.get(frame.sessionId) === message.id) return frame.recall;
     frame.promptId = message.id;
     seenInputs.set(frame.sessionId, message.id);
-    sessions.set(frame.sessionId, frame.turnId);
+    sessions.get(frame.sessionId).turnId = frame.turnId;
     frame.recall = (async () => {
       const reply = await channel.handle('before_run', { ...frame.at, prompt });
       if (frame === current && !frame.finished && !closing) frame.strategy = text(reply?.strategy);
@@ -85,7 +86,16 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
 
   async function handleInput(frame, message) {
     const prompt = userInput(message);
-    if (prompt === DRAFT_REQUEST || prompt.startsWith(DRAFT_REQUEST + '\n')) {
+    const draft = prompt === DRAFT_REQUEST || prompt.startsWith(DRAFT_REQUEST + '\n');
+    if (sessions.get(frame.sessionId)?.pending) {
+      // Opening a newer turn would close the pending one without its native evidence.
+      if (draft) {
+        warn?.(DRAFT_WAITING_FOR_SAVE);
+        return { stop: true, reason: DRAFT_WAITING_FOR_SAVE };
+      }
+      return;
+    }
+    if (draft) {
       if (seenInputs.get(frame.sessionId) !== message.id) {
         seenInputs.set(frame.sessionId, message.id);
         if (distillation) {
@@ -106,25 +116,40 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
     await recall(frame, message);
   }
 
-  const finish = (frame, reason, answer = '', notes = null) => {
-    frame.finished ??= (async () => {
-      if (!frame.promptId) return;
-      await frame.recall;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        let failure;
-        await channel.handle('after_run', { ...frame.at, reason, answer, notes, model: frame.model,
-          strategyDelivered: frame.sentStrategy === true }, { onError: (error) => { failure = error; } });
-        if (!failure) {
-          if (reason === 'answer' && frame.model) verifiedRoutes.set(frame.sessionId, frame.model.configDigest);
-          return;
-        }
-        if (!RETRYABLE_WRITE.has(failure.code)) break;
-        if (attempt < 2) await delay(50);
+  async function saveTurn(frame, session) {
+    await frame.recall;
+    const terminal = frame.terminal;
+    // A delayed save keeps the native evidence but cannot attribute the current worktree to it.
+    const payload = frame.deferredSave ? { ...terminal, cwd: null } : terminal;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let failure;
+      await channel.handle('after_run', payload, { onError: (error) => { failure = error; } });
+      if (!failure || !RETRYABLE_WRITE.has(failure.code)) {
+        session.pending = null;
+        frame.terminal = null;
+        if (failure) warn?.('Evolver could not save the Cline turn.');
+        else if (terminal.reason === 'answer' && terminal.model) verifiedRoutes.set(frame.sessionId, terminal.model.configDigest);
+        return;
       }
-      warn?.('Evolver could not save the Cline turn.');
-    })();
-    return frame.finished;
-  };
+      if (attempt < 2) await delay(50);
+    }
+    frame.deferredSave = true;
+    warn?.(closing ? 'Evolver could not save the Cline turn before exit.' : 'Evolver could not save the Cline turn yet. Its result is pending.');
+  }
+
+  function finish(frame, reason, answer = '', notes = null) {
+    const session = sessions.get(frame.sessionId);
+    if (!frame.finished) {
+      frame.finished = true;
+      if (!frame.promptId) return;
+      frame.terminal = { ...frame.at, reason, answer: withoutSecrets(answer), notes, model: frame.model,
+        strategyDelivered: frame.sentStrategy === true };
+      // shortcut: pending terminal evidence lives in memory until save; a reload requires durable host receipts.
+      session.pending = frame;
+    }
+    if (!frame.terminal) return;
+    return frame.saving ??= saveTurn(frame, session).finally(() => { frame.saving = null; });
+  }
 
   async function prepare(frame, previous, input) {
     if (previous) {
@@ -132,7 +157,10 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
       await finish(previous, 'aborted');
     }
     if (!isCurrent(frame)) return;
-    if (!sessions.has(frame.sessionId)) {
+    const session = sessions.get(frame.sessionId);
+    if (session?.pending && session.pending !== previous) await finish(session.pending);
+    if (!isCurrent(frame)) return;
+    if (!session) {
       let failure;
       await channel.handle('session_start', frame.at, { onError: (error) => { failure = error; } });
       if (failure) {
@@ -142,7 +170,7 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
         }
         return;
       }
-      sessions.set(frame.sessionId, null);
+      sessions.set(frame.sessionId, { turnId: null, pending: null });
     }
     if (!isCurrent(frame)) return;
     frame.ready = true;
@@ -223,8 +251,9 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
             await current.preparing;
             await finish(current, 'aborted');
           }
-          for (const [sessionId, turnId] of sessions) {
-            if (turnId) await channel.handle('session_end', { cwd, sessionId, turnId });
+          for (const [sessionId, session] of sessions) {
+            if (session.pending && session.pending !== current) await finish(session.pending);
+            if (session.turnId && !session.pending) await channel.handle('session_end', { cwd, sessionId, turnId: session.turnId });
           }
         } finally {
           await channel.idle();
@@ -284,8 +313,11 @@ export function createClinePlugin({ env = process.env, connect = createPluginCha
       beforeTool,
       afterTool,
       async afterRun({ snapshot, result }) {
-        const frame = live(snapshot);
+        if (closing) return;
+        const pending = sessions.get(snapshot?.conversationId)?.pending;
+        const frame = matches(pending, snapshot) ? pending : live(snapshot);
         if (!frame || !matches(frame, { ...snapshot, runId: result?.runId, agentId: result?.agentId })) return;
+        if (frame.finished) return finish(frame);
         if (result.status === 'aborted' || !frame.ready) return finish(frame, 'aborted');
         const messages = messagesOf(result.messages);
         const input = messages.findIndex((message) => message.id === frame.promptId);

@@ -6,9 +6,11 @@ import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
+import { createDriver } from '../../../lib/agent/driver.js';
 import { createClinePlugin } from '../../../hosts/cline/dist/plugin.js';
+import cline from '../../../hosts/cline/profile.js';
 import { pack } from '../../../scripts/pack.mjs';
-import { PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
+import { memoryPorts, PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
 import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
 import { useProcessHome } from '../../helpers/process-home.js';
 
@@ -159,6 +161,7 @@ function lifecycleHost(t, handle) {
   const events = [];
   const warnings = [];
   const commands = new Map();
+  let close;
   const model = { capture: () => ({ configDigest: 'fixture-route', selection: { providerId: 'openai-compatible', modelId: 'fixture' } }) };
   const plugin = createClinePlugin({
     model,
@@ -173,11 +176,11 @@ function lifecycleHost(t, handle) {
   });
   plugin.setup({ registerCommand: (command) => commands.set(command.name, command.handler) }, {
     cwd: tmpdir(), client: { name: 'cline-cli' }, session: { sessionId: 'conv_test' },
-    onDispose: (dispose) => t.after(dispose), logger: { log: (message, metadata) => {
+    onDispose: (dispose) => { close = dispose; t.after(dispose); }, logger: { log: (message, metadata) => {
       if (typeof message === 'string') warnings.push({ message, metadata });
     } },
   });
-  return { hooks: plugin.hooks, events, commands, warnings, model };
+  return { hooks: plugin.hooks, events, commands, warnings, model, close };
 }
 
 test('a superseded Cline run cannot open a turn after session initialization', async t => {
@@ -261,6 +264,79 @@ test('an overlapping Cline draft request reports busy before or after the comman
   } finally {
     response.resolve({ ok: true });
   }
+});
+
+test('Cline retries the original terminal after state errors without duplicating work', async t => {
+  for (const trigger of ['terminal replay', 'later turn', 'queued draft', 'shutdown', 'shutdown still locked']) await t.test(trigger, async t => {
+    const sessionId = 'conv_test';
+    const { ports, queued } = memoryPorts();
+    ports.confirmTurnCompletion = true;
+    const driver = createDriver({ profile: cline, ports, transcripts: {}, lifetime: 'resident' });
+    const writes = [];
+    const host = lifecycleHost(t, (event, payload, options) => {
+      if (event === 'after_run') writes.push(payload);
+      return driver.handle(event, payload, options);
+    });
+    const state = await startRun(host.hooks, 'run_pending');
+    const call = shellCall(state, 'call_verified');
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(shellResult(call));
+    const terminal = finish(state, 'completed', 'The original retry test passed.');
+    terminal.result.messages.at(-1).modelInfo = { provider: 'openai-compatible', id: host.model.capture().selection.modelId };
+
+    const update = ports.candidates.update;
+    const stillLocked = trigger === 'shutdown still locked';
+    const beforeNext = trigger === 'later turn' || trigger === 'queued draft';
+    const beforeWrite = trigger === 'terminal replay';
+    let remaining = stillLocked || beforeNext ? 6 : 3;
+    ports.candidates.update = async (mutate) => {
+      if (remaining === 0) return update(mutate);
+      remaining--;
+      if (!beforeWrite) await update(mutate);
+      throw Object.assign(new Error('candidate state still busy'), { code: 'ELOCKED' });
+    };
+    await host.hooks.afterRun(terminal);
+    assert.equal(writes.length, 3, 'the first save exhausts its immediate retries');
+
+    if (trigger === 'terminal replay') {
+      assert.equal((await ports.candidates.read())[sessionId], undefined);
+      await host.hooks.afterRun({ ...terminal, result: { ...terminal.result, runId: 'another_run' } });
+      assert.equal(writes.length, 3, 'a mismatched terminal cannot retry the pending result');
+      const replay = finish(state, 'aborted', 'This replay must not replace verified evidence.');
+      await Promise.all([host.hooks.afterRun(replay), host.hooks.afterRun(terminal)]);
+    } else if (beforeNext) {
+      if (trigger === 'queued draft') {
+        const { submitPrompt } = host.commands.get('evolver-distill')('');
+        const blocked = snapshot('run_blocked', [promptMessage('draft_waiting', submitPrompt)]);
+        const result = await host.hooks.beforeRun({ snapshot: blocked });
+        assert.equal(result?.stop, true);
+        assert.match(result.reason, /still saving the previous turn/);
+        assert.ok(!host.events.some(([event]) => event === 'command'));
+      } else {
+        await startRun(host.hooks, 'run_blocked', PROMPT, terminal.result.messages);
+        assert.ok(!host.events.some(([event, run]) => event === 'before_run' && run === 'run_blocked'));
+      }
+      assert.equal((await ports.sessions.read(sessionId)).turnId, 'run_pending', 'do not replace a still unsaved terminal');
+      await startRun(host.hooks, 'run_next', PROMPT, terminal.result.messages);
+      assert.equal((await ports.sessions.read(sessionId)).turnId, 'run_next');
+    } else {
+      await host.close();
+      assert.equal(host.events.some(([event]) => event === 'session_end'), !stillLocked);
+    }
+    await host.hooks.afterRun(terminal);
+    assert.equal(writes.length, beforeNext ? 7 : stillLocked ? 6 : 4);
+    const { cwd, ...original } = writes[0];
+    for (const [index, { cwd: directory, ...payload }] of writes.entries()) {
+      assert.deepEqual(payload, original, 'preserve the original route and evidence');
+      assert.equal(directory, index < 3 ? cwd : null, 'only the immediate attempt can capture a worktree');
+    }
+    assert.equal(queued.length, 1, 'the report was queued once despite the partial write');
+    const { turns, model } = (await ports.candidates.read())[sessionId];
+    assert.deepEqual(model, host.model.capture());
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].answer, terminal.result.outputText);
+    assert.equal(turns[0].steps.filter(({ kind }) => kind === 'check').length, 1);
+  });
 });
 
 const reportRequests = (proxy) => proxy.requests.filter(({ path }) => path === '/asset/reuse-result');
