@@ -1,0 +1,9 @@
+{
+  "entries": ["hosts/cline/dist/plugin.js"],
+  "root": {
+    "evolver.js": "hosts/cline/dist/root/evolver.js",
+    "package.json": "hosts/cline/dist/package.json",
+    "README.md": "hosts/cline/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

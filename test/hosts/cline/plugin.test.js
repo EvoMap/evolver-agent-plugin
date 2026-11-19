@@ -1,0 +1,273 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, test } from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { fileStoresOf } from '../../../lib/runtime/store/file-stores.js';
+import { pack } from '../../../scripts/pack.mjs';
+import { PROMPT, RECIPE, RECIPE_STEPS } from '../../app/memory-ports.js';
+import { closeProxyWhenSettled, fakeProxy } from '../../helpers/fake-proxy.js';
+import { useProcessHome } from '../../helpers/process-home.js';
+
+const marker = '[Evolution Memory] Recipe: Stabilise flaky redis connection retries';
+const packed = mkdtempSync(join(tmpdir(), 'evolver-cline-packed-'));
+const ledgerCore = fileURLToPath(new URL('../../../node_modules/@evomap/evolver-core', import.meta.url));
+after(() => rmSync(packed, { recursive: true, force: true }));
+let bundle;
+
+// The Cline 3.0.73 setup and hooks, loaded through the manifest included in the bundle.
+async function packedHost(t) {
+  if (!bundle) {
+    pack('cline', packed);
+    const { cline } = JSON.parse(readFileSync(join(packed, 'package.json'), 'utf8'));
+    const [plugin] = cline.plugins;
+    assert.deepEqual(plugin.capabilities, ['hooks', 'commands']);
+    const [entry] = plugin.paths;
+    const declared = await import(pathToFileURL(join(packed, entry)).href);
+    assert.equal(typeof declared.default.setup, 'function');
+    bundle = await import(pathToFileURL(join(packed, 'hosts/cline/dist/plugin.js')).href);
+  }
+  const proxy = await fakeProxy({ assets: [], recipes: [RECIPE], stepAssets: RECIPE_STEPS });
+  const home = useProcessHome(proxy.env.HOME);
+  const cwd = join(proxy.env.HOME, 'workspace');
+  const dataDir = join(proxy.env.HOME, 'cline-data');
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
+  const env = {
+    CLINE_DATA_DIR: dataDir, EVOMAP_PROXY_PORT: proxy.env.EVOMAP_PROXY_PORT,
+    EVOLVER_RECALL: 'on', EVOLVER_AUTO_DISTILL: 'off', EVOLVER_HEADLESS: '',
+  };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  Object.assign(process.env, env);
+  let dispose;
+  t.after(async () => {
+    try {
+      await dispose?.();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      home.restore();
+      await closeProxyWhenSettled(proxy);
+    }
+  });
+  const stores = fileStoresOf({ dir: join(dataDir, 'evolver-plugin'), agent: 'cline' });
+  const modules = join(stores.folder('engine'), 'node_modules', '@evomap');
+  mkdirSync(modules, { recursive: true });
+  symlinkSync(ledgerCore, join(modules, 'evolver-core'), process.platform === 'win32' ? 'junction' : 'dir');
+  const plugin = bundle.createClinePlugin();
+  await plugin.setup({}, {
+    cwd,
+    session: { conversationId: 'conv_test' },
+    onDispose: handler => { dispose = handler; },
+  });
+  return { hooks: plugin.hooks, proxy, stores };
+}
+
+const message = (id, role, text, metadata) => ({
+  id, role, content: [{ type: 'text', text }], createdAt: Date.now(), ...(metadata && { metadata }),
+});
+const snapshot = (runId, messages, iteration = 0) => ({
+  conversationId: 'conv_test', agentId: 'agent_test', runId, status: 'running',
+  messages, iteration, pendingToolCalls: [],
+});
+const modelRequest = (state, signal) => ({
+  snapshot: state, request: { messages: structuredClone(state.messages), ...(signal && { signal }) },
+});
+const finish = (state, status, answer) => ({
+  snapshot: { ...state, status }, result: {
+    runId: state.runId, agentId: state.agentId, status,
+    messages: [...state.messages, message('answer-' + state.runId, 'assistant', answer)],
+    outputText: answer,
+  },
+});
+const promptMessage = (id, text) => message(id, 'user', `<user_input mode="act">${text}</user_input>`);
+
+async function startRun(hooks, runId, prompt = PROMPT, history = []) {
+  const opened = snapshot(runId, [...history, promptMessage('prompt-' + runId, prompt)]);
+  await hooks.beforeRun({ snapshot: opened });
+  await hooks.beforeModel(modelRequest(opened));
+  return { ...opened, iteration: 1 };
+}
+
+test('the packed Cline plugin sends the Recipe only to model requests of the current user run', async t => {
+  const { hooks, proxy } = await packedHost(t);
+  const user = promptMessage('msg_1', PROMPT);
+  const start = snapshot('run_1', [user]);
+  await hooks.beforeRun({ snapshot: start });
+  const reminder = message('msg_2', 'user', 'Complete the task.', { displayRole: 'system', userRunSpan: 0 });
+  const state = snapshot(start.runId, [user, reminder]);
+  const first = modelRequest(state);
+  assert.match(JSON.stringify((await hooks.beforeModel(first))?.messages), /\[Evolution Memory\] Recipe: Stabilise flaky redis connection retries/);
+  assert.deepEqual(first.request.messages, [user, reminder], 'outbound changes never enter native history');
+
+  const later = modelRequest({ ...state, iteration: 2 });
+  assert.ok(JSON.stringify((await hooks.beforeModel(later))?.messages).includes(marker));
+  assert.equal(proxy.requests.filter(({ path }) => path === '/recipe/search').length, 1);
+
+  const completed = finish(state, 'completed', 'The retry policy is documented.');
+  await hooks.afterRun(completed);
+  const next = snapshot('run_2', [...completed.result.messages, promptMessage('msg_3', 'Thanks!')]);
+  await hooks.beforeRun({ snapshot: next });
+  const nextRequest = modelRequest(next);
+  const response = await hooks.beforeModel(nextRequest);
+  assert.ok(!JSON.stringify(response?.messages ?? nextRequest.request.messages).includes(marker));
+  const recalls = proxy.requests.filter(({ path }) => path === '/recipe/search');
+  assert.equal(recalls.length, 1);
+  assert.ok(JSON.stringify(recalls[0].body).includes(PROMPT));
+});
+
+test('direct input added after beforeRun supplies recall and a synthetic reminder does not', async t => {
+  const { hooks, proxy } = await packedHost(t);
+  const previous = message('old_prompt', 'user', PROMPT);
+  previous.createdAt -= 60_000;
+  const start = snapshot('run_direct', [previous]);
+  await hooks.beforeRun({ snapshot: start });
+  const reminder = message('reminder', 'user', 'Complete the task.', { userRunSpan: 0 });
+  const waiting = snapshot(start.runId, [previous, reminder], 1);
+  assert.equal(await hooks.beforeModel(modelRequest(waiting)), undefined);
+  assert.equal(proxy.requests.filter(({ path }) => path === '/recipe/search').length, 0);
+
+  const prompt = promptMessage('new_prompt', PROMPT);
+  const ready = snapshot(start.runId, [previous, prompt, reminder], 1);
+  assert.ok(JSON.stringify((await hooks.beforeModel(modelRequest(ready)))?.messages).includes(marker));
+});
+
+const checkCommand = 'node --test fixture.test.cjs';
+const passingOutput = '✔ retry budget\nℹ tests 1\nℹ pass 1\nℹ fail 0\n';
+const failingOutput = '[Command exited with code 1]\n✖ retry budget\nℹ tests 1\nℹ pass 0\nℹ fail 1\nCommand exited with code 1';
+
+function shellCall(state, id, command = checkCommand) {
+  const input = { commands: [command] };
+  return { snapshot: state, toolCall: { toolName: 'run_commands', toolCallId: id, input }, input };
+}
+
+function shellResult(call, success = true, query = call.input.commands[0]) {
+  return {
+    ...call, result: {
+      isError: false,
+      output: [{ query, success, result: success ? passingOutput : failingOutput, ...(!success && { error: 'Command exited with code 1' }) }],
+    },
+  };
+}
+
+const reportRequests = (proxy) => proxy.requests.filter(({ path }) => path === '/asset/reuse-result');
+
+async function noWork({ stores, proxy }) {
+  assert.deepEqual(await stores.candidates.read(), {});
+  assert.deepEqual(reportRequests(proxy), []);
+  assert.equal(await stores.outbox.some(() => true), false);
+}
+
+async function waitForReports(proxy, count) {
+  const deadline = Date.now() + 10_000;
+  while (reportRequests(proxy).length < count && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(reportRequests(proxy).length, count, 'each Recipe step has exactly one result');
+}
+
+test('same toolCallId records pass and fail from the result row when the tool wrapper succeeds', async t => {
+  for (const success of [true, false]) await t.test(success ? 'test passes' : 'test fails', async t => {
+    const host = await packedHost(t);
+    const state = await startRun(host.hooks, 'run_verdict');
+    const call = shellCall(state, 'call_check');
+    const receipt = shellResult(call, success);
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(receipt);
+    await host.hooks.afterTool(receipt);
+    await noWork(host);
+
+    const completed = finish(state, 'completed', success ? 'The Redis retry test passed.' : 'The retry test failed.');
+    await host.hooks.afterRun(completed);
+    await host.hooks.afterRun(completed);
+    await waitForReports(host.proxy, 2);
+    assert.deepEqual(reportRequests(host.proxy).map(({ body }) => [body.outcome, body.evidence.check.passed]), Array(2).fill([
+      success ? 'success' : 'failed', success,
+    ]));
+    const turns = Object.values(await host.stores.candidates.read()).flatMap(({ turns }) => turns);
+    assert.equal(turns.length, 1);
+    const checks = turns[0].steps.filter(({ kind }) => kind === 'check');
+    assert.equal(checks.length, 1, 'replayed results and terminal cannot duplicate a check');
+    assert.equal(checks[0].command, checkCommand);
+    assert.equal(checks[0].failed, !success);
+    assert.equal(checks[0].exit, success ? null : 1, 'a check keeps only an observed exit code');
+  });
+});
+
+test('the packed plugin leaves mismatched and conflicting test receipts unverified', async t => {
+  for (const scenario of ['wrong ID', 'wrong run', 'wrong command', 'wrapper error', 'conflicting duplicate']) await t.test(scenario, async t => {
+    const host = await packedHost(t);
+    const state = await startRun(host.hooks, 'run_unverified');
+    const call = shellCall(state, 'call_pending');
+    await host.hooks.beforeTool(call);
+    if (scenario === 'wrong ID') await host.hooks.afterTool(shellResult(shellCall(state, 'call_unrelated')));
+    if (scenario === 'wrong run') await host.hooks.afterTool(shellResult({ ...call, snapshot: { ...state, runId: 'run_stale' } }));
+    if (scenario === 'wrong command') await host.hooks.afterTool(shellResult(call, true, 'echo not-the-check'));
+    if (scenario === 'wrapper error') {
+      const receipt = shellResult(call);
+      await host.hooks.afterTool({ ...receipt, result: { ...receipt.result, isError: true } });
+    }
+    if (scenario === 'conflicting duplicate') {
+      await host.hooks.afterTool(shellResult(call));
+      await host.hooks.afterTool(shellResult(call, false));
+    }
+    await host.hooks.afterRun(finish(state, 'completed', 'The retries are fixed.'));
+    await noWork(host);
+  });
+});
+
+test('a Recipe booked at beforeRun cannot be reported if no model request received it', async t => {
+  const host = await packedHost(t);
+  const state = snapshot('run_without_delivery', [promptMessage('omitted_prompt', PROMPT)]);
+  await host.hooks.beforeRun({ snapshot: state });
+  assert.ok(host.proxy.requests.some(({ path }) => path === '/recipe/search'));
+  const request = modelRequest({ ...state, messages: [], iteration: 1 });
+  assert.equal(await host.hooks.beforeModel(request), undefined);
+  const call = shellCall(state, 'call_after_missing_recipe');
+  await host.hooks.beforeTool(call);
+  await host.hooks.afterTool(shellResult(call));
+  await host.hooks.afterRun(finish(state, 'completed', 'The test passed.'));
+  await noWork(host);
+});
+
+test('Cline without a configured distillation route still keeps successive verified turns', async t => {
+  const host = await packedHost(t);
+  let history = [];
+  for (let index = 1; index <= 2; index++) {
+    const state = await startRun(host.hooks, `run_unbound_${index}`, PROMPT, history);
+    const call = shellCall(state, `call_unbound_${index}`);
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(shellResult(call));
+    const ended = finish(state, 'completed', 'The retry test passed.');
+    await host.hooks.afterRun(ended);
+    history = ended.result.messages;
+  }
+  const [range] = Object.values(await host.stores.candidates.read());
+  assert.equal(range.model, null);
+  assert.deepEqual(range.turns.map(({ turn }) => turn), [1, 2]);
+});
+
+test('aborted and superseded native runs with a passing test cannot record work', async t => {
+  for (const scenario of ['Ctrl-C', 'terminal missing']) await t.test(scenario, async t => {
+    const host = await packedHost(t);
+    const state = await startRun(host.hooks, 'run_cancel');
+    const call = shellCall(state, 'call_pass_before_cancel');
+    await host.hooks.beforeTool(call);
+    await host.hooks.afterTool(shellResult(call));
+    await noWork(host);
+
+    // A partial answer may already exist when Windows delivers Ctrl-C after a successful shell call.
+    const answer = 'The test passed earlier.';
+    if (scenario === 'Ctrl-C') await host.hooks.afterRun(finish(state, 'aborted', answer));
+    else {
+      const history = [...state.messages, message('partial', 'assistant', answer)];
+      await startRun(host.hooks, 'run_after_cancel', 'Thanks!', history);
+    }
+    await host.hooks.afterRun(finish(state, 'completed', answer));
+    await noWork(host);
+  });
+});

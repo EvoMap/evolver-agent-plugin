@@ -96,6 +96,18 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
 });
 
+test('a private preview passes both opt-outs and does not accept a stored result as a draft', async () => {
+  const made = await fixedSession({ model: modelAnswering(IR), distillAnswer: { status: 'stored' } });
+  made.ports.persistDistillationInProxy = false;
+  const outcome = await distillSession(made.ports, { sessionId: 's1' });
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual([body.persist, body.publish], [false, false]);
+  assert.equal(outcome.status, 'failed');
+  assert.equal(outcome.results[0].reason, 'private_preview_unavailable');
+  assert.deepEqual(await made.ports.drafts.read(), []);
+  assert.ok((await made.ports.candidates.read()).s1);
+});
+
 test('a distillation names only the assets injected into the turns it read', async () => {
   const offTopic = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
   const made = memoryPorts({ assets: [offTopic, ASSET], distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
