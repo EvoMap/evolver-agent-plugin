@@ -40,6 +40,9 @@ export default defineProfile({
     // Stop runs before native completion and can be followed by another model step.
     Stop: EVENTS.TOOL_RESULT,
   },
+  // ZCode adds a tool result's context to the model's next step but drops Stop's unless the turn continues, so a recall
+  // that missed the prompt's wait reaches the model only from a tool result.
+  reply: { lateAtToolResult: (hostEvent) => hostEvent === 'PostToolUse' || hostEvent === 'PostToolUseFailure' },
   payload: {
     sessionId,
     turnId,
