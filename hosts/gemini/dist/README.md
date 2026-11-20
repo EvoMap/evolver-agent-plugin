@@ -13,7 +13,8 @@ gemini extensions install ./dist/gemini
 
 Review the extension hooks at the consent prompt. Enable hooks in Gemini CLI if they are disabled, then start
 a new session. The adapter uses the running Evolver Proxy. Prompts continue without recalled context when
-the Proxy is unavailable. Gemini CLI keeps its existing model and account configuration.
+the Proxy is unavailable. A later model request for the same turn can retry a failed recall once.
+Gemini CLI keeps its existing model and account configuration.
 
 Temporary recall state lives at `$GEMINI_CLI_HOME/.gemini/evolver-plugin` when the profile directory is set,
 or at `~/.gemini/evolver-plugin` by default. To remove the extension, run
