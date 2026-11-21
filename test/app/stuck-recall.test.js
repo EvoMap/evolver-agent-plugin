@@ -33,8 +33,10 @@ test('a failed check recalls for what it printed, with the task and language as 
   assert.deepEqual(stuckFetches(requests).at(-1).body, {
     text: 'changed: maxRetriesPerRequest | AssertionError: expected 3 to equal null | files: redis.js',
     context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
+    timeout_ms: 5_000,
     signals: ['AssertionError', 'changed', 'maxretriesperrequest', 'expected', 'equal', 'null', 'files', 'redis.js'],
   });
+  assert.equal(requests.find(({ path, body }) => path === '/recipe/search' && body.context?.trigger === 'check_failed')?.body.timeout_ms, 5_000);
   const ended = await turnEnded(ports, { sessionId: 's1', reason: 'answer', answer: 'Fixed.', projectDir: '/proj' });
   assert.deepEqual(ended.reports.map((report) => report.asset_id), [ASSET.asset_id]);
 });
