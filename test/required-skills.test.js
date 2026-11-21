@@ -37,10 +37,12 @@ test('a skill that follows a branch is named as the latest on that branch, not a
   assert.equal(lines[2], '- Read .agents/skills/quest-gate/SKILL.md and .agents/skills/report/SKILL.md and follow them with the steps above.');
 });
 
-test('a branch reference with a digest, a commit without one, or a branch name git could misread names no skill', () => {
+test('a branch reference with a digest, a commit without one, an unknown fragment key, or a branch name git could misread names no skill', () => {
   const at = (rev, fragment = 'path=skills/x') => ({ ...GENE, preconditions: [`skill:git+https://github.com/EvoMap/gene-skills@${rev}#${fragment}`] });
   assert.deepEqual(requiredSkillLinesOf(at('main', `sha256=${'c'.repeat(64)}&path=skills/x`)), []);
   assert.deepEqual(requiredSkillLinesOf(at('b'.repeat(40))), []);
+  assert.deepEqual(requiredSkillLinesOf(at('main', 'md5=x&path=skills/x')), []);
+  assert.deepEqual(requiredSkillLinesOf(at('b'.repeat(40), `sha256=${'c'.repeat(64)}&path=skills/x&ref=main`)), []);
   assert.deepEqual(requiredSkillLinesOf(at('--upload-pack=x')), []);
   assert.deepEqual(requiredSkillLinesOf(at('main/../../tags/v1')), []);
 });
