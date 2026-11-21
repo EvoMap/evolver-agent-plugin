@@ -11,7 +11,7 @@ import { pack, packedHosts, packSpecOf } from '../scripts/pack.mjs';
 const PUBLISH = fileURLToPath(new URL('../scripts/publish-tag.sh', import.meta.url));
 const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const posix = { skip: process.platform === 'win32' && 'bash script' };
-const MANIFEST = /(?:^|\/)(?:kimi\.plugin|plugin|marketplace|package)\.json$/;
+const MANIFEST = /(?:^|\/)(?:gemini-extension|kimi\.plugin|plugin|marketplace|package)\.json$/;
 
 function scratch(t) {
   const root = mkdtempSync(join(tmpdir(), 'evolver-release-'));

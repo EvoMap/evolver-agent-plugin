@@ -14,6 +14,7 @@ const CONTRACT = {
   'claude-code': { manifest: '.claude-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'hooks/register.ts', 'bin/relay.mjs'] },
   codex: { manifest: '.codex-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   grok: { manifest: '.grok-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
+  gemini: { manifest: 'gemini-extension.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs', 'hosts/gemini/profile.js'] },
   qoder: { manifest: '.qoder-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   kimi: { manifest: 'kimi.plugin.json', name: 'evolver-plugin', entries: ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs'] },
   minimax: { manifest: '.minimax-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
@@ -58,6 +59,14 @@ for (const [host, contract] of Object.entries(CONTRACT)) {
     assert.equal(manifest.version, '9.8.7');
     assert.match(repositoryOf(manifest) ?? '', REPOSITORY);
     for (const entry of contract.entries) assert.ok(existsSync(join(folder, entry)), `${entry} at the folder root`);
+    if (host === 'gemini') {
+      const { hooks } = JSON.parse(readFileSync(join(folder, 'hooks/hooks.json'), 'utf8'));
+      assert.deepEqual(Object.keys(hooks).sort(), ['BeforeAgent', 'BeforeModel', 'SessionEnd', 'SessionStart']);
+      for (const [event, [{ hooks: [hook] }]] of Object.entries(hooks)) {
+        assert.equal(hook.env.EVOLVER_GEMINI_HOOK, '${extensionPath}${/}bin${/}hook.mjs');
+        assert.ok(hook.command.endsWith(` gemini ${event}`));
+      }
+    }
     if (!contract.npm) return;
     for (const path of [...contract.entries, '.evolver-packed']) assert.ok(isShipped(manifest.files, path), `${path} is in files, so a package manager installs it`);
     assert.ok(Object.values(manifest.exports ?? {}).every((target) => !target.startsWith('./hosts/')), 'exports name the root entries');
