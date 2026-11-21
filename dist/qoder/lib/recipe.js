@@ -68,6 +68,7 @@ function recipeTextOf(name, steps, closing) {
       `Step ${index + 1} — ${step.name}:`,
       ...numbered(step.lines),
       ...(step.omitted > 0 ? [omittedNoteOf(step.omitted, step.assetId)] : []),
+      ...(step.skillLines ?? []),
     ]),
     '',
     `Follow the steps in order. ${closing}`,

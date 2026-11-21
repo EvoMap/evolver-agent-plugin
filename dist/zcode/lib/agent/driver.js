@@ -76,8 +76,10 @@ const HANDLERS = {
     const keepLate = typeof profile.reply.late === 'function';
     const hostTurn = profile.payload.hostTurn(payload, context);
     const holdForToolResult = profile.reply.strategyAt === STRATEGY_AT.TOOL_RESULT;
-    const { turn, sessionEpoch, injection, late, skipped } = await promptSubmitted(ports, { sessionId, prompt, projectDir, turnId, turnStart, hostTurn, isCommand: Boolean(typed), waitMs: waitLeft(), keepLate, holdForToolResult });
+    const lateAtToolResult = typeof profile.reply.lateAtToolResult === 'function';
+    const { turn, sessionEpoch, injection, late, deferred, skipped } = await promptSubmitted(ports, { sessionId, prompt, projectDir, turnId, turnStart, hostTurn, isCommand: Boolean(typed), waitMs: waitLeft(), keepLate, holdForToolResult, lateAtToolResult });
     if (skipped) options.onError?.(skipped);
+    if (deferred) ports.scheduler.schedule([`recall:${JSON.stringify({ ...at, turn, sessionEpoch })}`]);
     if (profile.turnEnd.statusRecord && turnId) await scheduleTurn(ports, at, { turn, turnId, sessionEpoch });
     const answer = profile.reply.context(joined(notice, await checkpointOf(), injection), hostEvent, payload);
     return late ? profile.reply.late(answer, late, hostEvent, payload) : answer;
@@ -99,7 +101,8 @@ const HANDLERS = {
       && (note.kind === 'answer' || (note.kind === 'shell' && !note.running && isVerificationCommand(note.command)))) {
       await scheduleTurn(ports, at, recorded);
     }
-    const waiting = await takeWaitingStrategy(ports, { sessionId: at.sessionId, turnId });
+    const takesWaiting = profile.reply.lateAtToolResult?.(hostEvent) ?? true;
+    const waiting = takesWaiting ? await takeWaitingStrategy(ports, { sessionId: at.sessionId, turnId }) : '';
     const reachesModel = profile.reply.toolResultContext || profile.reply.strategyAt === STRATEGY_AT.TOOL_RESULT;
     const stuck = note && reachesModel ? await recallWhenStuck(ports, { sessionId: at.sessionId, turnId, note, projectDir: at.projectDir, waitMs: waitLeft('toolResult') }) : '';
     const strategy = joined(waiting, stuck);

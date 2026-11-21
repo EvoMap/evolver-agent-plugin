@@ -81,6 +81,7 @@ function problemsOf(profile) {
   // A host that takes no context at the prompt would lose what only the prompt's answer carries.
   const isToolResultHost = profile.reply?.strategyAt === STRATEGY_AT.TOOL_RESULT;
   if (isToolResultHost && (profile.sessionStart === 'owner-change' || profile.reply.late)) problems.push("reply.strategyAt 'tool-result' takes neither sessionStart 'owner-change' nor reply.late");
+  if (profile.reply?.lateAtToolResult && (isToolResultHost || profile.reply.late)) problems.push('reply.lateAtToolResult takes neither strategyAt \'tool-result\' nor reply.late');
   if (!profile.evidence || !isFunction(profile.evidence.toolNote) || !isFunction(profile.evidence.editedFiles)) problems.push('evidence.toolNote and evidence.editedFile or editedFiles are required');
   if (!isFunction(profile.turnEnd?.reason) || !isFunction(profile.turnEnd?.answer)) problems.push('turnEnd.reason and turnEnd.answer must be functions');
   if (!Object.values(COMMAND_ENTRIES).includes(profile.commands?.entry) || !isFunction(profile.commands?.parse)) problems.push('commands.entry and commands.parse are required');

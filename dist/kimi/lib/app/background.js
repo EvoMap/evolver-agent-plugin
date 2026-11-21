@@ -5,6 +5,7 @@ import { runCommand } from './commands/index.js';
 import { deliverReports, recordReports } from './deliver-reports.js';
 import { armDistillWakeUp, distillDue, distillsInBackground, dropExpiredLeftovers } from './distill-session.js';
 import { TASKS } from './ports.js';
+import { recallForToolResult } from './prompt.js';
 import { recoverNativeTurns } from './session-start.js';
 import { turnEnded } from './turn-end.js';
 
@@ -24,6 +25,7 @@ const WORK = {
   [TASKS.RECOVER_TURNS]: recoverNativeTurns,
   command: (ports, id) => ports.commandJobs?.run(id, (at, signal) => runCommand(cancellable(ports, signal), { ...at, signal })),
   turn: (ports, payload) => ports.turnMonitor?.(JSON.parse(payload), (closed) => turnEnded(ports, closed)),
+  recall: (ports, payload) => recallForToolResult(ports, JSON.parse(payload)),
   // Without a model outside the conversation a leftover cannot be distilled here; trying would only use up its tries
   // before the agent's own model, asked in its session, gets to write the Gene. A person who turned background
   // distillation off still distills on demand.
