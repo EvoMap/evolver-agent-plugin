@@ -29,6 +29,24 @@ test('a skill pinned at the repository root takes the repository name', () => {
   assert.match(requiredSkillLinesOf(root).at(-1), /\.agents\/skills\/report-builder\/SKILL\.md/);
 });
 
+test('a skill that follows a branch is named as the latest on that branch, not as pinned', () => {
+  const branch = `skill:git+https://github.com/EvoMap/gene-skills@release/v2#path=skills/Quest_Gate`;
+  const lines = requiredSkillLinesOf({ ...GENE, preconditions: [branch, PIN.replace('skills/Quest_Gate', 'skills/report')] });
+  assert.equal(lines[0], 'Required skills for this Gene: quest-gate (latest on branch release/v2), report (pinned). Before acting, install them and read them:');
+  assert.equal(lines[1], `- Run: evolver skill fetch --asset ${ID} --out .agents --write --force`);
+  assert.equal(lines[2], '- Read .agents/skills/quest-gate/SKILL.md and .agents/skills/report/SKILL.md and follow them with the steps above.');
+});
+
+test('a branch reference with a digest, a commit without one, an unknown fragment key, or a branch name git could misread names no skill', () => {
+  const at = (rev, fragment = 'path=skills/x') => ({ ...GENE, preconditions: [`skill:git+https://github.com/EvoMap/gene-skills@${rev}#${fragment}`] });
+  assert.deepEqual(requiredSkillLinesOf(at('main', `sha256=${'c'.repeat(64)}&path=skills/x`)), []);
+  assert.deepEqual(requiredSkillLinesOf(at('b'.repeat(40))), []);
+  assert.deepEqual(requiredSkillLinesOf(at('main', 'md5=x&path=skills/x')), []);
+  assert.deepEqual(requiredSkillLinesOf(at('b'.repeat(40), `sha256=${'c'.repeat(64)}&path=skills/x&ref=main`)), []);
+  assert.deepEqual(requiredSkillLinesOf(at('--upload-pack=x')), []);
+  assert.deepEqual(requiredSkillLinesOf(at('main/../../tags/v1')), []);
+});
+
 test('a Gene without a pin, a malformed pin, or an id unsafe for a shell names no skill', () => {
   assert.deepEqual(requiredSkillLinesOf({ ...GENE, preconditions: ['skill: knows git'] }), []);
   assert.deepEqual(requiredSkillLinesOf({ ...GENE, preconditions: [PIN.replace('#sha256', '#md5')] }), []);
