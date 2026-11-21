@@ -275,3 +275,76 @@ test('a session end waits for an open turn\'s end only as long as the host\'s se
   assert.ok(waited <= 1_000, `it leaves the hook time to write (waited ${waited} ms)`);
   assert.equal(queued[0].report.evidence.aborted, true);
 });
+
+const LATE_EVENTS = { SessionStart: 'sessionStart', UserPromptSubmit: 'prompt', PostToolUse: 'toolResult', Stop: 'toolResult', SessionEnd: 'sessionEnd' };
+const lateProfile = () => hookProfile({
+  events: LATE_EVENTS,
+  payload: { turnId: (payload) => payload.turn_id ?? null },
+  reply: { lateAtToolResult: (hostEvent) => hostEvent === 'PostToolUse' },
+});
+
+// hookProfile's 8 s prompt budget leaves a recall at most the default 6 s ceiling.
+const WAIT_CEILING_MS = 6_000;
+
+function heldProxy(made) {
+  const request = made.ports.proxy.request;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const timeouts = [];
+  made.ports.proxy.request = async (method, path, body, options = {}) => {
+    timeouts.push(options.timeoutMs ?? 0);
+    if (options.timeoutMs > 0 && options.timeoutMs <= WAIT_CEILING_MS) throw new Error('timed out with the wait');
+    await held;
+    return request(method, path, body, options);
+  };
+  return { timeouts, release: () => { release(); made.ports.proxy.request = request; } };
+}
+
+test('a recall that misses the prompt is scheduled in the background and reaches the model at the next tool result, not at Stop', async () => {
+  const made = memoryPorts();
+  const proxy = heldProxy(made);
+  const { driver, scheduled } = driverOf(lateProfile(), made);
+  const turn = { ...base, turn_id: 't1' };
+  const answer = await driver.handle('UserPromptSubmit', { ...turn, prompt: PROMPT });
+  assert.equal(answer.hookSpecificOutput?.additionalContext, undefined, 'nothing landed in time');
+  const task = scheduled.find((entry) => entry.startsWith('recall:'));
+  assert.ok(task, 'the missed recall goes to the background');
+  assert.ok(proxy.timeouts.every((timeoutMs) => timeoutMs > WAIT_CEILING_MS), 'a request cut at the wait would settle the recall empty and never defer it');
+  const scheduledTurn = JSON.parse(task.slice('recall:'.length));
+  assert.equal(scheduledTurn.turn, 1);
+  assert.ok(Number.isFinite(scheduledTurn.sessionEpoch));
+  assert.equal('prompt' in scheduledTurn, false, 'the task names the turn; the worker reads its prompt from the session');
+  assert.equal(task.includes(PROMPT.slice(0, 12)), false);
+
+  proxy.release();
+  const { runBackgroundTasks } = await import('../../lib/app/background.js');
+  assert.equal(await runBackgroundTasks(made.ports, [task]), true);
+
+  const atStop = await driver.handle('Stop', { ...turn });
+  assert.deepEqual(atStop, {}, 'Stop drops added context in this host, so it must not take the strategy');
+  const atTool = await driver.handle('PostToolUse', { ...turn, tool_name: 'Write', tool_input: { file_path: '/proj/a.js' } });
+  assert.equal(atTool.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.match(atTool.hookSpecificOutput.additionalContext, /Evolution Memory/);
+  const session = await made.ports.sessions.read(base.session_id);
+  assert.ok(Object.keys(session.injected).length > 0, 'the strategy is booked for this turn\'s reuse report');
+  assert.deepEqual(await driver.handle('PostToolUse', { ...turn, tool_name: 'Write', tool_input: { file_path: '/proj/b.js' } }), {}, 'only one tool result takes it');
+});
+
+test('a background recall that lands after its turn closed leaves nothing waiting', async () => {
+  const made = memoryPorts();
+  const proxy = heldProxy(made);
+  const { driver, scheduled } = driverOf(lateProfile(), made);
+  await driver.handle('UserPromptSubmit', { ...base, turn_id: 't1', prompt: PROMPT });
+  const task = scheduled.find((entry) => entry.startsWith('recall:'));
+  await driver.handle('UserPromptSubmit', { ...base, turn_id: 't2', prompt: 'Now add a second retry policy to the uploader client' });
+  proxy.release();
+  const { runBackgroundTasks } = await import('../../lib/app/background.js');
+  await runBackgroundTasks(made.ports, [task]);
+  assert.equal((await made.ports.sessions.read(base.session_id)).waiting ?? null, null);
+});
+
+test('reply.lateAtToolResult refuses a host that already delivers at the tool result or answers late', () => {
+  const lateAtToolResult = () => true;
+  assert.throws(() => hookProfile({ reply: { strategyAt: 'tool-result', lateAtToolResult } }), /lateAtToolResult takes neither/);
+  assert.throws(() => hookProfile({ reply: { late: (answer) => answer, lateAtToolResult } }), /lateAtToolResult takes neither/);
+});

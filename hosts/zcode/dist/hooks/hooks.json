@@ -24,7 +24,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^Bash$",
+        "matcher": "Bash|Write|Edit|ApplyPatch",
         "hooks": [
           { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/bin/hook.mjs", "zcode", "PostToolUse"], "timeoutMs": 4000 }
         ]
@@ -32,7 +32,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "^Bash$",
+        "matcher": "Bash|Write|Edit|ApplyPatch",
         "hooks": [
           { "type": "process", "command": "node", "args": ["${ZCODE_PLUGIN_ROOT}/bin/hook.mjs", "zcode", "PostToolUseFailure"], "timeoutMs": 4000 }
         ]
