@@ -1,0 +1,14 @@
+{
+  "name": "evolver-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Recipe recall, native verification evidence and private drafts for Cline CLI.",
+  "type": "module",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin",
+  "license": "MIT",
+  "cline": {
+    "plugins": [
+      { "paths": ["./evolver.js"], "capabilities": ["hooks", "commands"] }
+    ]
+  }
+}

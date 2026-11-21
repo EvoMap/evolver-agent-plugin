@@ -64,6 +64,13 @@ only a private distillation prompt, no tools or native session transcript, and r
 Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in `evolver-plugin`.
 [The Step Code draft guide](stepcode/dist/README.md) records installation, supported commands and acceptance limits.
 
+Cline CLI 3.0.73 on Windows uses native runtime hooks through the plugin channel. Recipe context is added to
+the active turn's model requests. The adapter pairs foreground command results by native tool call ID and
+uses `afterRun` to confirm completion before allowing new reports or candidates for that turn.
+Manual distillation runs on the verified OpenAI-compatible API-key route of the live Windows session
+and saves the Proxy's preview as a private draft.
+[The Cline draft guide](cline/dist/README.md) describes local package installation and scope.
+
 ## Adding a host
 
 Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows, and CLI 2.6.3 on macOS, for the main agent in local sessions
