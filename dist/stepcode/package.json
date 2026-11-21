@@ -1,6 +1,6 @@
 {
   "name": "@evomap/stepcode-evolver",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Recipe recall, native verification evidence and private drafts for Step Code CLI.",
   "type": "module",
   "main": "./plugin.mjs",
