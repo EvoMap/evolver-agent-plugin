@@ -64,3 +64,17 @@ test('a Recipe step names the skill its Gene pins', async () => {
   assert.deepEqual(match.ids, [ID, other.asset_id]);
   assert.match(match.text, /4\. Alert on the cap\.\nRequired skill \(pinned by this Gene\): quest-gate\.[\s\S]*\n\nStep 2 — Alert on exhausted retries:/);
 });
+
+test('a Gene that pins a skill needs no four steps: the skill carries the detail', async () => {
+  const thin = { ...GENE, strategy: ['Install and read the pinned skill before anything else.', 'Build the quest core the skill describes.'] };
+  const match = await recallStrategy(proxyOf([thin]), 'add a retry to the uploader');
+  assert.deepEqual(match.ids, [ID]);
+  assert.match(match.text, /^2\. Build the quest core the skill describes\.\nRequired skill \(pinned by this Gene\): quest-gate\./m);
+});
+
+test('a two-step Gene without a pin still gives way to one that fits', async () => {
+  const thin = { ...GENE, asset_id: `sha256:${'e'.repeat(64)}`, preconditions: [], strategy: ['Install nothing at all here, please.', 'Then do the work as usual today.'], similarity: 0.9 };
+  const full = { ...GENE, preconditions: [], similarity: 0.5 };
+  const match = await recallStrategy(proxyOf([thin, full]), 'add a retry to the uploader');
+  assert.deepEqual(match.ids, [ID]);
+});
