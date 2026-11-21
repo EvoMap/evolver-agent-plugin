@@ -63,6 +63,9 @@ test('a Recipe step names the skill its Gene pins', async () => {
     { context: { task: 'set up retry with backoff for the flaky upload client', trigger: 'turn_start' } });
   assert.deepEqual(match.ids, [ID, other.asset_id]);
   assert.match(match.text, /4\. Alert on the cap\.\nRequired skill \(pinned by this Gene\): quest-gate\.[\s\S]*\n\nStep 2 — Alert on exhausted retries:/);
+  // Each step's own text is what the session ledger keeps for the turn's reuse report: it names the skill too.
+  assert.match(match.stepTexts[ID], /^4\. Alert on the cap\.\nRequired skill \(pinned by this Gene\): quest-gate\./m);
+  assert.doesNotMatch(match.stepTexts[other.asset_id], /Required skill/);
 });
 
 test('a Gene that pins a skill needs no four steps: the skill carries the detail', async () => {
