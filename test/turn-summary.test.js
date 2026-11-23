@@ -12,70 +12,53 @@ test('savings follow evolver-core savingsCore 0.3.0 for a reference reuse', () =
   assert.equal(referenceReuseSavings(10_000).tokens, 240_000);
 });
 
-test('a turn that reused nothing shows nothing', () => {
-  assert.equal(turnSummaryOf({ reusedNames: [], lastCheck: { command: 'npm test', failed: false } }), null);
+const POOL = { name: 'Redis connection pool tuning', assetId: `sha256:5f1fdc60${'a'.repeat(56)}`, outcome: 'success', tier: 'L1' };
+const PASSED = { command: 'npm test', failed: false };
+
+test('a turn nothing was injected into shows nothing', () => {
+  assert.equal(turnSummaryOf({ reused: [], lastCheck: PASSED }), null);
 });
 
-test('a passing check vouches for a saving, never above what the turn spent', () => {
+test('a passing check names the strategy, its asset id, what EvoMap was told and a saving never above the turn\'s spend', () => {
   assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis connection pool tuning'], lastCheck: { command: 'npm test', failed: false }, changedLines: 30, usage: USAGE }),
-    '✓ Goal reached (last check passed: npm test) · reused EvoMap strategy "Redis connection pool tuning" · est. ~6k tokens saved (≈$0.05) · this turn used 6k fresh tokens',
+    turnSummaryOf({ reused: [POOL], lastCheck: PASSED, changedLines: 30, usage: USAGE }),
+    'Evolver · injected "Redis connection pool tuning" (sha256:5f1fdc60) · ✓ last check passed: npm test · reported to EvoMap as success · est. ~6k tokens saved (≈$0.05)',
   );
-});
-
-test('a saving under the turn\'s own spend is the estimator\'s figure', () => {
   const heavy = { input_tokens: 90_000, output_tokens: 10_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
-  assert.match(
-    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, changedLines: 30, usage: heavy }),
-    /est\. ~58k tokens saved \(≈\$0\.52\) · this turn used 100k fresh tokens$/,
-  );
+  assert.match(turnSummaryOf({ reused: [POOL], lastCheck: PASSED, changedLines: 30, usage: heavy }), /est\. ~58k tokens saved \(≈\$0\.52\)$/);
 });
 
-test('a failed check counts no saving, and the summary leaves the saving out', () => {
+test('a failed check claims no saving and says EvoMap was told it failed', () => {
   assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: true }, turnReason: 'answer', changedLines: 30, usage: USAGE }),
-    '✗ Goal not reached (last check failed: npm test) · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
+    turnSummaryOf({ reused: [{ ...POOL, outcome: 'failed' }], lastCheck: { command: 'npm test', failed: true }, changedLines: 30, usage: USAGE }),
+    'Evolver · injected "Redis connection pool tuning" (sha256:5f1fdc60) · ✗ last check failed: npm test · reported to EvoMap as failed',
   );
 });
 
-test('a turn that ran no check and ended normally reached its goal, with no saving claimed', () => {
+test('a turn with no check says its use is unverified and that the report carried no evidence, never that a goal was reached', () => {
+  const line = turnSummaryOf({ reused: [{ ...POOL, tier: 'none' }], changedLines: 0, usage: USAGE });
+  assert.equal(line, 'Evolver · injected "Redis connection pool tuning" (sha256:5f1fdc60) · no check ran, so its use is unverified · reported to EvoMap as success without evidence');
+  assert.doesNotMatch(line, /Goal reached|tokens saved|fresh tokens/);
+});
+
+test('an unknown last check claims no saving', () => {
   assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], turnReason: 'answer', changedLines: 0, usage: USAGE }),
-    '✓ Goal reached · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
+    turnSummaryOf({ reused: [{ ...POOL, outcome: 'failed', tier: 'none' }], lastCheck: { command: 'npm test', failed: null }, changedLines: 30, usage: USAGE }),
+    'Evolver · injected "Redis connection pool tuning" (sha256:5f1fdc60) · ? last check result unknown: npm test · reported to EvoMap as failed without evidence',
   );
 });
 
-test('a turn that ran no check and did not end normally says nothing about the goal', () => {
-  for (const turnReason of ['aborted', 'error', 'refusal', undefined]) {
-    assert.equal(
-      turnSummaryOf({ reusedNames: ['Redis pool'], turnReason, usage: USAGE }),
-      'reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
-      String(turnReason),
-    );
-  }
+test('a strategy with no report or asset id is still named, with no claim about what EvoMap was told', () => {
+  assert.equal(turnSummaryOf({ reused: [{ name: 'Redis pool' }], lastCheck: PASSED }), 'Evolver · injected "Redis pool" · ✓ last check passed: npm test');
 });
 
-test('a turn whose usage is unknown counts no saving and states no usage', () => {
-  assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, changedLines: 10 }),
-    '✓ Goal reached (last check passed: npm test) · reused EvoMap strategy "Redis pool"',
-  );
+test('a Recipe\'s steps are counted and each named', () => {
+  const steps = [{ ...POOL, name: 'Unbound redis retries' }, { ...POOL, name: 'Close the redis client', assetId: `sha256:${'b'.repeat(64)}` }];
+  assert.match(turnSummaryOf({ reused: steps, lastCheck: PASSED }), /^Evolver · injected 2 strategies: "Unbound redis retries" \(sha256:5f1fdc60\), "Close the redis client" \(sha256:bbbbbbbb\) · /);
 });
 
-test('an unknown last check claims neither a reached goal nor a saving', () => {
-  assert.equal(
-    turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: null }, turnReason: 'answer', changedLines: 30, usage: USAGE }),
-    '? Goal unverified (last check result unknown: npm test) · reused EvoMap strategy "Redis pool" · this turn used 6k fresh tokens',
-  );
-});
-
-test('the summary is one line, since the desktop notice renders no line breaks', () => {
-  const summary = turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: 'npm test', failed: false }, usage: USAGE });
-  assert.equal(summary.includes('\n'), false);
-});
-
-test('the goal names the check by its label, so a multi-line script never reaches the one-line notice', () => {
-  const summary = turnSummaryOf({ reusedNames: ['Redis pool'], lastCheck: { command: "python3 - <<'EOF'\nassert ok\nEOF", label: 'Check the README edits', failed: false }, changedLines: 10 });
-  assert.match(summary, /^✓ Goal reached \(last check passed: Check the README edits\) · /);
+test('the summary is one line, naming the check by its label, since the desktop notice renders no line breaks', () => {
+  const summary = turnSummaryOf({ reused: [POOL], lastCheck: { command: "python3 - <<'EOF'\nassert ok\nEOF", label: 'Check the README edits', failed: false }, changedLines: 10 });
+  assert.match(summary, /· ✓ last check passed: Check the README edits ·/);
   assert.doesNotMatch(summary, /\n/);
 });

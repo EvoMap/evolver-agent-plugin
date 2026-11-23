@@ -53,7 +53,7 @@ function streamOf(child) {
 }
 
 /** A Claude Code session over the packed module: `call(event, input, ran)` raises a hook as the engine does. */
-async function session(t, { options = { node_path: process.execPath }, spawnOf, delays, assets } = {}) {
+async function session(t, { options = { node_path: process.execPath }, spawnOf, delays, assets, late } = {}) {
   const proxy = await fakeProxy({ distillAnswer: DRAFTED, delays, ...(assets && { assets }) });
   const project = realpathSync(mkdtempSync(join(tmpdir(), 'evolver-claude-code-project-')));
   mkdirSync(join(project, 'lib'));
@@ -64,7 +64,7 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     proxy.close();
     rmSync(project, { recursive: true, force: true });
   });
-  const seen = { appended: [], toasts: [], submitted: [], commands: [], completions: [] };
+  const seen = { appended: [], toasts: [], submitted: [], commands: [], completions: [], statuses: [] };
   const $ = {
     plugin: { name: 'evolver-plugin', root },
     session: {
@@ -76,8 +76,11 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     fs: { stat: async (path) => ({ realPath: path }), read: async (path) => readFileSync(path, 'utf8') },
     http: {
       fetch: async (url, init) => {
-        const response = await fetch(url, init);
-        return { ok: response.ok, status: response.status, text: await response.text() };
+        const real = async () => {
+          const response = await fetch(url, init);
+          return { ok: response.ok, status: response.status, text: await response.text() };
+        };
+        return late && String(url).endsWith('/late') ? late(real) : real();
       },
     },
     clock: { now: async () => Date.now(), sleep: (ms, { signal } = {}) => new Promise((resolve, reject) => {
@@ -97,7 +100,7 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     } },
     command: { register: async (spec) => { seen.commands.push(spec); } },
     prompt: { submit: async ({ text }) => { seen.submitted.push(text); } },
-    ui: { toast: (text) => { seen.toasts.push(text); } },
+    ui: { toast: (text) => { seen.toasts.push(text); }, status: (text) => { seen.statuses.push(text); } },
   };
   loads += 1;
   const { register } = await import(`${pathToFileURL(join(root, 'hooks', 'register.mjs')).href}?load=${loads}`);
@@ -156,7 +159,9 @@ test('a session starts the relay, registers the commands, and a whole turn is re
 
   const ended = await verifiedTurn(cc);
   assert.match(cc.seen.appended[0], /^\[Evolution Memory\] Fix flaky Redis connection retries[\s\S]*Apply them where they fit\.$/);
-  assert.match(ended.text, /^✓ Goal reached \(last check passed: Run the tests\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  assert.equal(cc.seen.statuses[0], 'evolver · recalling an EvoMap strategy for this prompt…');
+  assert.match(cc.seen.statuses.at(-1), /^evolver · injected "Fix flaky Redis connection retries"/);
+  assert.match(ended.text, /^Evolver · injected "Fix flaky Redis connection retries" \(sha256:aaaaaaaa\) · ✓ last check passed: Run the tests · reported to EvoMap as success/);
   const state = join(cc.proxy.env.HOME, '.evolver', 'state');
   const [sessionFile] = readdirSync(state).filter((name) => /^claude-code-session-.*\.json$/.test(name));
   assert.equal(JSON.parse(readFileSync(join(state, sessionFile), 'utf8')).pid, process.pid, 'the session belongs to Claude Code, the relay\'s parent');
@@ -305,4 +310,32 @@ test('a failed check recalls for its output and hands the strategy to the model 
     signals: ['AssertionError', 'changed', 'maxretriesperrequest', 'expected', 'equal', 'null', 'files', 'redis.js'],
     project_dir: cc.project,
   });
+});
+
+test('a recall that answers once a later turn has started leaves that turn\'s status line alone', async (t) => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let lates = 0;
+  const cc = await session(t, { late: async (real) => { lates += 1; if (lates === 1) await held; return real(); } });
+  await cc.call('session.start');
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: PROMPT, turnId: 't2' });
+  await until(() => cc.seen.statuses.some((line) => /^evolver · injected /.test(line)), 'the second turn\'s recall');
+  const settled = cc.seen.statuses.length;
+  release();
+  await until(() => lates === 2 && cc.seen.appended.length > 0, 'the first turn\'s answer');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(cc.seen.statuses.length, settled, 'the first turn wrote nothing once the second had started');
+  assert.match(cc.seen.statuses.at(-1), /^evolver · injected /);
+});
+
+test('a recall the relay cannot answer settles the status line instead of leaving it recalling', async (t) => {
+  const cc = await session(t, { late: async () => ({ ok: false, status: 500, text: '{"error":"gone"}' }) });
+  await cc.call('session.start');
+  await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
+  await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
+  await until(() => cc.seen.statuses.length >= 2, 'the settled status');
+  assert.deepEqual(cc.seen.statuses, ['evolver · recalling an EvoMap strategy for this prompt…', 'evolver · recall did not finish for this prompt']);
 });
