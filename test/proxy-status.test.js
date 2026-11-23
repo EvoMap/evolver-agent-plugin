@@ -13,6 +13,8 @@ test('a running Proxy is described by its process, node, pending counts and last
 test('a sync error is surfaced; a non-running answer is said plainly', () => {
   assert.equal(proxyStatusOf({ running: true, last_sync_at: '1795399048557' }).last_sync, '2026-11-23T01:57:28.557Z');
   assert.equal(proxyStatusOf({ running: true, last_sync_at: '2026-10-22T03:00:00Z' }).last_sync, '2026-10-22T03:00:00Z');
+  assert.equal(proxyStatusOf({ running: true, last_sync_at: '9999999999999999' }).last_sync, null, 'a time past what Date holds is not a time');
+  assert.equal(publishingOf({ background_curation: { last_attempt: { result: 'published', at: 9e15 } } }).last_attempt.at, null);
   const status = proxyStatusOf({ running: true, last_sync_error: 'hub 503' });
   assert.equal(status.node_id, 'unclaimed');
   assert.equal(status.last_sync, null);

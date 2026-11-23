@@ -6,11 +6,11 @@ import { memoryPorts } from './memory-ports.js';
 
 const RUNNING = { running: true, health: { pid: 81 }, hub_mode: 'public', node_id: 'node_1', hub_auth_status: 'ok', outbound_pending: 0, inbound_pending: 0 };
 
-function statusWorld({ outcome, installed, proxyVersion }) {
+function statusWorld({ outcome, installed, proxyVersion, proxyPid = 81 }) {
   const { ports } = memoryPorts();
   ports.proxy = { request: async (method, path) => (path === '/proxy/status' ? { ok: true, data: RUNNING } : { ok: false, error: 'unexpected' }) };
   ports.client = { versions: () => ({ agent: 'dsh', agentVersion: '0.2.1', plugin: '@evomap/evolver-agent-plugin', pluginVersion: '1.0.16' }) };
-  ports.engine = { ...ports.engine, outcome: async () => outcome, current: async () => ({ installed, proxyVersion }) };
+  ports.engine = { ...ports.engine, outcome: async () => outcome, current: async () => ({ installed, proxy: { version: proxyVersion, pid: proxyPid } }) };
   return ports;
 }
 
@@ -30,4 +30,12 @@ test('/evolver-status does not show an old start failure as current once a new e
   const failed = { version: '2.0.50', source: 'path', status: 'start_failed', error: 'the Proxy did not answer within the wait', at: 1794967906012, retryAt: 1794977506012 };
   const answer = await status(statusWorld({ outcome: failed, installed: { version: '2.0.55', source: 'path' }, proxyVersion: '2.0.55' }));
   assert.deepEqual(answer.engine_setup, { status: 'ready', previous: { status: 'start_failed', version: '2.0.50', at: '2026-11-18T02:11:46.012Z' } });
+});
+
+test('/evolver-status names no Proxy version recorded for a process other than the one answering, and cures nothing with it', async () => {
+  const failed = { version: '2.0.50', source: 'path', status: 'start_failed', error: 'the Proxy did not answer within the wait', at: 1 };
+  const answer = await status(statusWorld({ outcome: failed, installed: { version: '2.0.55', source: 'path' }, proxyVersion: '2.0.55', proxyPid: 82 }));
+  assert.equal(answer.evolver.proxy.version, null);
+  assert.equal(answer.evolver.proxy.pid, 81);
+  assert.equal(answer.engine_setup.status, 'start_failed');
 });

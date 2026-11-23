@@ -152,7 +152,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     client: { versions: () => ({ agent: 'test', agentVersion: null, plugin: '@evomap/evolver-agent-plugin', pluginVersion: null }), rememberAgentVersion: () => {} },
     engine: {
       needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null,
-      current: async () => ({ installed: null, proxyVersion: null }),
+      current: async () => ({ installed: null, proxy: null }),
     },
     ledger: { load: async () => {}, record: async () => true },
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
