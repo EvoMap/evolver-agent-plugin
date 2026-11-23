@@ -64,7 +64,7 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     proxy.close();
     rmSync(project, { recursive: true, force: true });
   });
-  const seen = { appended: [], toasts: [], submitted: [], commands: [], completions: [] };
+  const seen = { appended: [], toasts: [], submitted: [], commands: [], completions: [], statuses: [] };
   const $ = {
     plugin: { name: 'evolver-plugin', root },
     session: {
@@ -97,7 +97,7 @@ async function session(t, { options = { node_path: process.execPath }, spawnOf, 
     } },
     command: { register: async (spec) => { seen.commands.push(spec); } },
     prompt: { submit: async ({ text }) => { seen.submitted.push(text); } },
-    ui: { toast: (text) => { seen.toasts.push(text); } },
+    ui: { toast: (text) => { seen.toasts.push(text); }, status: (text) => { seen.statuses.push(text); } },
   };
   loads += 1;
   const { register } = await import(`${pathToFileURL(join(root, 'hooks', 'register.mjs')).href}?load=${loads}`);
@@ -156,7 +156,9 @@ test('a session starts the relay, registers the commands, and a whole turn is re
 
   const ended = await verifiedTurn(cc);
   assert.match(cc.seen.appended[0], /^\[Evolution Memory\] Fix flaky Redis connection retries[\s\S]*Apply them where they fit\.$/);
-  assert.match(ended.text, /^✓ Goal reached \(last check passed: Run the tests\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
+  assert.equal(cc.seen.statuses[0], 'evolver · recalling an EvoMap strategy for this prompt…');
+  assert.match(cc.seen.statuses.at(-1), /^evolver · injected "Fix flaky Redis connection retries"/);
+  assert.match(ended.text, /^Evolver · injected "Fix flaky Redis connection retries" \(sha256:aaaaaaaa\) · ✓ last check passed: Run the tests · reported to EvoMap as success/);
   const state = join(cc.proxy.env.HOME, '.evolver', 'state');
   const [sessionFile] = readdirSync(state).filter((name) => /^claude-code-session-.*\.json$/.test(name));
   assert.equal(JSON.parse(readFileSync(join(state, sessionFile), 'utf8')).pid, process.pid, 'the session belongs to Claude Code, the relay\'s parent');

@@ -55,7 +55,7 @@ export default defineProfile({
     command: (result) => ({ decision: 'block', reason: result.text, systemMessage: result.text }),
     // Qoder shows a Stop hook's systemMessage to the person only, and ignores what StopFailure and QueryEnd answer.
     turnEnd: (ended, hostEvent) => {
-      const line = hostEvent === STOP ? endedTurnSummaryOf(ended, { reason: 'answer' }) : null;
+      const line = hostEvent === STOP ? endedTurnSummaryOf(ended) : null;
       return line ? { systemMessage: line } : {};
     },
   },

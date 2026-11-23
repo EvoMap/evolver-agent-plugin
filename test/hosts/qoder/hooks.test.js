@@ -145,7 +145,7 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   assert.deepEqual(await s.edit(), {});
   assert.deepEqual(await s.passing('npm test 2>&1 | tail -5'), {});
   const summary = await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.');
-  assert.match(summary.systemMessage, new RegExp(`^✓ Goal reached \\(last check passed: npm test 2>&1 \\| tail -5\\) · reused EvoMap strategy "${ASSET.short_title}"`));
+  assert.match(summary.systemMessage, new RegExp(`^Evolver · injected "${ASSET.short_title}" \\(sha256:aaaaaaaa\\) · ✓ last check passed: npm test 2>&1 \\| tail -5 · reported to EvoMap as success`));
 
   assert.deepEqual(await waitFor(() => reportOf('qoder:s-turn:1')), {
     asset_id: ASSET.asset_id,

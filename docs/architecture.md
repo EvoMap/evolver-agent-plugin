@@ -198,8 +198,12 @@ functions declared in the module's own file (`claude plugin validate` refuses `$
 `bin/relay.mjs claude-code` with `$.process.spawn`, which prints `{ port, token }` once it listens on loopback; the
 spawn's loop is the relay's life, so the relay ends with the module, and a relay that died is started again by the
 next event. The module sends each event over `$.http.fetch` with that token, as the profile's host events, and
-applies the answers: `$.session.append` for a strategy, `$.ui.toast` for a notice, `{ text, context }` for a
-command, `$.prompt.submit` for `/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. Text
+applies the answers: `$.session.append` for a strategy, `$.ui.toast` for a notice, `$.ui.status` for the recall's
+status line under the prompt (recalling, then what it decided: injected, none fits, none relevant enough, the Proxy
+did not answer, or arrived after the turn ended), `{ text, context }` for a command, `$.prompt.submit` for
+`/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. The turn summary names each injected
+strategy and its asset id, what the turn's last check says of its use (none ran: unverified), what EvoMap was told
+(and whether the report carried evidence), and a saving only behind a passing check. Text
 appended in `turn.start` never reaches the turn's first request, so a recall never waits there: the strategy is
 appended when it lands, only while its turn is still open (and is then kept out of the session's later recalls), and
 booked at the turn's next main-loop `turn.step` after the first; a turn that ends first books nothing. In the
