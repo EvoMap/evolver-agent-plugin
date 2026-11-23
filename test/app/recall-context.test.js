@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { promptSubmitted } from '../../lib/app/prompt.js';
+import { sessionEnded } from '../../lib/app/session-end.js';
 import { toolFinished } from '../../lib/app/tool-result.js';
 import { turnEnded } from '../../lib/app/turn-end.js';
 import { memoryPorts } from './memory-ports.js';
@@ -67,4 +68,30 @@ test('a host that tells the answer among its tool notes, not at the turn end, st
   await turnEnded(ports, { sessionId: 's', reason: 'answer' });
   await turn(ports, 'Fix those');
   assert.deepEqual(fetchContexts(requests).at(-1).recent_turns.at(-1), { role: 'assistant', text: 'Three uploads failed on a 413.' });
+});
+
+test('a turn nobody typed for keeps neither its own answer nor the typed turn before it from the recent turns', async () => {
+  const { ports, requests } = memoryPorts();
+  await turn(ports, 'Distill the nexu-io sources into Genes', '56 sources queued.');
+  await promptSubmitted(ports, { sessionId: 's', prompt: null, waitMs: 5_000 });
+  await turnEnded(ports, { sessionId: 's', reason: 'answer', answer: 'The background job finished.' });
+  await turn(ports, 'How many assets in all?');
+  assert.deepEqual(fetchContexts(requests).at(-1).recent_turns, [
+    { role: 'user', text: 'Distill the nexu-io sources into Genes' },
+    { role: 'assistant', text: '56 sources queued.' },
+  ]);
+});
+
+test('a resumed session keeps its recent turns and title, the last turn before the end among them', async () => {
+  const { ports, requests } = memoryPorts();
+  await turn(ports, 'Distill openmotion for dsh', 'Published 8 Genes.', { title: 'Distill openmotion' });
+  await sessionEnded(ports, { sessionId: 's', projectDir: null });
+  await turn(ports, 'Now evaluate their recall');
+  const context = fetchContexts(requests).at(-1);
+  assert.deepEqual(context.recent_turns, [
+    { role: 'user', text: 'Distill openmotion for dsh' },
+    { role: 'assistant', text: 'Published 8 Genes.' },
+  ]);
+  assert.equal(context.title, 'Distill openmotion');
+  assert.equal(context.task, 'Distill openmotion for dsh');
 });
