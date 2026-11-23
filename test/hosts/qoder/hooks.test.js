@@ -165,7 +165,7 @@ test('a command is answered and blocked: it opens no turn, recalls nothing and l
   const fetches = posted('/asset/fetch').length;
   const answer = await s.prompt('/evolver-plugin:evolver-status');
   assert.equal(answer.decision, 'block');
-  assert.match(answer.systemMessage, /^Evolver Proxy running/);
+  assert.match(answer.systemMessage, /"proxy": \{[^}]*"running": true/);
   assert.equal(answer.reason, answer.systemMessage);
   assert.equal(answer.hookSpecificOutput, undefined, 'nothing reaches the model');
   assert.equal(posted('/asset/fetch').length, fetches);
@@ -264,5 +264,5 @@ test('a terminal runs the same commands from the packed folder', posix, async ()
   let stdout = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   await new Promise((resolve) => child.on('close', resolve));
-  assert.match(stdout, /^Evolver Proxy running/);
+  assert.match(stdout, /"proxy": \{[^}]*"running": true/);
 });

@@ -257,7 +257,7 @@ test('native configuration persists after reload and status commands do not star
   await host.emit('session_start');
   host.notices.length = 0;
   await host.commands.get('evolver-status').handler('', host.ctx);
-  assert.ok(host.notices.some(({ text }) => /Recall: off/.test(text)), 'the reloaded extension reads the saved preference');
+  assert.ok(host.notices.some(({ text }) => /"recall": false/.test(text)), 'the reloaded extension reads the saved preference');
   await host.commands.get('evolver-drafts').handler('', host.ctx);
   assert.deepEqual(host.completion.calls, []);
   assert.deepEqual(host.persisted, []);

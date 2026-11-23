@@ -114,3 +114,15 @@ test('setup does not persist a Proxy result across a concurrent Desktop selectio
   assert.equal(outcome.version, updated.version);
   assert.equal(outcome.desktopProof, 'new-proxy');
 });
+
+test('current names the Evolver setup would run and the running Proxy\'s version, without writing an outcome', async (t) => {
+  const engineAt = (version, source) => async () => (version ? { version, source } : null);
+  const runtime = { managedEngine: engineAt('2.0.49', 'managed'), pathEngine: engineAt('2.0.55', 'path') };
+  const { engine } = enginePort(t, { runtime, runningProxy: async () => ({ version: '2.0.55' }) });
+  assert.deepEqual(await engine.current(), { installed: { version: '2.0.55', source: 'path' }, proxyVersion: '2.0.55' });
+  assert.equal(await engine.outcome(), null);
+  const none = enginePort(t, { runtime: { managedEngine: engineAt(null), pathEngine: engineAt(null) } });
+  assert.deepEqual(await none.engine.current(), { installed: null, proxyVersion: null });
+  const brokenDesktop = enginePort(t, { runtime: { desktopEngine: () => { throw new Error('bad selection'); } } });
+  assert.deepEqual(await brokenDesktop.engine.current(), { installed: null, proxyVersion: null });
+});

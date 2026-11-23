@@ -191,7 +191,7 @@ test('the MCP profile turns tool calls into a turn whose report is agent-reporte
   assert.equal(queued[0].report.evidence.reported_by, 'agent');
   assert.equal(queued[0].report.evidence.tier, 'none');
   const status = await driver.handle('evolver_status', { session_id: 'm1' });
-  assert.match(status.content[0].text, /This session has 1 work turn\(s\) since its last distillation\./);
+  assert.equal(JSON.parse(status.content[0].text).distillation.session_turns_waiting, 1);
 });
 
 test('a successful compound command reported through MCP does not make the session\'s work distillable', async () => {

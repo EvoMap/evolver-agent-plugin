@@ -264,7 +264,7 @@ test('/evolver-status names the last distillation\'s outcome, with the Proxy\'s 
     await work(made.ports, 's1');
     await endedAndDistilled(made);
     const { text } = await runCommand(made.ports, { sessionId: 's1', name: 'evolver-status' });
-    assert.ok(text.split('\n').includes(line), `${name}: ${text}`);
+    assert.equal(JSON.parse(text).distillation.last, line, name);
   }
 });
 
@@ -960,7 +960,8 @@ test('every command answers from the plugin; evolve is the one prompt for the ag
   const { ports } = memoryPorts();
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-sync', args: '--dry-run "two words"' })).text, 'ran sync --dry-run two words');
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-evolve' })).forAgent, true);
-  assert.match((await runCommand(ports, { sessionId: 's1', name: 'evolver-status' })).text, /No work turn of this session waits to be distilled\.\nNo distillation has run yet\./);
+  const { distillation } = JSON.parse((await runCommand(ports, { sessionId: 's1', name: 'evolver-status' })).text);
+  assert.deepEqual(distillation, { session_turns_waiting: 0, last: 'No distillation has run yet.', drafts_waiting: 0 });
   assert.equal((await runCommand(ports, { sessionId: 's1', name: 'evolver-nope' })).ok, false);
 });
 
