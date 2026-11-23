@@ -28,4 +28,5 @@ test('a Desktop failure is not cured by some other Proxy; a success and a missin
     status: 'ready', version: '2.0.55', at: '1970-01-01T00:00:00.001Z',
   });
   assert.deepEqual(engineSetupOf(null, '2.0.55', 'dsh'), { status: 'not_run' });
+  assert.equal(engineSetupOf({ status: 'outdated', source: 'managed', at: 9e15 }, null, 'dsh').at, null, 'a time past what Date holds is not a time');
 });

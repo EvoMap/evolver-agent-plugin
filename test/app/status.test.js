@@ -39,3 +39,11 @@ test('/evolver-status names no Proxy version recorded for a process other than t
   assert.equal(answer.evolver.proxy.pid, 81);
   assert.equal(answer.engine_setup.status, 'start_failed');
 });
+
+test('/evolver-status names no Proxy version when either side gives no process to pair it with', async () => {
+  const unpaired = await status(statusWorld({ outcome: null, installed: null, proxyVersion: '2.0.55', proxyPid: null }));
+  assert.equal(unpaired.evolver.proxy.version, null);
+  const ports = statusWorld({ outcome: null, installed: null, proxyVersion: '2.0.55' });
+  ports.proxy = { request: async () => ({ ok: true, data: { ...RUNNING, health: {} } }) };
+  assert.equal((await status(ports)).evolver.proxy.version, null);
+});
