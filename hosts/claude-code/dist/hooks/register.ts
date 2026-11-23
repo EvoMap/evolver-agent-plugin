@@ -195,7 +195,7 @@ async function startSession($: EngineInterface, options: PluginOptions): Promise
 async function addWhenLanded($: EngineInterface, options: PluginOptions, turnId: string, id: string, showsStatus: boolean): Promise<void> {
   let answer: LateAnswer | null = null
   try {
-    answer = await post($, options, '/late', { id })
+    answer = await post($, options, '/late', { id, withStatus: true })
   } finally {
     if (showsStatus && turnId === statusTurnId) $.ui.status(answer?.status ?? RECALL_UNFINISHED_STATUS)
   }

@@ -41,7 +41,7 @@ test('a turn\'s recall answers later, by id; the strategy is joined to its turn 
   const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: turn });
   assert.equal(answer.append, undefined);
   assert.equal(answer.status, 'evolver · recalling an EvoMap strategy for this prompt…');
-  const { body: landed } = await post('/late', { id: answer.late });
+  const { body: landed } = await post('/late', { id: answer.late, withStatus: true });
   assert.match(landed.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
   assert.match(landed.status, /^evolver · injected "Fix flaky Redis connection retries" \(the Hub returned \d+\)$/);
   assert.deepEqual((await post('/late/join', { id: landed.id })).body, { joined: true });
@@ -53,8 +53,10 @@ test('a recall that injects nothing still answers what it decided; a turn nobody
   const { post } = await started(t, { assets: [] });
   const typed = { session_id: 's2', cwd: '/proj', turn_id: 't1', text: 'translate the release notes into Japanese please', origin: { kind: 'composer' } };
   const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: typed });
-  const { body: late } = await post('/late', { id: answer.late });
+  const { body: late } = await post('/late', { id: answer.late, withStatus: true });
   assert.deepEqual(late, { status: 'evolver · no EvoMap strategy fits this prompt' });
+  const { body: older } = await post('/event', { hostEvent: 'turn.start', payload: { ...typed, turn_id: 't1b' } });
+  assert.equal((await post('/late', { id: older.late })).body, null, 'a module older than the status line gets only a strategy, as before');
   const notification = { session_id: 's2', cwd: '/proj', turn_id: 't2', text: '<task-notification>done</task-notification>', origin: { kind: 'task-notification' } };
   const { body: quiet } = await post('/event', { hostEvent: 'turn.start', payload: notification });
   assert.equal(quiet.status, undefined);
