@@ -314,6 +314,9 @@ test('a link keeps a non-ASCII host or path segment that URL structure follows, 
   assert.equal(promptTextOf('分析 https://example.com/患者张三/病例?access_code=ABC123 并给建议'), '分析 并给建议');
   assert.equal(promptTextOf('阅读 https://例子.测试/docs 并总结'), '阅读 并总结');
   assert.equal(promptTextOf('访问 https://例子.测试'), '访问');
+  assert.equal(promptTextOf('搜 https://example.com/search?q=患者张三 看结果'), '搜 看结果');
+  assert.equal(promptTextOf('跳到 https://example.com/doc#章节名称，再总结'), '跳到 ，再总结');
+  assert.equal(promptTextOf('看 https://example.com/a?b=1帮我总结'), '看 帮我总结');
   assert.equal(promptTextOf('参考 https://sub.例子.测试，然后总结'), '参考 ，然后总结');
   assert.equal(promptTextOf('打开 www.例子.测试 看看'), '打开 看看');
   assert.equal(promptTextOf('跑 http://localhost:3000/api 看看'), '跑 看看');
