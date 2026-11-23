@@ -13,8 +13,8 @@ test('each recall decision has its own status line, injected or not', () => {
   assert.equal(recallStatusOf({ outcome: 'short' }), 'evolver · prompt too short to recall for');
 });
 
-test('a trace it does not describe has no line, and a long name is cut', () => {
-  assert.equal(recallStatusOf(null), null);
-  assert.equal(recallStatusOf({ outcome: 'passed_over' }), null);
+test('a recall whose trace names no other decision says it injected nothing, and a long name is cut', () => {
+  assert.equal(recallStatusOf(null), 'evolver · no EvoMap strategy injected');
+  assert.equal(recallStatusOf({ outcome: 'passed_over' }), 'evolver · no EvoMap strategy injected');
   assert.equal(arrivedLateStatusOf('x'.repeat(80)), `evolver · "${'x'.repeat(48)}" arrived after this turn ended, not injected`);
 });
