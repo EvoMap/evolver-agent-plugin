@@ -301,6 +301,15 @@ test('four steps is the least a strategy needs', async () => {
   assert.deepEqual((await recallStrategy(four.proxyFetch, 'add a retry to the uploader')).ids, ['sha256:four']);
 });
 
+test('a link ends where the Chinese text written right after it begins', () => {
+  assert.equal(
+    promptTextOf('我们新官网(https://canary.evomap.work/zh)本周上线，帮我做一条 20 秒的展示视频'),
+    '我们新官网( 本周上线，帮我做一条 20 秒的展示视频',
+  );
+  assert.equal(promptTextOf('看 https://example.com/a?b=1，帮我总结这篇文章'), '看 ，帮我总结这篇文章');
+  assert.equal(promptTextOf('参考 www.example.com/page这个页面的布局'), '参考 这个页面的布局');
+});
+
 test('engine reminders, markup and links are not matched, and a bare reminder recalls nothing', async () => {
   assert.equal(
     promptTextOf('<scheduled-task name="triage">Triage the open Sentry issues</scheduled-task> see https://example.sentry.io/issues/?project=1'),
