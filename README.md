@@ -205,7 +205,7 @@ injections, undelivered reports), so nothing is lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
+| `/evolver-status` | JSON: plugin, agent, installed Evolver and running Proxy versions, Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub with a device code (setting Evolver up first when needed) and shows the registered node |
 | `/evolver-search <task or error text>` | Finds the best matching network strategy |
 | `/evolver-distill [focus]` | Distills the session's work since its last distillation into drafts now, even below the three-turn threshold |

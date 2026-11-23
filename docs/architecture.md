@@ -13,7 +13,7 @@ them is in `hosts/README.md`):
 
 | Command | Purpose |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the session's work turns waiting to be distilled, the last distillation's outcome (its status, the Proxy's reason and the terms it refused, how long ago) and waiting drafts; where the Proxy reports it, its background publishing: whether its verifier is available and why not, how many Genes await verification or were published, and the last attempt's result. |
+| `/evolver-status` | One JSON object: the plugin's, agent's, installed Evolver's and running Proxy's versions; Proxy state; engine setup, where a failure recorded before a new enough Proxy came up shows as `ready` with that failure as `previous`; Hub sign-in, the session's work turns waiting to be distilled, the last distillation's outcome (its status, the Proxy's reason and the terms it refused, how long ago) and waiting drafts; where the Proxy reports it, its background publishing: whether its verifier is available and why not, how many Genes await verification or were published, and the last attempt's result. |
 | `/evolver-login` | Sign in to the EvoMap Hub: set Evolver up when its Proxy does not answer, start `evolver login` in the background and answer its link and code; once approved, the node the Proxy registered. |
 | `/evolver-search <task or error text>` | Find the best matching strategy or Recipe. Where the host shows the answer to the model, it joins the injection ledger, so the turn's end reports its reuse. |
 | `/evolver-distill [focus]` | Distill the session's work since its last distillation into drafts now, optionally steered by the focus text. It waives the three-turn threshold, never the passing last check. |
