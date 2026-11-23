@@ -313,6 +313,10 @@ test('a link ends where the Chinese text written right after it begins', () => {
 test('a link keeps a non-ASCII host or path segment that URL structure follows, so its path and query never reach the Hub', () => {
   assert.equal(promptTextOf('分析 https://example.com/患者张三/病例?access_code=ABC123 并给建议'), '分析 并给建议');
   assert.equal(promptTextOf('阅读 https://例子.测试/docs 并总结'), '阅读 并总结');
+  assert.equal(promptTextOf('访问 https://例子.测试'), '访问');
+  assert.equal(promptTextOf('参考 https://sub.例子.测试，然后总结'), '参考 ，然后总结');
+  assert.equal(promptTextOf('打开 www.例子.测试 看看'), '打开 看看');
+  assert.equal(promptTextOf('跑 http://localhost:3000/api 看看'), '跑 看看');
   assert.equal(promptTextOf('打开 https://例子.测试/文档.html 看看'), '打开 看看');
   assert.equal(promptTextOf('照着这个视频https://v.douyin.com/abc123/复刻一条我们瑜伽App的版本'), '照着这个视频 复刻一条我们瑜伽App的版本');
   assert.equal(promptTextOf('看下https://evomap.ai这个网站'), '看下 这个网站');
@@ -322,6 +326,7 @@ test('a link keeps a non-ASCII host or path segment that URL structure follows, 
 test('a long non-ASCII run after a link is cleaned in linear time', () => {
   const started = performance.now();
   promptTextOf(`https://a.com/${'中'.repeat(200_000)}`);
+  promptTextOf(`https://${'中.'.repeat(50_000)}`);
   assert.ok(performance.now() - started < 1_000);
 });
 
