@@ -40,6 +40,9 @@ export default defineProfile({
     // Stop runs before native completion and can be followed by another model step.
     Stop: EVENTS.TOOL_RESULT,
   },
+  // ZCode adds a tool result's context to the model's next step but drops Stop's unless the turn continues, so a recall
+  // that missed the prompt's wait reaches the model only from a tool result.
+  reply: { lateAtToolResult: (hostEvent) => hostEvent === 'PostToolUse' || hostEvent === 'PostToolUseFailure' },
   payload: {
     sessionId,
     turnId,
@@ -61,7 +64,8 @@ export default defineProfile({
       ), 'pending') AS status`,
     },
   },
-  budgets: { prompt: 8_000 },
+  // Recipes need a second Proxy round trip for their steps; at 6 s they missed most ZCode turns, at 10 s most land.
+  budgets: { prompt: 12_000, recallWait: 10_000 },
   owner: 'spawner',
   stateDir: (env) => isAbsolute(env.ZCODE_PLUGIN_DATA || '') ? env.ZCODE_PLUGIN_DATA : join(homeOf(env), '.zcode', 'cli', 'evolver-plugin'),
 });

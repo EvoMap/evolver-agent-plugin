@@ -54,10 +54,10 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
-| Kimi Code CLI 2.4.1 and Desktop 1.2.1 | Direct install; Windows native checked | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
-| MiniMax Code CLI 0.7.4 / Desktop 3.1.6 | Supported locally | `hosts/minimax`, native hooks; installs `dist/minimax` |
-| ZCode CLI / Desktop | Supported locally on Windows and macOS | `hosts/zcode`, native hooks; installs `dist/zcode` |
-| Step Code CLI 0.1.7 | Draft, Windows | `hosts/stepcode`, a native resident extension; installs `dist/stepcode` |
+| Kimi Code CLI 2.4.1+ and Desktop 1.2.1 | Supported | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
+| MiniMax Code CLI 0.7.4+ / Desktop 3.1.6 | Supported | `hosts/minimax`, native hooks; installs `dist/minimax` |
+| ZCode Desktop 3.18.2 / CLI 0.17.1 | Supported | `hosts/zcode`, native hooks; installs `dist/zcode` |
+| Step Code CLI 0.1.7 | Draft | `hosts/stepcode`, a native resident extension; installs `dist/stepcode`; paid-provider and real Hub acceptance pending |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -146,7 +146,7 @@ injections, undelivered reports), so nothing is lost on the way over.
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
   Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
-- **Kimi Code on Windows:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI or Desktop session. Desktop uses the installed Kimi CLI to create drafts.
+- **Kimi Code on Windows and macOS:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI or Desktop session. Desktop uses the installed Kimi CLI to create drafts.
   `--home PATH` selects the profile root; use the same absolute `KIMI_CODE_HOME` when starting Kimi. Close Kimi before
   install/update/remove. The installer stages `dist/kimi`, registers its native `kimi.plugin.json` bundle and
   preserves account config, other plugins, preferences and drafts. A release bundle keeps its bytes and version.
@@ -168,13 +168,14 @@ injections, undelivered reports), so nothing is lost on the way over.
   `evolver-jobs`, `evolver-jobs job <id>` or `evolver-jobs cancel <id>` to inspect or cancel them.
   [The MiniMax adapter guide](hosts/minimax/dist/README.md) covers updates, session-model distillation, private
   configuration copies and recovery when a host exits without `SessionEnd`.
-- **ZCode CLI on Windows and macOS:** build `dist/zcode` with `npm run pack`, then add it as a local marketplace and
-  install `evolver-plugin` from it, or add the folder to the CLI's `plugins.dirs`. Enable plugins and hooks, then
+- **ZCode CLI on Windows and macOS:** add the marketplace
+  `https://raw.githubusercontent.com/EvoMap/evolver-agent-plugin/main/.zcode-plugin/marketplace.json` with
+  `plugins marketplace add`, then `plugins install evolver-plugin@evomap --scope user`. Enable plugins and hooks, then
   start a new session. The [ZCode adapter guide](hosts/zcode/dist/README.md) covers native verification and private
   distillation with a standalone CLI bundle.
-- **ZCode Desktop on Windows and macOS:** add the packed `dist/zcode` folder as a local marketplace in Settings → Plugins.
-  Install and enable `evolver-plugin` from that marketplace, then start a new session.
-- **Step Code CLI 0.1.7 on Windows (draft):** build `dist/stepcode` with `npm run pack`, then run
+- **ZCode Desktop on Windows and macOS:** add the same marketplace URL in Settings → Plugins, install and enable
+  `evolver-plugin`, then start a new session.
+- **Step Code CLI 0.1.7 on Windows and macOS (draft):** build `dist/stepcode` with `npm run pack`, then run
   `step install ./dist/stepcode` and start a new session. This uses Step's native extension interface.
   Read the [Step Code adapter guide](hosts/stepcode/dist/README.md) for foreground verification requirements
   and the native double Ctrl-C cleanup limitation before trying this draft.
@@ -204,7 +205,7 @@ injections, undelivered reports), so nothing is lost on the way over.
 
 | Command | What it does |
 |---|---|
-| `/evolver-status` | Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
+| `/evolver-status` | JSON: plugin, agent, installed Evolver and running Proxy versions, Proxy state, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation's outcome and waiting drafts |
 | `/evolver-login` | Signs you in to the EvoMap Hub with a device code (setting Evolver up first when needed) and shows the registered node |
 | `/evolver-search <task or error text>` | Finds the best matching network strategy |
 | `/evolver-distill [focus]` | Distills the session's work since its last distillation into drafts now, even below the three-turn threshold |

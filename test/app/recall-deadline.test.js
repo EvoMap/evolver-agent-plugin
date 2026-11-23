@@ -12,8 +12,8 @@ function harness() {
     signal.addEventListener('abort', resolve, { once: true });
   });
   const request = ports.proxy.request;
-  ports.proxy.request = async (method, path, body, { signal }) => {
-    requests.push({ path, signal });
+  ports.proxy.request = async (method, path, body, { signal, timeoutMs }) => {
+    requests.push({ path, signal, timeoutMs });
     return request(method, path, body);
   };
   return { ports, timers, requests };
@@ -58,4 +58,19 @@ test('late recall keeps its requests alive until the strategy lands, then cancel
   assert.match((await late).text, /Evolution Memory/);
   assert.ok(requests.every(({ signal }) => !signal.aborted));
   assert.ok(timers.every(({ signal }) => signal.aborted));
+});
+
+test('a recall without a late answer lets each request run as long as the hook may wait', async () => {
+  const { ports, requests } = harness();
+  await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 10_000 });
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === 10_000));
+});
+
+test('a recall that may still answer late keeps the Proxy default per request', async () => {
+  const { ports, requests } = harness();
+  const { late } = await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 0, keepLate: true });
+  await late;
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === undefined));
 });

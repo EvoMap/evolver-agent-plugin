@@ -7,11 +7,11 @@ import { test } from 'node:test';
 import { enginePortOf } from '../../lib/runtime/engine/job.js';
 import { fileStoresOf } from '../../lib/runtime/store/file-stores.js';
 
-function enginePort(t) {
+function enginePort(t, options = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'evolver-engine-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const stores = fileStoresOf({ dir, agent: 'testagent' });
-  return { stores, engine: enginePortOf(stores, { runningProxy: async () => null, runtime: {} }) };
+  return { stores, engine: enginePortOf(stores, { runningProxy: async () => null, runtime: {}, ...options }) };
 }
 
 test('a failed setup waits out its retry delay, unless a person asks: retryNow makes it due at once', async (t) => {
@@ -33,4 +33,96 @@ test('retryNow leaves an outcome without a retry delay, or none at all, as it is
   await stores.engineState.update(() => ready);
   await engine.retryNow();
   assert.deepEqual(await engine.outcome(), ready);
+});
+
+test('Desktop setup retries belong to the selected installation, and queued workers recheck it', async (t) => {
+  let running;
+  let corrupt = false;
+  let failStart = true;
+  let starts = 0;
+  const desktopEngine = () => {
+    if (corrupt) throw Object.assign(new Error('Repair the Desktop installation'), { source: 'desktop' });
+    return { command: 'desktop-evolver', args: [], version: '2.0.50' };
+  };
+  const runningProxy = async () => running;
+  const runtime = {
+    now: Date.now, desktopEngine, runningProxy, nodeVersion: '22.13.0',
+    runDesktop: async () => {
+      starts += 1;
+      if (failStart) return { ok: false, error: 'Proxy did not start' };
+      running = { version: '2.0.50', desktopProof: 'desktop-proxy' };
+      return { ok: true };
+    },
+    waitForProxy: runningProxy,
+  };
+  const { stores, engine } = enginePort(t, { desktopEngine, runningProxy, runtime });
+  await stores.engineState.update(() => ({
+    status: 'start_failed', source: 'managed', failures: 4, retryAt: Date.now() + 600_000,
+  }));
+
+  assert.equal(await engine.needsSetup(), true, 'a plugin-managed failure must not delay the first Desktop setup');
+  await engine.setUp();
+  assert.equal(starts, 1);
+  assert.equal((await engine.outcome()).failures, 1);
+  assert.equal(await engine.needsSetup(), false, 'the same Desktop selection still backs off');
+  await engine.setUp();
+  assert.equal(starts, 1, 'a queued retry respects the current selection backoff under lock');
+
+  corrupt = true;
+  assert.equal(await engine.needsSetup(), true, 'corruption must be reported even during an earlier retry delay');
+  await engine.setUp();
+  assert.equal((await engine.outcome()).error, 'Repair the Desktop installation');
+  assert.equal(await engine.needsSetup(), false, 'an unchanged corrupt selection still backs off');
+
+  corrupt = false;
+  failStart = false;
+  assert.equal(await engine.needsSetup(), true, 'a repaired selection is retried immediately');
+  await engine.setUp();
+  const ready = await engine.outcome();
+  assert.equal(ready.status, 'started');
+  assert.equal(ready.desktopProof, 'desktop-proxy');
+  await engine.setUp();
+  assert.deepEqual(await engine.outcome(), ready, 'a queued worker leaves the same verified Proxy alone');
+  assert.equal(starts, 2);
+
+  running = null;
+  assert.equal(await engine.needsSetup(), true, 'a successful setup does not delay restarting a stopped Proxy');
+  await engine.setUp();
+  assert.equal(starts, 3);
+});
+
+test('setup does not persist a Proxy result across a concurrent Desktop selection change', async (t) => {
+  let readyProxy;
+  const updated = { command: 'new-desktop-evolver', args: [], version: '2.0.51' };
+  let selection = {
+    command: 'old-desktop-evolver', args: [], version: '2.0.50',
+    verify: async () => {
+      selection = updated;
+      readyProxy = { version: updated.version, desktopProof: 'new-proxy' };
+    },
+  };
+  const desktopEngine = () => selection;
+  const runningProxy = async () => readyProxy;
+  const runtime = { now: Date.now, desktopEngine, runningProxy, nodeVersion: '22.13.0' };
+  const { engine } = enginePort(t, { desktopEngine, runningProxy, runtime });
+
+  await engine.setUp();
+  assert.equal(await engine.outcome(), null);
+  assert.equal(await engine.needsSetup(), true);
+  await engine.setUp();
+  const outcome = await engine.outcome();
+  assert.equal(outcome.version, updated.version);
+  assert.equal(outcome.desktopProof, 'new-proxy');
+});
+
+test('current names the Evolver setup would run and the running Proxy\'s version and process, without writing an outcome', async (t) => {
+  const engineAt = (version, source) => async () => (version ? { version, source } : null);
+  const runtime = { managedEngine: engineAt('2.0.49', 'managed'), pathEngine: engineAt('2.0.55', 'path') };
+  const { engine } = enginePort(t, { runtime, runningProxy: async () => ({ version: '2.0.55', pid: 81 }) });
+  assert.deepEqual(await engine.current(), { installed: { version: '2.0.55', source: 'path' }, proxy: { version: '2.0.55', pid: 81 } });
+  assert.equal(await engine.outcome(), null);
+  const none = enginePort(t, { runtime: { managedEngine: engineAt(null), pathEngine: engineAt(null) } });
+  assert.deepEqual(await none.engine.current(), { installed: null, proxy: null });
+  const brokenDesktop = enginePort(t, { runtime: { ...runtime, desktopEngine: () => { throw new Error('bad selection'); } } });
+  assert.deepEqual((await brokenDesktop.engine.current()).installed, { version: '2.0.55', source: 'path' }, 'an unreadable Desktop selection still names the engine beside it');
 });

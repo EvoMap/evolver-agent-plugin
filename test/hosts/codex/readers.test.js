@@ -29,7 +29,7 @@ const ONE_SESSION = ['SessionStart.startup', 'UserPromptSubmit', 'PreToolUse.app
 test('an exit-less result with no passing evidence cannot verify a turn, including after an earlier pass', async () => {
   for (const earlierPass of [false, true]) {
     const { ports, queued } = memoryPorts();
-    const driver = createDriver({ profile: codex, ports, lifetime: 'ephemeral' });
+    const driver = createDriver({ profile: codex, ports, transcripts: { head: () => '', size: () => 0, readSince: () => '' }, lifetime: 'ephemeral' });
     await driver.handle('UserPromptSubmit', { ...payload('UserPromptSubmit'), prompt: PROMPT });
     await driver.handle('PostToolUse', payload('PostToolUse.apply_patch'));
     if (earlierPass) await driver.handle('PostToolUse', payload('PostToolUse.Bash.passed'));

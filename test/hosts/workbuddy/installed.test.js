@@ -179,8 +179,8 @@ test('inside the headless distillation run every hook answers {} and writes noth
 
 test('the commands answer from the plugin data folder their script line names', posix, async () => {
   const status = await runCommand('evolver-status', 's-kept');
-  assert.match(status.stdout, /Evolver Proxy running/);
-  assert.match(status.stdout, /This session has 1 work turn\(s\) since its last distillation\./);
+  assert.match(status.stdout, /"proxy": \{[^}]*"running": true/);
+  assert.equal(JSON.parse(status.stdout).distillation.session_turns_waiting, 1);
   assert.equal((await runCommand('evolver-drafts', 's-kept')).stdout, 'No distilled drafts are waiting.');
   assert.match((await runCommand('evolver-drafts', 's-kept', { args: 'publish 3' })).stdout, /^No draft matches "3"/);
   assert.match((await runCommand('evolver-evolve', 's-kept', { args: 'the cache' })).stdout, /Take a deliberate evolution step[\s\S]*Focus on: the cache$/);

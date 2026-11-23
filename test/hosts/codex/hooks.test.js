@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { pack } from '../../../scripts/pack.mjs';
 import { ASSET, PROMPT } from '../../app/memory-ports.js';
@@ -31,7 +32,7 @@ let hooks;
 
 before(async () => {
   proxy = await fakeProxy();
-  plugin = mkdtempSync(join(tmpdir(), 'evolver-codex-plugin-'));
+  plugin = mkdtempSync(join(tmpdir(), 'evolver codex plugin-'));
   pack('codex', plugin);
   hooks = JSON.parse(readFileSync(join(plugin, 'hooks', 'hooks.json'), 'utf8')).hooks;
   project = join(proxy.env.HOME, 'project');
@@ -102,6 +103,27 @@ const posted = (path) => proxy.requests.filter((request) => request.path === pat
 const reportOf = (taskId) => posted('/asset/reuse-result').find((report) => report.task_id === taskId);
 const codexRuns = () => (existsSync(env.FAKE_CODEX_LOG) ? readFileSync(env.FAKE_CODEX_LOG, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) : []);
 
+test('the Windows hook command preserves its script path and event in cmd and PowerShell', { skip: process.platform !== 'win32' }, async () => {
+  const { command_windows: command } = hooks.UserPromptSubmit[0].hooks[0];
+  const powershell = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const payload = { ...PAYLOADS.UserPromptSubmit, session_id: 's-windows-command', cwd: project, turn_id: 's-windows-command-1', prompt: 'evolver-status' };
+  const run = promisify(execFile);
+  const fetches = posted('/asset/fetch').length;
+  // Codex passes cmd commands verbatim and passes PowerShell commands as a single argument.
+  for (const [shell, args, windowsVerbatimArguments] of [
+    [process.env.ComSpec, ['/C', `"${command}"`], true],
+    [powershell, ['-NoProfile', '-Command', command], false],
+  ]) {
+    const child = run(shell, args, { env, windowsVerbatimArguments, timeout: 10_000 });
+    child.child.stdin.end(JSON.stringify(payload));
+    const { stdout } = await child;
+    const answer = JSON.parse(stdout);
+    assert.equal(answer.decision, 'block');
+    assert.match(answer.reason, /"proxy": \{[^}]*"running": true/);
+  }
+  assert.equal(posted('/asset/fetch').length, fetches);
+});
+
 async function waitFor(check, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -159,7 +181,7 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   const fetches = posted('/asset/fetch').length;
   const answer = await s.prompt('evolver-status');
   assert.equal(answer.decision, 'block');
-  assert.match(answer.reason, /^Evolver Proxy running/);
+  assert.match(answer.reason, /"proxy": \{[^}]*"running": true/);
   assert.equal(answer.hookSpecificOutput, undefined, 'nothing reaches the model');
   assert.equal(posted('/asset/fetch').length, fetches);
   await fixTurn(s);
@@ -234,8 +256,8 @@ test('a terminal runs the same commands from the packed folder', posix, async ()
   let stdout = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   await new Promise((resolve) => child.on('close', resolve));
-  assert.match(stdout, /^Evolver Proxy running/);
-  assert.match(stdout, /session\(s\) have work turns waiting to be distilled|No session has work waiting to be distilled/, 'a terminal belongs to no session');
+  assert.match(stdout, /"proxy": \{[^}]*"running": true/);
+  assert.equal(typeof JSON.parse(stdout).distillation.sessions_waiting, 'number', 'a terminal belongs to no session');
 });
 
 const digestOf = (key) => createHash('sha256').update(key).digest('hex').slice(0, 16);

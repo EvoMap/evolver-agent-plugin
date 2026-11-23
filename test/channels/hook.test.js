@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -61,4 +62,35 @@ test('corrupt hook state stays intact and emits a diagnostic alongside the neutr
   assert.match(diagnostic, /EINVALIDSTATE/);
   assert.doesNotMatch(diagnostic, /private text/);
   assert.equal(readFileSync(file, 'utf8'), '{"private text":');
+});
+
+test('a failed Windows worker launch is reported by the hook', { skip: process.platform !== 'win32' }, () => {
+  const runner = new URL('../../lib/channels/hook/runner.js', import.meta.url).href;
+  const codex = new URL('../../hosts/codex/profile.js', import.meta.url).href;
+  const home = join(proxy.env.HOME, 'missing-worker-cwd');
+  const code = `
+    import { runHookProcess } from ${JSON.stringify(runner)};
+    import codex from ${JSON.stringify(codex)};
+    await runHookProcess('codex', process.argv[1], {
+      profileOf: async () => ({ ...codex, stateDir: () => process.env.TEST_HOOK_STATE }),
+    });
+  `;
+  const invokeHook = (event) => spawnSync(process.execPath, ['--input-type=module', '-e', code, event], {
+    input: JSON.stringify({ session_id: 's-worker-launch-failure', cwd: proxy.env.HOME }),
+    env: { ...proxy.env, HOME: home, USERPROFILE: home, TEST_HOOK_STATE: join(proxy.env.HOME, 'hook-state') },
+    encoding: 'utf8',
+    timeout: 8_000,
+    windowsHide: true,
+  });
+  const start = invokeHook('SessionStart');
+  assert.ifError(start.error);
+  assert.equal(start.status, 0);
+  assert.match(JSON.parse(start.stdout).systemMessage ?? '', /could not confirm that the Windows background worker started/);
+  assert.equal(JSON.parse(start.stdout).continue, undefined);
+
+  const end = invokeHook('SessionEnd');
+  assert.ifError(end.error);
+  assert.equal(end.status, 1);
+  assert.match(end.stderr, /could not confirm that the Windows background worker started/);
+  assert.doesNotMatch(start.stdout + end.stderr, /missing-worker-cwd/);
 });

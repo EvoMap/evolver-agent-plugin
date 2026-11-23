@@ -49,13 +49,14 @@ From each host's reviewed standalone plugin; bold is where it differs from the d
 | Installed from | **`dist/claude-code` on the `release` branch** (`git-subdir`) | **`dist/workbuddy` on the `release` branch** (`git-subdir`); **the old data folder is moved in** | the repo root (`.cursor-plugin`) | **`dist/antigravity` on the `release` branch** | **`dist/opencode` on the `release` branch (an npm package, not published yet)** | **its MCP config** | **`dist/codex` on the `release` branch** (`git-subdir`, `.agents/plugins/marketplace.json`) | **npm, as `@evomap/dsh-evolver` (`dsh plugin add -w @evomap/dsh-evolver@latest`), published from `dist/dsh` on the `release` branch** | **`dist/grok` on the `release` branch** (`git-subdir`, `.grok-plugin/marketplace.json`) | **`dist/qoder` on the `release` branch** (`git-subdir`, `.qoder-plugin/marketplace.json`) | dist/minimax locally; scripts/install-minimax.mjs stages install/update |
 
 ZCode CLI and Desktop on Windows and macOS use native session and turn IDs and foreground Bash exit codes. The prompt hook returns
-`additionalContext`. The adapter waits for the native `turn_usage` record before using completed work and closes
+`additionalContext`; a recall that misses its wait goes on in the background worker and reaches the model at the turn's
+next tool result (`reply.lateAtToolResult`), never at `Stop`, whose added context ZCode drops. The adapter waits for the native `turn_usage` record before using completed work and closes
 cancelled turns without a reuse report or distillation evidence. State lives in `ZCODE_PLUGIN_DATA` when the host
 sets it. Headless distillation uses the configured standalone CLI bundle or the runtime shipped with Desktop,
 with a private copy of the recorded provider route.
 [The ZCode adapter guide](zcode/dist/README.md) describes local installation and the runtime configuration paths.
 
-Step Code CLI 0.1.7 on Windows uses a resident native extension. Recipe guidance is projected into each model request
+Step Code CLI 0.1.7 on Windows and macOS uses a resident native extension. Recipe guidance is projected into each model request
 of the current prompt and is not persisted into the transcript. A plugin turn spans native model steps and ends only
 at `agent_settled`; a latched abort, unfinished command or unsupported inline/background check prevents reporting
 and candidate creation. Native shell starts and terminal exit metadata are paired by call. SDK completion receives
@@ -65,7 +66,7 @@ Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in 
 
 ## Adding a host
 
-Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows for the main agent in local sessions
+Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows, and CLI 2.6.3 on macOS, for the main agent in local sessions
 with an API/BYOK provider. It also resolves the managed `kimi.com` route with an existing access token. Live managed inference
 requires separate acceptance. Its native
 root manifest is `kimi.plugin.json`; `scripts/install-kimi.mjs` stages a versioned package under the selected
