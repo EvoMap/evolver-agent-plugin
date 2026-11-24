@@ -134,7 +134,10 @@ async function recalled(ports, sessionId, { turn, prompt, projectDir, waitMs, ke
   const { request: proxyFetch, signal, cancel } = recallRequestOf(ports.proxy, { timeoutMs });
   const recipeCutoff = ports.clock.sleep(waitMs > 0 ? Math.max(0, waitMs - RECIPE_MARGIN_MS) : LATE_RECIPE_WAIT_MS, signal);
   const onWithheld = rememberWithheld(ports, sessionId, turn);
-  const recall = recallStrategy(proxyFetch, promptTextOf(prompt), { context, projectDir, listedIds, onWithheld, closingOf: () => CLOSING, recipeCutoff });
+  const text = promptTextOf(prompt);
+  let lastTrace = null;
+  const onTrace = (trace) => { lastTrace = trace; };
+  const recall = recallStrategy(proxyFetch, text, { context, projectDir, listedIds, onWithheld, onTrace, closingOf: () => CLOSING, recipeCutoff });
   const TIMED_OUT = Symbol('timed out');
   const match = waitMs > 0 ? await Promise.race([recall, ports.clock.sleep(waitMs, signal).then(() => TIMED_OUT)]) : TIMED_OUT;
   if (match !== TIMED_OUT || !keepLate) cancel();
@@ -150,7 +153,9 @@ async function recalled(ports, sessionId, { turn, prompt, projectDir, waitMs, ke
     show: () => shown(ports, sessionId, { turn, ids: landed.ids }),
     join: async () => (await booked(ports, sessionId, { turn, match: landed, onlyWhileOpen: true })) !== '',
   } : null)).catch(() => null).finally(cancel);
-  return { injection: '', late };
+  // A turn nobody typed for (a task notification) recalls for nothing, which is no decision to show.
+  const traced = text ? late.then(() => lastTrace) : null;
+  return { injection: '', late, ...(traced && { traced }) };
 }
 
 // The commit a turn begins on is where a range of work turns starting with it takes its diff from, so work it commits
@@ -170,7 +175,8 @@ async function rememberTurnHead({ project, sessions }, sessionId, { turn, sessio
  * it has answered. With `keepLate`, for a host that can add context to a running turn, a slower recall keeps going:
  * `late` resolves to `{ text, show, join }`. `show()` answers whether the turn is still open and keeps the strategy
  * out of the session's later recalls, for a host that adds it before a model step carries it; `join()` books it,
- * only while the turn is still open, once a model step does. With `holdForToolResult`, for a host whose prompt hook
+ * only while the turn is still open, once a model step does; `traced` resolves, with it, to the recall's last trace
+ * (`recallStrategy`'s `onTrace`), or is absent for a turn nobody typed for. With `holdForToolResult`, for a host whose prompt hook
  * cannot add context, a strategy that lands in time waits for the turn's first tool result instead (see
  * `takeWaitingStrategy`). A plugin command's turn keeps the last real turn's reuses for the next prompt to label, is
  * recalled for nothing and never joins the session's range of work turns. `skipped` is the error of a correction or
@@ -190,8 +196,8 @@ export async function promptSubmitted(ports, { sessionId, prompt, projectDir = n
   const wantsRecall = !isCommand && ports.settings?.recall !== false;
   const recall = wantsRecall ? recalled(ports, sessionId, { turn: opened.turn, prompt, projectDir, waitMs, keepLate, holdForToolResult, lateAtToolResult }) : { injection: '' };
   const headRead = isCommand || !projectDir ? null : rememberTurnHead(ports, sessionId, { turn: opened.turn, sessionEpoch: opened.sessionEpoch, projectDir });
-  const [{ injection, late, deferred }] = await Promise.all([recall, headRead]);
-  return { turn: opened.turn, sessionEpoch: opened.sessionEpoch, injection, ...(late && { late }), ...(deferred && { deferred }), ...(skipped && { skipped }) };
+  const [{ injection, late, traced, deferred }] = await Promise.all([recall, headRead]);
+  return { turn: opened.turn, sessionEpoch: opened.sessionEpoch, injection, ...(late && { late }), ...(traced && { traced }), ...(deferred && { deferred }), ...(skipped && { skipped }) };
 }
 
 /**

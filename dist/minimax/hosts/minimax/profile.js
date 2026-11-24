@@ -20,7 +20,7 @@ export default defineProfile({
   commands: { entry: 'intercept', parse: promptCommandOf, background: isBackgroundCommand },
   reply: {
     command: result => ({ decision: 'block', reason: result.text, systemMessage: result.text }),
-    turnEnd: ended => { const line = endedTurnSummaryOf(ended, { reason: 'answer' }); return line ? { systemMessage: line } : {}; },
+    turnEnd: ended => { const line = endedTurnSummaryOf(ended); return line ? { systemMessage: line } : {}; },
   },
   evidence: { toolNote: toolNoteOf, editedFiles: editedFilesOf },
   turnEnd: {

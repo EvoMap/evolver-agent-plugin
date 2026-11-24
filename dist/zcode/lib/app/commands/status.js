@@ -3,25 +3,15 @@
 
 import { lastOutcomeText } from '../../distill/outcomes.js';
 import { rangeOf } from '../../distill/range.js';
-import { engineNoticeOf } from '../../engine/notice.js';
-import { SIGN_IN, signInOf } from '../../hub-login.js';
+import { engineSetupOf } from '../../engine/report.js';
 import { MIN_EVOLVER_VERSION } from '../../engine/version.js';
-import { proxyStatusText } from '../../proxy-status.js';
+import { SIGN_IN, signInOf } from '../../hub-login.js';
+import { proxyStatusOf, publishingOf } from '../../proxy-status.js';
 import { success } from './result.js';
 
-function rangeLine(pending, { sessionId, anySession }) {
-  if (anySession) {
-    const waiting = Object.keys(pending).length;
-    return waiting === 0 ? 'No session has work waiting to be distilled.' : `${waiting} session(s) have work turns waiting to be distilled; /evolver-distill takes the newest.`;
-  }
-  const turns = rangeOf(pending, sessionId)?.turns.length ?? 0;
-  return turns === 0 ? 'No work turn of this session waits to be distilled.' : `This session has ${turns} work turn(s) since its last distillation.`;
-}
-
-function engineLine(outcome, label) {
-  if (!outcome) return `Required Evolver: ${MIN_EVOLVER_VERSION} or newer; no engine setup has run yet.`;
-  const notice = engineNoticeOf(outcome, label);
-  return `Required Evolver: ${MIN_EVOLVER_VERSION} or newer. Engine setup: ${outcome.status}${outcome.version ? ` (${outcome.version})` : ''}.${notice ? `\n${notice}` : ''}`;
+function waitingWorkOf(pending, { sessionId, anySession }) {
+  if (anySession) return { sessions_waiting: Object.keys(pending).length };
+  return { session_turns_waiting: rangeOf(pending, sessionId)?.turns.length ?? 0 };
 }
 
 const SIGN_IN_LINES = {
@@ -32,23 +22,48 @@ const SIGN_IN_LINES = {
 };
 
 function signInLine(state) {
-  return SIGN_IN_LINES[state.state]?.(state) ?? 'Hub sign-in: /evolver-login signs you in to the EvoMap Hub; within about an hour of an approval it answers at once, after that it asks for a new one.';
+  return SIGN_IN_LINES[state.state]?.(state) ?? '/evolver-login signs you in to the EvoMap Hub; within about an hour of an approval it answers at once, after that it asks for a new one.';
+}
+
+function chosenSettingsOf(settings) {
+  if (!settings) return null;
+  return { recall: settings.recall, auto_distill: settings.autoDistill, ...(settings.file && { file: settings.file }), ...(settings.error && { error: settings.error }) };
+}
+
+// The version is read from the Proxy's settings record and the status from its answer, in two calls; across a
+// restart they can describe different processes, so a version is shown only for the process proven to be answering.
+function versionOfAnswering(answered, recorded) {
+  const answeringPid = answered.ok ? answered.data?.health?.pid : undefined;
+  const isSameProcess = Number.isInteger(answeringPid) && answeringPid === recorded?.pid;
+  return isSameProcess ? recorded.version ?? null : null;
+}
+
+function proxyOf(answered, version) {
+  const status = answered.ok ? proxyStatusOf(answered.data) : { running: false, error: answered.error };
+  return { version, ...status };
 }
 
 export default {
   name: 'evolver-status',
   description: 'Evolver health: the Proxy, engine setup, Hub sign-in, the work waiting to be distilled, the last distillation and drafts.',
-  async run({ identity, proxy, engine, candidates, drafts, outcomes, signIn, clock, settings }, { sessionId, anySession }) {
-    const answered = await proxy.request('GET', '/proxy/status', undefined, { timeoutMs: 3_000 });
-    const waiting = (await drafts.read()).length;
-    return success([
-      answered.ok ? proxyStatusText(answered.data) : answered.error,
-      engineLine(await engine.outcome(), identity.label),
-      rangeLine(await candidates.read(), { sessionId, anySession }),
-      lastOutcomeText(await outcomes?.read(), clock.now()),
-      `${waiting} distilled draft(s) waiting; /evolver-drafts lists them.`,
-      ...(settings?.file ? [`Recall: ${settings.recall ? 'on' : 'off'}; automatic distillation: ${settings.autoDistill ? 'on' : 'off'}.`, `Plugin settings: ${settings.file}`, ...(settings.error ? [settings.error] : [])] : []),
-      signInLine(signInOf(await signIn.latest(), clock.now())),
-    ].join('\n'));
+  async run({ identity, client, proxy, engine, candidates, drafts, outcomes, signIn, clock, settings }, { sessionId, anySession }) {
+    const [answered, current] = await Promise.all([proxy.request('GET', '/proxy/status', undefined, { timeoutMs: 3_000 }), engine.current()]);
+    const versions = client.versions();
+    const publishing = answered.ok ? publishingOf(answered.data) : null;
+    const proxyVersion = versionOfAnswering(answered, current.proxy);
+    return success(JSON.stringify({
+      plugin: { name: versions.plugin, version: versions.pluginVersion },
+      agent: { name: identity.agent, label: identity.label, version: versions.agentVersion },
+      evolver: { required: `>=${MIN_EVOLVER_VERSION}`, installed: current.installed, proxy: proxyOf(answered, proxyVersion) },
+      engine_setup: engineSetupOf(await engine.outcome(), proxyVersion, identity.label),
+      ...(publishing && { publishing }),
+      distillation: {
+        ...waitingWorkOf(await candidates.read(), { sessionId, anySession }),
+        last: lastOutcomeText(await outcomes?.read(), clock.now()),
+        drafts_waiting: (await drafts.read()).length,
+      },
+      ...(settings && { settings: chosenSettingsOf(settings) }),
+      hub_sign_in: signInLine(signInOf(await signIn.latest(), clock.now())),
+    }, null, 2));
   },
 };

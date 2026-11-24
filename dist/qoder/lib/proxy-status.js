@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 EvoMap
 
-function lastSyncOf(data) {
-  if (data.last_sync_error) return `last Hub sync failed: ${data.last_sync_error}`;
-  return data.last_sync_at ? `last Hub sync ${data.last_sync_at}` : 'no Hub sync yet';
-}
-
 const isNodeId = (id) => typeof id === 'string' && id !== '' && id !== 'unclaimed';
 
 /** The node the Proxy registered with the Hub, while the Hub accepts it; else null. */
@@ -19,28 +14,46 @@ export function registrationText(data) {
   return [...parts, ...(data?.last_sync_error ? [`last Hub sync failed: ${data.last_sync_error}`] : [])].join(', ');
 }
 
-function verifierText({ publish_verifier: verifier, publish_verifier_reason: reason }) {
-  return `verifier ${verifier ?? 'not reported'}${reason ? ` (${reason})` : ''}`;
+const EPOCH_MS = /^\d{10,}$/;
+
+/** An epoch-ms time, as a number or digits, as ISO text; other text as it is; null when absent. */
+function timeOf(value) {
+  const epochMs = typeof value === 'string' && EPOCH_MS.test(value) ? Number(value) : value;
+  if (Number.isFinite(epochMs)) {
+    const date = new Date(epochMs);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  return typeof value === 'string' && value ? value : null;
 }
 
-function lastAttemptText(attempt) {
-  if (!attempt) return 'no attempt yet';
-  return `last attempt ${attempt.result} for ${attempt.gene_asset_id}${attempt.at ? ` at ${attempt.at}` : ''}`;
+function lastAttemptOf(attempt) {
+  return attempt ? { result: attempt.result, gene_asset_id: attempt.gene_asset_id, at: timeOf(attempt.at) } : null;
 }
 
 /** The Proxy's background verification and publishing of distilled Genes; null from a Proxy that does not report it. */
-function curationLineOf(curation) {
+export function publishingOf(data) {
+  const curation = data?.background_curation;
   if (!curation || typeof curation !== 'object') return null;
-  const counts = `${Number(curation.awaiting_verification ?? 0)} awaiting verification, ${Number(curation.published ?? 0)} published`;
-  return `Background publishing: ${verifierText(curation)}; ${counts}; ${lastAttemptText(curation.last_attempt)}.`;
+  return {
+    verifier: curation.publish_verifier ?? null,
+    ...(curation.publish_verifier_reason && { verifier_reason: curation.publish_verifier_reason }),
+    awaiting_verification: Number(curation.awaiting_verification ?? 0),
+    published: Number(curation.published ?? 0),
+    last_attempt: lastAttemptOf(curation.last_attempt),
+  };
 }
 
-export function proxyStatusText(data) {
-  if (!data || data.running !== true) return 'Evolver Proxy answered but does not report itself running.';
-  return [
-    `Evolver Proxy running (${data.hub_mode ?? 'public'} hub, node ${data.node_id ?? 'unclaimed'}).`,
-    `Pending: ${Number(data.outbound_pending ?? 0)} outbound, ${Number(data.inbound_pending ?? 0)} inbound; ${lastSyncOf(data)}.`,
-    ...(data.hub_auth_status ? [`Hub auth: ${data.hub_auth_status}.`] : []),
-    ...[curationLineOf(data.background_curation)].filter(Boolean),
-  ].join('\n');
+/** What a `/proxy/status` answer says of the Proxy itself and its Hub link. */
+export function proxyStatusOf(data) {
+  if (!data || data.running !== true) return { running: false, error: 'The Evolver Proxy answered but does not report itself running.' };
+  return {
+    running: true,
+    pid: data.health?.pid ?? null,
+    hub_mode: data.hub_mode ?? 'public',
+    node_id: data.node_id ?? 'unclaimed',
+    hub_auth: data.hub_auth_status ?? null,
+    pending: { outbound: Number(data.outbound_pending ?? 0), inbound: Number(data.inbound_pending ?? 0) },
+    last_sync: timeOf(data.last_sync_at),
+    ...(data.last_sync_error && { last_sync_error: data.last_sync_error }),
+  };
 }

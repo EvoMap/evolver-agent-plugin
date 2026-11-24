@@ -38,7 +38,7 @@ export default defineProfile({
     command: (result) => ({ decision: 'block', reason: result.text }),
     // Codex shows a Stop hook's systemMessage to the person only.
     turnEnd: (ended, hostEvent) => {
-      const line = hostEvent === INTERRUPT ? null : endedTurnSummaryOf(ended, { reason: 'answer' });
+      const line = hostEvent === INTERRUPT ? null : endedTurnSummaryOf(ended);
       return line ? { systemMessage: line } : {};
     },
   },

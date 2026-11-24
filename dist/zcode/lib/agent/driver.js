@@ -77,12 +77,12 @@ const HANDLERS = {
     const hostTurn = profile.payload.hostTurn(payload, context);
     const holdForToolResult = profile.reply.strategyAt === STRATEGY_AT.TOOL_RESULT;
     const lateAtToolResult = typeof profile.reply.lateAtToolResult === 'function';
-    const { turn, sessionEpoch, injection, late, deferred, skipped } = await promptSubmitted(ports, { sessionId, prompt, projectDir, turnId, turnStart, hostTurn, isCommand: Boolean(typed), waitMs: waitLeft(), keepLate, holdForToolResult, lateAtToolResult });
+    const { turn, sessionEpoch, injection, late, traced, deferred, skipped } = await promptSubmitted(ports, { sessionId, prompt, projectDir, turnId, turnStart, hostTurn, isCommand: Boolean(typed), waitMs: waitLeft(), keepLate, holdForToolResult, lateAtToolResult });
     if (skipped) options.onError?.(skipped);
     if (deferred) ports.scheduler.schedule([`recall:${JSON.stringify({ ...at, turn, sessionEpoch })}`]);
     if (profile.turnEnd.statusRecord && turnId) await scheduleTurn(ports, at, { turn, turnId, sessionEpoch });
     const answer = profile.reply.context(joined(notice, await checkpointOf(), injection), hostEvent, payload);
-    return late ? profile.reply.late(answer, late, hostEvent, payload) : answer;
+    return late ? profile.reply.late(answer, late, hostEvent, payload, traced) : answer;
   },
 
   async [EVENTS.TURN_START]({ profile, ports, hostEvent, payload, context, at }) {

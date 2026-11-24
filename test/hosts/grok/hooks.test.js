@@ -150,7 +150,7 @@ test('a whole turn through the packed hooks: the strategy reaches the first tool
   assert.deepEqual(await s.edit(), {}, 'only the first tool result carries it');
   assert.deepEqual((await s.bash('npm test 2>&1 | tail -5', PASSED_RUN)).answer, {});
   assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {
-    systemMessage: `✓ Goal reached (last check passed: npm test 2>&1 | tail -5) · reused EvoMap strategy "${ASSET.short_title}"`,
+    systemMessage: `Evolver · injected "${ASSET.short_title}" (sha256:aaaaaaaa) · ✓ last check passed: npm test 2>&1 | tail -5 · reported to EvoMap as success`,
   });
   assert.deepEqual(await waitFor(() => reportOf('grok:s-turn:1')), {
     asset_id: ASSET.asset_id,
@@ -255,7 +255,7 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   const fetches = posted('/asset/fetch').length;
   const answer = await s.prompt('/evolver-status');
   assert.equal(answer.decision, 'block');
-  assert.match(answer.reason, /^Evolver Proxy running/);
+  assert.match(answer.reason, /"proxy": \{[^}]*"running": true/);
   assert.equal((await s.prompt('evolver-status')).decision, 'block', 'without its slash too');
   assert.equal(posted('/asset/fetch').length, fetches);
   assert.deepEqual(await s.prompt('/evolver-evolve the retries'), {}, 'its checkpoint reaches the model from the command file');
@@ -298,5 +298,5 @@ test('a terminal runs the same commands from the packed folder', posix, async ()
   let stdout = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   await new Promise((resolve) => child.on('close', resolve));
-  assert.match(stdout, /^Evolver Proxy running/);
+  assert.match(stdout, /"proxy": \{[^}]*"running": true/);
 });

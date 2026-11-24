@@ -32,7 +32,7 @@ function command(name, args = [], env = {}) {
 test('every command answers from a terminal, from the installed folder, with its arguments on the command line', async () => {
   const status = await command('evolver-status');
   assert.equal(status.code, 0);
-  assert.match(status.stdout, /Evolver Proxy running/);
+  assert.match(status.stdout, /"proxy": \{[^}]*"running": true/);
   assert.equal((await command('evolver-drafts')).stdout, 'No distilled drafts are waiting.');
   assert.match((await command('evolver-drafts', ['publish', '3'])).stdout, /^No draft matches "3"/);
   assert.match((await command('evolver-search', ['fix', 'the', 'flaky', 'redis', 'connection', 'retries'])).stdout, /^\[Evolution Memory\] Fix flaky Redis connection retries/);

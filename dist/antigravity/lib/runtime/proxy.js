@@ -133,6 +133,7 @@ export async function runningProxy({ env = process.env, timeoutMs = 1_500, deskt
   const record = proxyRecordOf(text);
   return {
     version: typeof record?.version === 'string' ? record.version : null,
+    pid: Number.isInteger(record?.pid) ? record.pid : null,
     data: result.data,
     ...(selection && { desktopProof: desktopProofOf(selection, record, lifecycleReceiptOf(env), endpoint, result.data?.health?.pid) }),
   };

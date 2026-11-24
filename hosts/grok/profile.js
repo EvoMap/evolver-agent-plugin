@@ -62,7 +62,7 @@ export default defineProfile({
     // A blocked prompt reaches no model and opens no turn; grok shows the reason to the person.
     command: (result) => ({ decision: 'block', reason: result.text }),
     turnEnd: (ended, hostEvent) => {
-      const line = hostEvent === STOP ? endedTurnSummaryOf(ended, { reason: 'answer' }) : null;
+      const line = hostEvent === STOP ? endedTurnSummaryOf(ended) : null;
       return line ? { systemMessage: line } : {};
     },
   },

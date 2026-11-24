@@ -32,7 +32,8 @@ function newerOf(left, right) {
   return isOlderThan(left.version, right.version) ? right : left;
 }
 
-function usableEngine(managed, onPath) {
+/** The engine setup runs: the first of `managed` and `onPath` that meets the minimum, else the newer of the two. */
+export function usableEngine(managed, onPath) {
   const usable = [managed, onPath].find((engine) => engine && meetsMinimum(engine.version));
   return usable ?? newerOf(managed, onPath);
 }

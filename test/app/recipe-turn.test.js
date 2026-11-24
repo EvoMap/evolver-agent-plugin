@@ -33,7 +33,7 @@ test('each step of a Recipe is reported on its own under the turn\'s task id, an
   await toolFinished(ports, { sessionId: 's1', note: { kind: 'shell', command: 'npm test', exit: 0, output: 'ℹ pass 3\nℹ fail 0' } });
   const ended = await end(ports);
   assert.deepEqual(ended.reports.map((report) => [report.asset_id, report.task_id, report.outcome]), STEP_IDS.map((id) => [id, 'testagent:s1:1', 'success']));
-  assert.match(endedTurnSummaryOf(ended, { reason: 'answer' }), /reused EvoMap strategy "Unbound redis retries", "Close the redis client"/);
+  assert.match(endedTurnSummaryOf(ended), /injected 2 strategies: "Unbound redis retries", "Close the redis client" · ✓ last check passed: npm test · reported to EvoMap as success$/);
   await promptSubmitted(ports, { sessionId: 's1', prompt: '还是报错', ...WAIT });
   const corrections = queued.filter(({ report }) => report.task_id.endsWith(':correction'));
   assert.deepEqual(corrections.map(({ report }) => [report.asset_id, report.outcome]), STEP_IDS.map((id) => [id, 'failed']));

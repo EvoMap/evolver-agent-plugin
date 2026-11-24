@@ -14,8 +14,9 @@ test('/evolver-status answers in dsh\'s UI and nothing of it reaches the agent',
   const agent = await dsh.createAgent();
   const result = await dsh.command(agent, 'evolver-status');
   assert.equal(result.kind, 'success');
-  assert.match(result.text, /^Evolver Proxy running \(public hub, node node_test\)\./);
-  assert.match(result.text, /No work turn of this session waits to be distilled\./);
+  const status = JSON.parse(result.text);
+  assert.equal(status.evolver.proxy.node_id, 'node_test');
+  assert.equal(status.distillation.session_turns_waiting, 0);
   assert.deepEqual([agent.injected, agent.followups], [[], []]);
   assert.deepEqual(await dsh.command(agent, 'evolver-search'), { kind: 'error', text: 'Usage: /evolver-search <task description or error text>' });
 });

@@ -119,7 +119,7 @@ test('the Windows hook command preserves its script path and event in cmd and Po
     const { stdout } = await child;
     const answer = JSON.parse(stdout);
     assert.equal(answer.decision, 'block');
-    assert.match(answer.reason, /^Evolver Proxy running/);
+    assert.match(answer.reason, /"proxy": \{[^}]*"running": true/);
   }
   assert.equal(posted('/asset/fetch').length, fetches);
 });
@@ -153,7 +153,7 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   assert.deepEqual(await s.patch(), {});
   assert.deepEqual(await s.bash('npm test 2>&1 | tail -5', PASSED_RUN), {});
   assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {
-    systemMessage: `✓ Goal reached (last check passed: npm test 2>&1 | tail -5) · reused EvoMap strategy "${ASSET.short_title}"`,
+    systemMessage: `Evolver · injected "${ASSET.short_title}" (sha256:aaaaaaaa) · ✓ last check passed: npm test 2>&1 | tail -5 · reported to EvoMap as success`,
   });
 
   assert.deepEqual(await waitFor(() => reportOf('codex:s-turn:1')), {
@@ -181,7 +181,7 @@ test('a command typed into the prompt box is answered and blocked: it opens no t
   const fetches = posted('/asset/fetch').length;
   const answer = await s.prompt('evolver-status');
   assert.equal(answer.decision, 'block');
-  assert.match(answer.reason, /^Evolver Proxy running/);
+  assert.match(answer.reason, /"proxy": \{[^}]*"running": true/);
   assert.equal(answer.hookSpecificOutput, undefined, 'nothing reaches the model');
   assert.equal(posted('/asset/fetch').length, fetches);
   await fixTurn(s);
@@ -256,8 +256,8 @@ test('a terminal runs the same commands from the packed folder', posix, async ()
   let stdout = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   await new Promise((resolve) => child.on('close', resolve));
-  assert.match(stdout, /^Evolver Proxy running/);
-  assert.match(stdout, /session\(s\) have work turns waiting to be distilled|No session has work waiting to be distilled/, 'a terminal belongs to no session');
+  assert.match(stdout, /"proxy": \{[^}]*"running": true/);
+  assert.equal(typeof JSON.parse(stdout).distillation.sessions_waiting, 'number', 'a terminal belongs to no session');
 });
 
 const digestOf = (key) => createHash('sha256').update(key).digest('hex').slice(0, 16);

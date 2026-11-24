@@ -39,6 +39,7 @@ export function clientOf({ agent, releaseFile, manifestUrl = new URL('../../pack
   };
   const fields = () => ({ agent, agentVersion: knownAgentVersion(), plugin: PLUGIN_NAME, pluginVersion });
   return {
+    versions: fields,
     rememberAgentVersion(reported) {
       const version = fieldOf(reported);
       if (!version || version === knownAgentVersion()) return;

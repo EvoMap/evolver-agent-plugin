@@ -149,7 +149,11 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     },
     scheduler: { schedule: (tasks) => scheduled.push(...tasks), wakeAt: (at, tasks) => wakeUps.push({ at, tasks }) },
     clock: { now: () => time, sleep: async (ms) => { await new Promise((resolve) => setImmediate(resolve)); time += ms; } },
-    engine: { needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null },
+    client: { versions: () => ({ agent: 'test', agentVersion: null, plugin: '@evomap/evolver-agent-plugin', pluginVersion: null }), rememberAgentVersion: () => {} },
+    engine: {
+      needsSetup: async () => false, setUp: async () => {}, retryNow: async () => {}, outcome: async () => null, takeUnannounced: async () => null,
+      current: async () => ({ installed: null, proxy: null }),
+    },
     ledger: { load: async () => {}, record: async () => true },
     cli: { run: async (args, { cwd } = {}) => ({ ok: true, text: `ran ${args.join(' ')}${cwd ? ` in ${cwd}` : ''}` }) },
     signIn: { latest: async () => null, joinOrStart: async () => null, forget: async () => {} },

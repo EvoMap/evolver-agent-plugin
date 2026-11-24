@@ -8,10 +8,11 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 // and runs the model completions the relay asks for, since only the module holds the session's model.
 
 type Relay = { url: string; token: string }
-type Answer = { append?: string; toast?: string; submit?: string; text?: string; context?: string[]; exitCode?: number; late?: string }
+type Answer = { append?: string; toast?: string; submit?: string; text?: string; context?: string[]; exitCode?: number; late?: string; status?: string }
 type CatalogCommand = { name: string; description: string; hint?: string }
 type ModelRequest = { id: string; model: string; prompt: string }
 type Landed = { id: string; text: string }
+type LateAnswer = { id?: string; text?: string; status?: string }
 
 const AGENT = 'claude-code'
 const RELAY_START_MS = 15_000
@@ -23,7 +24,11 @@ const MODEL_MAX_TOKENS = 4_096
 const MODEL_TIMEOUT_MS = 120_000
 const MAX_PENDING_PROMPTS = 32
 const UNKNOWN_ORIGIN = { kind: 'unknown' }
+const RECALL_UNFINISHED_STATUS = 'evolver · recall did not finish for this prompt'
 
+// The status line is one per plugin, so only the turn that runs now may write it: a recall that answers once a later
+// turn has started describes a turn nobody is looking at.
+let statusTurnId: string | null = null
 let relay: Promise<Relay> | null = null
 let current: Relay | null = null
 let failedStarts = 0
@@ -184,12 +189,19 @@ async function startSession($: EngineInterface, options: PluginOptions): Promise
 
 // A recall lands after `turn.start`, whose text never reaches the turn's first request: the strategy is added to the
 // conversation when it lands, while its turn is open, and booked by the relay at the turn's next main-loop step after
-// the first, the first that can carry it. A turn that ends first books nothing.
-async function addWhenLanded($: EngineInterface, options: PluginOptions, turnId: string, id: string): Promise<void> {
-  const landed: Landed | null = await post($, options, '/late', { id })
-  if (!landed) return
-  await appendHidden($, landed.text)
-  carried.set(turnId, landed)
+// the first, the first that can carry it. A turn that ends first books nothing. Whatever the recall decided, injected or
+// not, replaces the plugin's status line under the prompt while its turn is the one running. A turn that showed it was
+// recalling always settles: a recall the relay could not answer (it failed or restarted) says it did not finish.
+async function addWhenLanded($: EngineInterface, options: PluginOptions, turnId: string, id: string, showsStatus: boolean): Promise<void> {
+  let answer: LateAnswer | null = null
+  try {
+    answer = await post($, options, '/late', { id, withStatus: true })
+  } finally {
+    if (showsStatus && turnId === statusTurnId) $.ui.status(answer?.status ?? RECALL_UNFINISHED_STATUS)
+  }
+  if (!answer?.id || !answer.text) return
+  await appendHidden($, answer.text)
+  carried.set(turnId, { id: answer.id, text: answer.text })
 }
 
 async function bookCarried($: EngineInterface, options: PluginOptions, turnId: string): Promise<void> {
@@ -200,9 +212,11 @@ async function bookCarried($: EngineInterface, options: PluginOptions, turnId: s
 }
 
 async function startTurn($: EngineInterface, options: PluginOptions, e: { text: string; turnId: string }, origin: unknown): Promise<void> {
+  statusTurnId = e.turnId
   const answer = await raise($, options, 'turn.start', { turn_id: e.turnId, text: e.text, origin })
+  if (answer.status && e.turnId === statusTurnId) $.ui.status(answer.status)
   if (answer.append) await appendHidden($, answer.append)
-  if (answer.late) void quietly(addWhenLanded($, options, e.turnId, answer.late))
+  if (answer.late) void quietly(addWhenLanded($, options, e.turnId, answer.late, Boolean(answer.status)))
 }
 
 function rememberOrigin(text: string, origin: unknown): void {

@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { isSetupDue, prepareEngine, setupErrorOutcome, withoutRetryDelay } from '../../engine/setup.js';
+import { isSetupDue, prepareEngine, setupErrorOutcome, usableEngine, withoutRetryDelay } from '../../engine/setup.js';
 import { meetsMinimum } from '../../engine/version.js';
 import { withLock } from '../store/file-lock.js';
 import { engineRuntime } from './install.js';
@@ -27,6 +27,22 @@ async function needsSetup(previous, selection, runningProxy, now) {
   const running = await runningProxy();
   if (selection) return running?.desktopProof ? running.desktopProof !== previous?.desktopProof : due;
   return !(running && meetsMinimum(running.version));
+}
+
+// An unreadable Desktop selection is setup's to report; the status still names the engine found beside it.
+function desktopEngineOrNull(runtime) {
+  try {
+    return runtime.desktopEngine?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function installedEngineOf(runtime) {
+  const desktop = desktopEngineOrNull(runtime);
+  if (desktop) return { version: desktop.version, source: 'desktop' };
+  const found = usableEngine(await runtime.managedEngine(), await runtime.pathEngine());
+  return found ? { version: found.version, source: found.source } : null;
 }
 
 async function setUpUnderLock(stores, runtime) {
@@ -57,6 +73,10 @@ export function enginePortOf(stores, {
 }) {
   return {
     outcome: () => stores.engineState.read(),
+    current: async () => {
+      const [installed, running] = await Promise.all([installedEngineOf(runtime), runningProxy()]);
+      return { installed, proxy: running ? { version: running.version ?? null, pid: running.pid ?? null } : null };
+    },
     needsSetup: async () => {
       const saved = await stores.engineState.read();
       const selection = desktopSelectionOf(desktopEngine);

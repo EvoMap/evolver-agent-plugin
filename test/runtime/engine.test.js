@@ -114,3 +114,15 @@ test('setup does not persist a Proxy result across a concurrent Desktop selectio
   assert.equal(outcome.version, updated.version);
   assert.equal(outcome.desktopProof, 'new-proxy');
 });
+
+test('current names the Evolver setup would run and the running Proxy\'s version and process, without writing an outcome', async (t) => {
+  const engineAt = (version, source) => async () => (version ? { version, source } : null);
+  const runtime = { managedEngine: engineAt('2.0.49', 'managed'), pathEngine: engineAt('2.0.55', 'path') };
+  const { engine } = enginePort(t, { runtime, runningProxy: async () => ({ version: '2.0.55', pid: 81 }) });
+  assert.deepEqual(await engine.current(), { installed: { version: '2.0.55', source: 'path' }, proxy: { version: '2.0.55', pid: 81 } });
+  assert.equal(await engine.outcome(), null);
+  const none = enginePort(t, { runtime: { managedEngine: engineAt(null), pathEngine: engineAt(null) } });
+  assert.deepEqual(await none.engine.current(), { installed: null, proxy: null });
+  const brokenDesktop = enginePort(t, { runtime: { ...runtime, desktopEngine: () => { throw new Error('bad selection'); } } });
+  assert.deepEqual((await brokenDesktop.engine.current()).installed, { version: '2.0.55', source: 'path' }, 'an unreadable Desktop selection still names the engine beside it');
+});
