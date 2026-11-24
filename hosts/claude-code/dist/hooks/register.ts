@@ -24,7 +24,7 @@ const MODEL_MAX_TOKENS = 4_096
 const MODEL_TIMEOUT_MS = 120_000
 const MAX_PENDING_PROMPTS = 32
 const UNKNOWN_ORIGIN = { kind: 'unknown' }
-const RECALL_UNFINISHED_STATUS = 'evolver · recall did not finish for this prompt'
+const RECALL_UNFINISHED_STATUS = '! recall did not finish for this prompt'
 
 // The status line is one per plugin, so only the turn that runs now may write it: a recall that answers once a later
 // turn has started describes a turn nobody is looking at.

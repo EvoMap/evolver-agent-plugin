@@ -203,7 +203,9 @@ status line under the prompt (recalling, then what it decided: injected, none fi
 did not answer, or arrived after the turn ended), `{ text, context }` for a command, `$.prompt.submit` for
 `/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. The turn summary names each injected
 strategy and its asset id, what the turn's last check says of its use (none ran: unverified), what EvoMap was told
-(and whether the report carried evidence), and a saving only behind a passing check. Text
+(and whether the report carried evidence), and a saving only behind a passing check. A recalled-for turn that
+reported no strategy ends with the relay's notice of what its recall did instead: none fits, the Proxy did not
+answer, the recall had not finished, or a strategy that landed after the model's last step and so went unused. Text
 appended in `turn.start` never reaches the turn's first request, so a recall never waits there: the strategy is
 appended when it lands, only while its turn is still open (and is then kept out of the session's later recalls), and
 booked at the turn's next main-loop `turn.step` after the first; a turn that ends first books nothing. In the

@@ -159,8 +159,8 @@ test('a session starts the relay, registers the commands, and a whole turn is re
 
   const ended = await verifiedTurn(cc);
   assert.match(cc.seen.appended[0], /^\[Evolution Memory\] Fix flaky Redis connection retries[\s\S]*Apply them where they fit\.$/);
-  assert.equal(cc.seen.statuses[0], 'evolver · recalling an EvoMap strategy for this prompt…');
-  assert.match(cc.seen.statuses.at(-1), /^evolver · injected "Fix flaky Redis connection retries"/);
+  assert.equal(cc.seen.statuses[0], '⟳ recalling an EvoMap strategy…');
+  assert.match(cc.seen.statuses.at(-1), /^✓ injected "Fix flaky Redis connection retr…"$/);
   assert.match(ended.text, /^Evolver · injected "Fix flaky Redis connection retries" \(sha256:aaaaaaaa\) · ✓ last check passed: Run the tests · reported to EvoMap as success/);
   const state = join(cc.proxy.env.HOME, '.evolver', 'state');
   const [sessionFile] = readdirSync(state).filter((name) => /^claude-code-session-.*\.json$/.test(name));
@@ -322,13 +322,13 @@ test('a recall that answers once a later turn has started leaves that turn\'s st
   await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
   await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
   await cc.call('turn.start', { text: PROMPT, turnId: 't2' });
-  await until(() => cc.seen.statuses.some((line) => /^evolver · injected /.test(line)), 'the second turn\'s recall');
+  await until(() => cc.seen.statuses.some((line) => /^✓ injected /.test(line)), 'the second turn\'s recall');
   const settled = cc.seen.statuses.length;
   release();
   await until(() => lates === 2 && cc.seen.appended.length > 0, 'the first turn\'s answer');
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(cc.seen.statuses.length, settled, 'the first turn wrote nothing once the second had started');
-  assert.match(cc.seen.statuses.at(-1), /^evolver · injected /);
+  assert.match(cc.seen.statuses.at(-1), /^✓ injected /);
 });
 
 test('a recall the relay cannot answer settles the status line instead of leaving it recalling', async (t) => {
@@ -337,5 +337,5 @@ test('a recall the relay cannot answer settles the status line instead of leavin
   await cc.call('prompt.submit', { ...captured.promptSubmit, text: PROMPT, origin: { kind: 'composer' } });
   await cc.call('turn.start', { text: PROMPT, turnId: 't1' });
   await until(() => cc.seen.statuses.length >= 2, 'the settled status');
-  assert.deepEqual(cc.seen.statuses, ['evolver · recalling an EvoMap strategy for this prompt…', 'evolver · recall did not finish for this prompt']);
+  assert.deepEqual(cc.seen.statuses, ['⟳ recalling an EvoMap strategy…', '! recall did not finish for this prompt']);
 });
