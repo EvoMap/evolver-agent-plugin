@@ -67,10 +67,10 @@ test('a recall without a late answer lets each request run as long as the hook m
   assert.ok(requests.every(({ timeoutMs }) => timeoutMs === 10_000));
 });
 
-test('a recall that may still answer late gives each request the background window, not the Proxy default of 8 s', async () => {
+test('a recall that may still answer late keeps the Proxy default per request', async () => {
   const { ports, requests } = harness();
-  const { late } = await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 6_000, keepLate: true });
+  const { late } = await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 0, keepLate: true });
   await late;
   assert.ok(requests.length > 0);
-  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === 30_000));
+  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === undefined));
 });
