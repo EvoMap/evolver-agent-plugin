@@ -27,3 +27,8 @@ test('a turn that reported no strategy ends with what its recall did', () => {
     'Evolver · ○ "Fix retries" was recalled after the model\'s last step, so this turn did not use it');
   assert.equal(unreportedTurnNoticeOf({ trace: { outcome: 'injected', name: 'Fix retries' }, isSettled: true, isJoined: true }), 'Evolver · ✓ injected "Fix retries"');
 });
+
+test('a turn whose strategy was still being joined says so, neither used nor unused', () => {
+  assert.equal(unreportedTurnNoticeOf({ trace: { outcome: 'injected', name: 'Fix retries' }, isSettled: true, isJoined: false, isJoinPending: true }),
+    'Evolver · ○ "Fix retries" was still being added when this turn ended');
+});
