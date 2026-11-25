@@ -97,3 +97,18 @@ test('a recalled-for turn that reported no strategy ends with a notice of what i
   const { body: again } = await post('/event', { hostEvent: 'turn.complete', payload: { ...turn, reason: 'answer', answer: 'done' } });
   assert.equal(again.text, undefined, 'a turn ends with its notice once');
 });
+
+test('turns of two sessions that share a turn id each end with their own notice', async (t) => {
+  const { post } = await started(t, { assets: [] });
+  const turnOf = (session_id, text) => ({ session_id, cwd: '/proj', turn_id: 't1', text, origin: { kind: 'composer' } });
+  const first = turnOf('s4', 'translate the release notes into Japanese please');
+  const second = turnOf('s5', 'hi');
+  const { body: firstStart } = await post('/event', { hostEvent: 'turn.start', payload: first });
+  await post('/late', { id: firstStart.late, withStatus: true });
+  const { body: secondStart } = await post('/event', { hostEvent: 'turn.start', payload: second });
+  if (secondStart.late) await post('/late', { id: secondStart.late, withStatus: true });
+  const { body: secondEnd } = await post('/event', { hostEvent: 'turn.complete', payload: { ...second, reason: 'answer', answer: 'ok' } });
+  const { body: firstEnd } = await post('/event', { hostEvent: 'turn.complete', payload: { ...first, reason: 'answer', answer: 'done' } });
+  assert.equal(firstEnd.text, 'Evolver · ○ no EvoMap strategy fits this prompt');
+  assert.notEqual(secondEnd.text, firstEnd.text);
+});
