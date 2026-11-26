@@ -1,0 +1,11 @@
+{
+  "entries": [
+    "bin/hook.mjs"
+  ],
+  "root": {
+    "gemini-extension.json": "hosts/gemini/dist/gemini-extension.json",
+    "hooks/hooks.json": "hosts/gemini/dist/hooks/hooks.json",
+    "README.md": "hosts/gemini/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}

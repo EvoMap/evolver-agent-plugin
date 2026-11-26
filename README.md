@@ -54,6 +54,7 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | DeepSeek Harness (dsh) | Supported | `hosts/dsh`, an in-process cordis plugin; installs `dist/dsh` |
 | Grok CLI 1.0.70+ | Supported | `hosts/grok`, command hooks; the strategy reaches the model at the turn's first tool result; installs `dist/grok` |
 | Qoder CLI (`qodercli`) 1.1.79+ | Supported | `hosts/qoder`, command hooks; installs `dist/qoder` |
+| Gemini CLI 0.69.0 | Recall only | `hosts/gemini`, native extension hooks; installs `dist/gemini` |
 | Kimi Code CLI 2.4.1+ and Desktop 1.2.1 | Supported | `hosts/kimi`, native hooks and isolated ACP distillation; installs `dist/kimi` |
 | MiniMax Code CLI 0.7.4+ / Desktop 3.1.6 | Supported | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | ZCode Desktop 3.18.2 / CLI 0.17.1 | Supported | `hosts/zcode`, native hooks; installs `dist/zcode` |
@@ -146,6 +147,9 @@ injections, undelivered reports), so nothing is lost on the way over.
   prompt box (`evolver-status`, with or without its `/`) and answered as a blocked prompt; `/evolver-evolve` is a
   Grok command. Each release tag stamps its version into the packed folder; `grok plugin update evolver-plugin` fetches it.
 - **Cursor:** add this repository as a plugin marketplace and install `evolver-plugin`; it installs the repo itself.
+- **Gemini CLI 0.69.0:** use the [Gemini extension guide](hosts/gemini/dist/README.md) to build and install
+  `dist/gemini` with native extension hooks. Recipe recall is available for text prompts. Reuse reporting
+  and candidate creation are disabled.
 - **Kimi Code on Windows and macOS:** close Kimi, run `node scripts/install-kimi.mjs install` from a checkout, then start a new CLI or Desktop session. Desktop uses the installed Kimi CLI to create drafts.
   `--home PATH` selects the profile root; use the same absolute `KIMI_CODE_HOME` when starting Kimi. Close Kimi before
   install/update/remove. The installer stages `dist/kimi`, registers its native `kimi.plugin.json` bundle and

@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "evolver-SessionStart",
+            "command": "node -e \"import(require('node:url').pathToFileURL(process.env.EVOLVER_GEMINI_HOOK))\" -- hook.mjs gemini SessionStart",
+            "env": {
+              "EVOLVER_GEMINI_HOOK": "${extensionPath}${/}bin${/}hook.mjs"
+            },
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "evolver-BeforeAgent",
+            "command": "node -e \"import(require('node:url').pathToFileURL(process.env.EVOLVER_GEMINI_HOOK))\" -- hook.mjs gemini BeforeAgent",
+            "env": {
+              "EVOLVER_GEMINI_HOOK": "${extensionPath}${/}bin${/}hook.mjs"
+            },
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "BeforeModel": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "evolver-BeforeModel",
+            "command": "node -e \"import(require('node:url').pathToFileURL(process.env.EVOLVER_GEMINI_HOOK))\" -- hook.mjs gemini BeforeModel",
+            "env": {
+              "EVOLVER_GEMINI_HOOK": "${extensionPath}${/}bin${/}hook.mjs"
+            },
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "evolver-SessionEnd",
+            "command": "node -e \"import(require('node:url').pathToFileURL(process.env.EVOLVER_GEMINI_HOOK))\" -- hook.mjs gemini SessionEnd",
+            "env": {
+              "EVOLVER_GEMINI_HOOK": "${extensionPath}${/}bin${/}hook.mjs"
+            },
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

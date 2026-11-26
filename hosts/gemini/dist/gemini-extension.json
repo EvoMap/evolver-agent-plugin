@@ -1,0 +1,6 @@
+{
+  "name": "evolver-plugin",
+  "version": "1.0.0",
+  "description": "Evolver strategy recall for Gemini CLI prompts.",
+  "repository": "https://github.com/EvoMap/evolver-agent-plugin"
+}
