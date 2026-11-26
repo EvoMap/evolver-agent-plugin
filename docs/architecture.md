@@ -159,9 +159,9 @@ distiller reads only the body fields it knows, so a Proxy from before the field 
 Gene with or without it and the request never fails over it. The record is
 fitted to the Proxy's 256 KiB before the model reads it (the diff is left out as `too_large` first, then the diff
 lines, then the oldest turns), so the lines an IR cites are the lines sent. The Proxy's answer is `stored`, a draft,
-or refused with a typed `quality.reason` and the `terms` it found; every outcome, the model's skip and a failure are
-logged with their reason in `<host>-distill-outcomes.json` (the last 20), and the turns read are done with, so they
-are never distilled again; turns that joined while the model answered start the next range.
+or refused with a typed `quality.reason` and the `terms` it found. Outcomes are logged with their reason in
+`<host>-distill-outcomes.json` (the last 20). Settled outcomes consume the turns read. Turns that joined while the
+model answered start the next range.
 
 Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing and answers the Gene and
 Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes or discards it with
@@ -170,8 +170,10 @@ Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person 
 must authorize it; missing verification keeps the draft local. A successful response's complete bundle and receipt
 replace the local draft before `POST /asset/submit`, preserving them for retry. The plugin never configures the
 verifier or manufactures receipts; the Proxy validates the authorization. A failed distillation is tried again in the
-background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and a range
-no model here can take waits a day for an agent's IRs before it is dropped. A model runner that captures the session's
+background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries. If every IR
+fails the plugin's schema check, none is sent to the Proxy and the range uses this same retry budget. A manual
+`evolver-distill` or `--post` schema rejection counts toward the limit too. A range no model here can take waits a
+day for an agent's IRs before it is dropped. A model runner that captures the session's
 route and reports it unavailable (`MODEL_UNAVAILABLE`) parks the range without costing a try, out of background
 retries, until the route works again or seven days after it was first found blocked. IRs an agent wrote for a range
 that changed since (another turn, a correction) are not sent. A correction of a turn a distillation is reading
