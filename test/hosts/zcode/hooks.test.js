@@ -159,7 +159,11 @@ test('packed ZCode prompt hook injects a Recipe in step order and skips duplicat
   assert.equal(first.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.match(first.hookSpecificOutput.additionalContext, /Unbound redis retries[\s\S]+Close the redis client/);
   assert.deepEqual(await f.hook('UserPromptSubmit', { prompt: PROMPT }), {});
-  assert.equal(f.proxy.requests.filter(request => request.path === '/recipe/search').length, 1);
+  const recall = f.proxy.requests.filter(({ path }) => path === '/recipe/search' || path === '/asset/fetch');
+  assert.deepEqual(recall.map(({ path }) => path).sort(), ['/asset/fetch', '/asset/fetch', '/recipe/search']);
+  const budget = recall[0].body.timeout_ms;
+  assert.ok(Number.isInteger(budget) && budget >= 500 && budget <= 10_000);
+  assert.ok(recall.every(({ body }) => body.timeout_ms === budget));
   f.status('t1', 'cancelled');
   await until(() => f.session().open === false && !f.session().settling);
 });

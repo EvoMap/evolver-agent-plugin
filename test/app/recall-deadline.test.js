@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { promptSubmitted } from '../../lib/app/prompt.js';
-import { PROMPT, RECIPE, memoryPorts } from './memory-ports.js';
+import { recallRequestOf } from '../../lib/app/recall-request.js';
+import { PROMPT, RECIPE, RECIPE_STEPS, memoryPorts } from './memory-ports.js';
 
-function harness() {
-  const { ports } = memoryPorts();
+function harness(options) {
+  const { ports } = memoryPorts(options);
   const timers = [], requests = [];
   ports.clock.sleep = (ms, signal) => new Promise((resolve) => {
     timers.push({ ms, signal, resolve });
@@ -13,7 +14,7 @@ function harness() {
   });
   const request = ports.proxy.request;
   ports.proxy.request = async (method, path, body, { signal, timeoutMs }) => {
-    requests.push({ path, signal, timeoutMs });
+    requests.push({ path, body, signal, timeoutMs });
     return request(method, path, body);
   };
   return { ports, timers, requests };
@@ -60,11 +61,31 @@ test('late recall keeps its requests alive until the strategy lands, then cancel
   assert.ok(timers.every(({ signal }) => signal.aborted));
 });
 
-test('a recall without a late answer lets each request run as long as the hook may wait', async () => {
-  const { ports, requests } = harness();
-  await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 10_000 });
-  assert.ok(requests.length > 0);
-  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === 10_000));
+test('a blocking recall forwards the hook budget to Recipe search, text recall and Recipe step fetch', async () => {
+  const { ports, requests } = harness({ recipes: [RECIPE], stepAssets: RECIPE_STEPS });
+  const waitMs = 9_832.4;
+  const { injection } = await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs });
+  assert.match(injection, /Unbound redis retries/);
+  assert.deepEqual(requests.map(({ path }) => path), ['/recipe/search', '/asset/fetch', '/asset/fetch']);
+  assert.ok(requests[2].body.asset_ids.length > 0);
+  for (const { body, timeoutMs } of requests) {
+    assert.equal(body.timeout_ms, 9_833);
+    assert.equal(timeoutMs, waitMs);
+  }
+});
+
+test('a positive Hub budget is clamped without changing the local transport budget', async () => {
+  const body = { text: PROMPT };
+  for (const [waitMs, expected] of [[25.5, 100], [45_000, 30_000]]) {
+    const proxy = { request(_method, _path, payload, { timeoutMs }) {
+      assert.deepEqual(payload, { ...body, timeout_ms: expected });
+      assert.equal(timeoutMs, waitMs);
+      return { ok: true };
+    } };
+    const recall = recallRequestOf(proxy, { timeoutMs: waitMs });
+    assert.equal((await recall.request('POST', '/asset/fetch', body)).ok, true);
+  }
+  assert.equal(Object.hasOwn(body, 'timeout_ms'), false);
 });
 
 test('a recall that may still answer late keeps the Proxy default per request', async () => {
@@ -72,5 +93,5 @@ test('a recall that may still answer late keeps the Proxy default per request', 
   const { late } = await promptSubmitted(ports, { sessionId: 's', prompt: PROMPT, waitMs: 0, keepLate: true });
   await late;
   assert.ok(requests.length > 0);
-  assert.ok(requests.every(({ timeoutMs }) => timeoutMs === undefined));
+  assert.ok(requests.every(({ body, timeoutMs }) => timeoutMs === undefined && !Object.hasOwn(body, 'timeout_ms')));
 });

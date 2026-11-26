@@ -309,6 +309,7 @@ test('a failed check recalls for its output and hands the strategy to the model 
     context: { task: PROMPT, trigger: 'check_failed', language: ['JavaScript'] },
     signals: ['AssertionError', 'changed', 'maxretriesperrequest', 'expected', 'equal', 'null', 'files', 'redis.js'],
     project_dir: cc.project,
+    timeout_ms: 6_000,
   });
 });
 
