@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 
-import { isSameProcess } from '../../lib/runtime/process/identity.js';
+import { ownerIsGone, processStartTime, PROCESS_START_TOLERANCE_MS } from '../../lib/runtime/process/owner.js';
 import { ASSET } from '../app/memory-ports.js';
 
 // A verified turn's hook arms a detached waiter for background distillation, which would sleep on past the test.
-function endWaiters(home) {
+function endWaiters(home, observed) {
   let entries;
   try { entries = readdirSync(home, { withFileTypes: true }); }
   catch (error) {
@@ -20,13 +20,16 @@ function endWaiters(home) {
   for (const entry of entries) {
     const target = join(home, entry.name);
     if (entry.isDirectory()) {
-      endWaiters(target);
+      endWaiters(target, observed);
       continue;
     }
-    if (!entry.name.endsWith('-distill-waiter.json')) continue;
+    const registered = home === observed && /^\d+\.json$/.test(entry.name);
+    if (!registered && !entry.name.endsWith('-distill-waiter.json')) continue;
     try {
       const { pid, startedAt } = JSON.parse(readFileSync(target, 'utf8'));
-      if (isSameProcess(pid, startedAt)) process.kill(pid);
+      if (pid === process.pid || !Number.isFinite(startedAt) || (registered && entry.name !== `${pid}.json`) || ownerIsGone(pid)) continue;
+      const birth = processStartTime(pid, 2_500);
+      if (birth !== null && Math.abs(birth - startedAt) <= PROCESS_START_TOLERANCE_MS) process.kill(pid);
     } catch {
     }
   }
@@ -42,6 +45,8 @@ function endWaiters(home) {
 export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [], distillAnswer = { ok: false, reason: 'not_in_this_test' }, delays = {}, status = { running: true, status: 'running', node_id: 'node_test' } } = {}) {
   const requests = [];
   const home = mkdtempSync(join(tmpdir(), 'evolver-home-'));
+  const registry = join(home, 'waiter-pids');
+  const open = join(registry, '.open');
   const { port1, port2 } = new MessageChannel();
   port1.on('message', request => requests.push(request));
   const flushRequests = () => {
@@ -67,6 +72,8 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       once(worker, 'exit').then(([code]) => { throw new Error(`Fake Proxy exited before listening (${code})`); }),
     ]);
     mkdirSync(join(home, '.evolver'));
+    mkdirSync(registry);
+    writeFileSync(open, '');
     writeFileSync(join(home, '.evolver', 'settings.json'), JSON.stringify({ proxy: { url, version: '2.0.50' } }));
   } catch (error) {
     stop();
@@ -74,6 +81,11 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
     throw error;
   }
   const cleanup = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
+  const cleanWaiters = () => {
+    stop();
+    rmSync(open, { force: true });
+    endWaiters(home, registry);
+  };
   return {
     get requests() {
       if (failure) throw failure;
@@ -81,16 +93,18 @@ export async function fakeProxy({ assets = [ASSET], recipes = [], stepAssets = [
       flushRequests();
       return requests;
     },
-    env: { ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: new URL(url).port, EVOLVER_HEADLESS: '' },
+    env: {
+      ...process.env, HOME: home, USERPROFILE: home, EVOMAP_PROXY_PORT: new URL(url).port, EVOLVER_HEADLESS: '',
+      EVOLVER_TEST_WAITER_REGISTRY: registry,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${new URL('./observe-proxy-waiters.mjs', import.meta.url).href}`].filter(Boolean).join(' '),
+    },
     close: () => {
-      stop();
-      endWaiters(home);
+      cleanWaiters();
       // A detached worker the hooks started can still be writing its state here after the request a test waits on.
       rmSync(home, cleanup);
     },
     closeAsync: async () => {
-      stop();
-      endWaiters(home);
+      cleanWaiters();
       await rm(home, cleanup);
     },
   };
