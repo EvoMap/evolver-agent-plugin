@@ -69,6 +69,25 @@ test('a check the turn ran makes the report L1 and decides its outcome', () => {
   assert.equal(failed.evidence.applied, 'partial');
 });
 
+test('an observed failed check with a stale signature reports outcome stale without leaking raw output or adding unapproved evidence fields', () => {
+  const stale = immediate({
+    checks: [{ command: 'API_KEY=secret123 npm test -- --legacy-flag /Users/me/private.js', failed: true, output: "error: unknown option '--legacy-flag' at /Users/me/private.js" }],
+  });
+  assert.equal(stale.outcome, 'stale');
+  assert.deepEqual(stale.evidence.check, { kind: 'test', passed: false, fail_then_pass: false });
+  assert.match(stale.reason, /last test failed \(stale: unknown_flag\)\./);
+  assert.doesNotMatch(JSON.stringify(stale), /secret123|private\.js|--legacy-flag/);
+
+  const selfReported = agentReportedReportOf({
+    asset: ASSET,
+    sessionId: 'claude-code:s1',
+    turn: 4,
+    turnReason: 'answer',
+    checks: [{ command: 'npm test', failed: true, output: "error: unknown option '--legacy-flag'" }],
+  });
+  assert.equal(selfReported.outcome, 'failed', 'an agent self-report cannot mark an asset stale');
+});
+
 test('the same check failing and then passing is recorded as such', () => {
   const report = immediate({
     checks: [{ command: 'npm test', failed: true }, { command: 'npm run lint', failed: false }, { command: 'npm test', failed: false }],
