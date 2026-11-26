@@ -168,3 +168,87 @@ test('a Recipe whose every step cannot keep even its opening line is passed over
   assert.deepEqual(match.ids, ['sha256:gene']);
   assert.deepEqual(traces[0], { outcome: 'passed_over', kind: 'recipe', id: 'rcp_long', reason: 'too_long' });
 });
+
+test('a 1G+1C Recipe expands its Capsule step from structured summary/outcome/trace instead of dropping as missing_steps', async () => {
+  const oneGOneC = {
+    id: 'rcp_1g1c',
+    title: 'Retry upload with verified evidence',
+    success_rate: 0.92,
+    steps: [
+      { asset_id: 'sha256:retry', asset_type: 'Gene', position: 0, optional: false },
+      { asset_id: 'sha256:cap1', asset_type: 'Capsule', position: 1, optional: false },
+    ],
+  };
+  const capsuleOnlySummary = {
+    asset_id: 'sha256:cap1',
+    type: 'Capsule',
+    summary: 'Verified jittered retry eliminated upload 503 flakes',
+    trigger: ['upload', '503'],
+    outcome: { status: 'success', score: 0.94 },
+    execution_trace: [
+      { command: 'node test/upload-retry.test.mjs', exit: 0 },
+      { command: 'node test/ignored-fail.test.mjs', exit: 1 },
+    ],
+  };
+  const match = await recalled(proxy({ recipes: [oneGOneC], stepAssets: [STEP_ASSETS[0], capsuleOnlySummary] }).proxyFetch);
+  assert.deepEqual(match.ids, ['sha256:retry', 'sha256:cap1']);
+  assert.match(match.text, /Step 2 — Verified jittered retry eliminated upload 503 flakes:/);
+  assert.match(match.text, /1\. Verified case: Verified jittered retry eliminated upload 503 flakes/);
+  assert.match(match.text, /2\. Applies to signals: upload, 503/);
+  assert.match(match.text, /3\. Recorded outcome: success \(score=0\.94\)/);
+  assert.match(match.text, /4\. Verified check: node test\/upload-retry\.test\.mjs/);
+  assert.doesNotMatch(match.text, /ignored-fail/);
+});
+
+test('a Capsule step falls back to a2a.context_projection.strategy or step.parameters.strategy', async () => {
+  const withProjection = {
+    id: 'rcp_proj',
+    title: 'Projected capsule recipe',
+    steps: [
+      { asset_id: 'sha256:retry', asset_type: 'Gene', position: 0, optional: false },
+      { asset_id: 'sha256:cap_proj', asset_type: 'Capsule', position: 1, optional: false },
+    ],
+  };
+  const projectedCap = {
+    asset_id: 'sha256:cap_proj',
+    type: 'Capsule',
+    summary: 'Projected retry case',
+    a2a: { context_projection: { strategy: ['Check lockfile first', 'Retry with jitter'] } },
+  };
+  const matchProj = await recalled(proxy({ recipes: [withProjection], stepAssets: [STEP_ASSETS[0], projectedCap] }).proxyFetch);
+  assert.deepEqual(matchProj.ids, ['sha256:retry', 'sha256:cap_proj']);
+  assert.match(matchProj.text, /1\. Check lockfile first\n2\. Retry with jitter/);
+
+  const withParams = {
+    id: 'rcp_params',
+    title: 'Parameterized capsule recipe',
+    steps: [
+      { asset_id: 'sha256:retry', asset_type: 'Gene', position: 0, optional: false },
+      {
+        asset_id: 'sha256:cap_params',
+        asset_type: 'Capsule',
+        position: 1,
+        optional: false,
+        parameters: { summary: 'Verified parameter case', strategy: ['Verified case: Verified parameter case'] },
+      },
+    ],
+  };
+  const matchParams = await recalled(proxy({ recipes: [withParams], stepAssets: [STEP_ASSETS[0]] }).proxyFetch);
+  assert.deepEqual(matchParams.ids, ['sha256:retry', 'sha256:cap_params']);
+  assert.match(matchParams.text, /Step 2 — Verified parameter case:\n1\. Verified case: Verified parameter case/);
+});
+
+test('a multi-Gene DNA Recipe renders step handoff conditions in order while keeping stepTexts clean', async () => {
+  const dna = {
+    ...RECIPE,
+    id: 'rcp_dna',
+    steps: [
+      { asset_id: 'sha256:retry', asset_type: 'Gene', position: 0, optional: false },
+      { asset_id: 'sha256:alert', asset_type: 'Gene', position: 1, optional: false, condition: 'after_step_0_verified; signals=alert,page' },
+    ],
+  };
+  const match = await recalled(proxy({ recipes: [dna] }).proxyFetch);
+  assert.deepEqual(match.ids, ['sha256:retry', 'sha256:alert']);
+  assert.match(match.text, /Step 2 — Alert on exhausted retries \[when: after_step_0_verified; signals=alert,page\]:/);
+  assert.equal(match.stepTexts['sha256:alert'], '[Evolution Memory] Alert on exhausted retries (EvoMap network):\n1. Count exhausted retries\n2. Page when the rate climbs');
+});
