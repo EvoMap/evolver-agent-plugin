@@ -219,6 +219,18 @@ test('a Capsule step falls back to a2a.context_projection.strategy or step.param
   assert.deepEqual(matchProj.ids, ['sha256:retry', 'sha256:cap_proj']);
   assert.match(matchProj.text, /1\. Check lockfile first\n2\. Retry with jitter/);
 
+  for (const strategy of [[], [' ', null], { steps: [] }]) {
+    const capsule = { ...projectedCap, summary: undefined, strategy, payload: { strategy: [' '] }, gene: { strategy: [false] } };
+    const match = await recalled(proxy({ recipes: [withProjection], stepAssets: [STEP_ASSETS[0], capsule] }).proxyFetch);
+    assert.deepEqual(match.ids, ['sha256:retry', 'sha256:cap_proj']);
+    assert.match(match.text, /1\. Check lockfile first\n2\. Retry with jitter/);
+  }
+
+  const direct = { ...projectedCap, strategy: 'Use the recorded retry limit' };
+  const matchDirect = await recalled(proxy({ recipes: [withProjection], stepAssets: [STEP_ASSETS[0], direct] }).proxyFetch);
+  assert.match(matchDirect.text, /1\. Use the recorded retry limit/);
+  assert.doesNotMatch(matchDirect.text, /Check lockfile first/);
+
   const withParams = {
     id: 'rcp_params',
     title: 'Parameterized capsule recipe',
