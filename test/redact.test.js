@@ -282,6 +282,8 @@ test('redaction stays linear on long adversarial input', () => {
     fill(' -u', ' '),
     fill(' --password', ' '),
     fill('curl -H Cookie:', 'a'),
+    fill('curl -H"Cookie:sid=', 'a'),
+    fill('Cookie: "', 'a'),
     fill('curl -H "Cookie:sid=', 'a\\\n'),
     fill('curl -HCookie:sid="', 'a`\r\n'),
     fill('Cookie:\r\n ', 'sid=a; \r\n '),

@@ -64,6 +64,12 @@ only a private distillation prompt, no tools or native session transcript, and r
 Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in `evolver-plugin`.
 [The Step Code draft guide](stepcode/dist/README.md) records installation, supported commands and acceptance limits.
 
+GitHub Copilot CLI 1.0.112 on Windows uses Copilot's experimental resident SDK extension. Its prompt hook provides
+Recipe guidance and native foreground shell events supply verification evidence. Only `session.idle` confirms a
+finished interaction. A Stop hook can request more work before that event, and an abort suppresses reuse reports
+and candidates for that interaction. See the [Copilot adapter guide](copilot/dist/README.md) for scope,
+profile setup and the manual private draft flow.
+
 ## Adding a host
 
 Kimi Code's local adapter targets CLI 2.4.1 and Desktop 1.2.1 on Windows, and CLI 2.6.3 on macOS, for the main agent in local sessions
