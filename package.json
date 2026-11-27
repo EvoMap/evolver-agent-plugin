@@ -15,6 +15,7 @@
     "test:zcode": "node --test --test-timeout=120000 \"test/hosts/zcode/*.test.js\" test/helpers/fake-proxy.test.js",
     "test:stepcode": "node --test --test-timeout=120000 \"test/hosts/stepcode/*.test.js\"",
     "test:copilot": "node --test --test-timeout=120000 \"test/hosts/copilot/*.test.js\"",
+    "test:cline": "node --test --test-timeout=120000 \"test/hosts/cline/*.test.js\"",
     "validate": "node scripts/pack.mjs claude-code dist/claude-code && claude plugin validate dist/claude-code",
     "dev:sync": "bash scripts/sync-dev-mod.sh",
     "pack": "node scripts/pack.mjs all dist"

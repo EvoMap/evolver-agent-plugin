@@ -96,6 +96,43 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
 });
 
+test('a private preview passes both opt-outs and does not accept a stored result as a draft', async () => {
+  const made = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A separate private Gene' }]), distillAnswer: { status: 'stored' } });
+  made.ports.persistDistillationInProxy = false;
+  const outcome = await distillSession(made.ports, { sessionId: 's1' });
+  assert.equal(distills(made.requests).length, 1, 'never dispatch the next IR after a stored result');
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual([body.persist, body.publish], [false, false]);
+  assert.equal(outcome.status, 'failed');
+  assert.equal(outcome.results[0].reason, 'private_preview_unavailable');
+  assert.deepEqual(await made.ports.drafts.read(), []);
+  assert.ok((await made.ports.candidates.read()).s1);
+});
+
+test('a stored response fails the private batch even after an earlier draft or refusal', async (t) => {
+  for (const first of ['drafted', 'rejected']) await t.test(first, async () => {
+    const made = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A separate private Gene' }]) });
+    const { ports } = made;
+    ports.persistDistillationInProxy = false;
+    const request = ports.proxy.request;
+    ports.proxy.request = async (...args) => {
+      await request(...args);
+      const data = distills(made.requests).length > 1 ? { status: 'stored' }
+        : first === 'drafted' ? DRAFTED : { quality: { ok: false, reason: 'quality_gate' } };
+      return { ok: true, data };
+    };
+
+    const outcome = await distillSession(ports, { sessionId: 's1' });
+
+    assert.equal(outcome.status, 'failed');
+    assert.deepEqual(outcome.results.map(({ status }) => status), [first, 'failed']);
+    assert.equal(distillText(outcome).ok, false);
+    assert.match(distillText(outcome).text, /private_preview_unavailable/);
+    assert.ok((await ports.candidates.read()).s1);
+    assert.equal((await ports.drafts.read()).length, first === 'drafted' ? 1 : 0);
+  });
+});
+
 test('a distillation names only the assets injected into the turns it read', async () => {
   const offTopic = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
   const made = memoryPorts({ assets: [offTopic, ASSET], distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
