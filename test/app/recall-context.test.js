@@ -50,6 +50,31 @@ test('the host\'s latest title rides every recall, and a prompt that names none 
   assert.equal(third.title, 'Distill openmotion and nexu-io');
 });
 
+test('a prompt that opens the next turn right after this one opened lends this recall no title or recent turns', async () => {
+  const { ports, requests } = memoryPorts();
+  await turn(ports, 'Add retries to the uploader client', 'Added, capped at five.', { title: 'Uploader retries' });
+  await turnEnded(ports, { sessionId: 's', reason: 'answer', answer: '' });
+  const update = ports.sessions.update;
+  const read = ports.sessions.read;
+  let opened = false;
+  let interleaved = false;
+  ports.sessions.update = async (...args) => {
+    const result = await update(...args);
+    opened = true;
+    return result;
+  };
+  ports.sessions.read = async (...args) => {
+    if (opened && !interleaved) {
+      interleaved = true;
+      await promptSubmitted(ports, { sessionId: 's', prompt: 'Unrelated: rename the module', waitMs: 0, title: 'Renaming the module' });
+    }
+    return read(...args);
+  };
+  await promptSubmitted(ports, { sessionId: 's', prompt: 'Now cap the retries at three', waitMs: 5_000, title: 'Uploader retries' });
+  const forThisTurn = fetchContexts(requests).find((context) => context.task === 'Add retries to the uploader client' && context.title === 'Uploader retries' && context.recent_turns?.length === 2);
+  assert.ok(forThisTurn, 'this turn\'s recall carries the session as this turn opened it');
+});
+
 test('a typed command is not a recent turn', async () => {
   const { ports, requests } = memoryPorts();
   await turn(ports, 'Add retries to the uploader client', 'Added, capped at five.');

@@ -111,6 +111,13 @@ test('recent turns are each earlier prompt then its answer, oldest first, cleane
   assert.doesNotMatch(JSON.stringify(recentTurnsOf([{ prompt: 'retry it', answer: 'used {"token":"fixtureCredential123456"} to retry' }])), /fixtureCredential123456/);
 });
 
+test('recent turns are the newest three whole turns, and an answer whose prompt is gone is left out with its turn', () => {
+  const ten = Array.from({ length: 10 }, (_, index) => ({ prompt: `prompt ${index}`, answer: `answer ${index}` }));
+  assert.deepEqual(recentTurnsOf(ten).map(({ text }) => text), ['prompt 7', 'answer 7', 'prompt 8', 'answer 8', 'prompt 9', 'answer 9']);
+  const withLostPrompt = [{ prompt: 'kept', answer: 'kept answer' }, { prompt: '', answer: 'an answer nobody asked for' }, { prompt: '<system-reminder>x</system-reminder>', answer: 'orphan' }];
+  assert.deepEqual(recentTurnsOf(withLostPrompt).map(({ text }) => text), ['kept', 'kept answer']);
+});
+
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {
   const { proxyFetch, calls } = stubProxy({ assets: [ASSET] });
   const { ids, text } = await recallStrategy(proxyFetch, 'add a retry to the uploader');
