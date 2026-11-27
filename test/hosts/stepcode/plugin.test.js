@@ -249,7 +249,8 @@ test('a later native extension adding then_run leaves the whole turn unverified 
 });
 
 test('native configuration persists after reload and status commands do not start a model turn', async t => {
-  const host = await stepHost(t, { env: { EVOLVER_RECALL: undefined } });
+  // Status probes the PATH engine. This fixture checks preferences, so keep the machine's CLI out of it.
+  const host = await stepHost(t, { env: { EVOLVER_RECALL: undefined, PATH: '' } });
   await host.emit('session_start');
   await host.commands.get('evolver-config').handler('recall off', host.ctx);
   assert.ok(host.notices.some(({ text }) => /Recall: off/.test(text)));
