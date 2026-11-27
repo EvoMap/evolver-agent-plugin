@@ -209,7 +209,7 @@ test('a superseded re-judge cannot replace, remove or restore the candidate', as
 test('a candidate mutation is fenced against a re-judge that starts after its state read', async () => {
   const { ports } = memoryPorts();
   let lifecycle = Promise.resolve();
-  ports.sessions.withSession = (_sessionId, update) => {
+  ports.sessions.withCandidate = (_sessionId, update) => {
     const next = lifecycle.then(update);
     lifecycle = next.catch(() => {});
     return next;
@@ -241,4 +241,58 @@ test('a candidate mutation is fenced against a re-judge that starts after its st
   await Promise.all([old, newer]);
 
   assert.equal((await ports.candidates.read()).s.turns[0].answer, 'The latest record passed.');
+});
+
+test('a late first completion cannot replace or restore a re-judged candidate', async (t) => {
+  for (const rejudgedWork of [true, false]) {
+    await t.test(rejudgedWork ? 'replace newer work' : 'restore removed work', async () => {
+      const { ports } = memoryPorts();
+      const record = (answer, work) => ({
+        checks: work ? [{ command: 'npm test', failed: false }] : [],
+        commands: work ? ['npm test'] : [], paths: [], edits: [], answer,
+      });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      const reading = Promise.withResolvers(), older = Promise.withResolvers();
+      const initial = endWith(() => { reading.resolve(); return older.promise; });
+      await reading.promise;
+      await endWith(() => record('Re-judged result.', rejudgedWork));
+      older.resolve(record('Initial result arrived late.', true));
+      await initial;
+
+      const candidate = (await ports.candidates.read()).s;
+      if (rejudgedWork) assert.equal(candidate?.turns[0].answer, 'Re-judged result.');
+      else assert.equal(candidate, undefined);
+    });
+  }
+});
+
+test('a failed re-judge cleanup leaves its newest answer available to recall', async () => {
+  const { ports, requests } = memoryPorts();
+  const endWith = (answer) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer }),
+  });
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  await endWith('Original check result.');
+
+  const write = ports.sessions.update;
+  const busy = Object.assign(new Error('fixture state writer busy'), { code: 'ELOCKED' });
+  let cleanupFailed = false;
+  ports.sessions.update = (sessionId, mutate) => write(sessionId, (current) => {
+    const next = mutate(current);
+    if (!cleanupFailed && Number.isFinite(current.settling) && next?.settling === null) {
+      cleanupFailed = true;
+      throw busy;
+    }
+    return next;
+  });
+
+  await assert.rejects(endWith('Newest check result.'), busy);
+  assert.equal((await ports.candidates.read()).s.turns[0].answer, 'Newest check result.');
+  await ports.clock.sleep(30_001);
+  await turn(ports, 'Summarize the check result');
+  assert.equal(fetchContexts(requests).at(-1).recent_turns.at(-1).text, 'Newest check result.');
 });

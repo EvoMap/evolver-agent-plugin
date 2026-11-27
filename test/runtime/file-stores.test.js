@@ -822,6 +822,12 @@ test('a session lifecycle lock that stays held refuses with ELOCKED, so a prompt
   await holder;
 });
 
+test('the candidate lock stays independent of session lifecycle cleanup', async () => {
+  const { stores: cursor } = stores();
+  const result = await cursor.sessions.withSession('s1', () => cursor.sessions.withCandidate('s1', () => 'candidate saved'));
+  assert.equal(result, 'candidate saved');
+});
+
 test('a correction lock that stays held refuses with ELOCKED, so a hook reports it', async () => {
   const { stores: cursor } = stores();
   let release;

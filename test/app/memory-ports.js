@@ -83,6 +83,7 @@ export function memoryPorts({ assets = [ASSET], recipes = [], stepAssets = [], d
     identity: { agent: 'testagent', label: 'Test Agent' },
     sessions: {
       withSession: async (_id, work) => work(),
+      withCandidate: async (_id, work) => work(),
       read: async (id) => structuredClone(sessions.get(id) ?? {}),
       readEach: async (visit) => {
         for (const [id, stored] of sessions) visit(structuredClone(stored), id);
