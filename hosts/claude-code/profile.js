@@ -20,6 +20,21 @@ import { editedFilesOf, toolNoteOf } from './tool-calls.js';
 
 const text = (value) => (typeof value === 'string' ? value : '');
 
+// Claude Code appends the session's name to its transcript as a `custom-title` entry each time it is set or the
+// session resumes, so the newest one sits near the end.
+const TITLE_TAIL_BYTES = 256 * 1024;
+const CUSTOM_TITLE = /"type":"custom-title","customTitle":("(?:[^"\\]|\\.)*")/g;
+
+function latestTitleOf(context) {
+  const tail = context.transcriptSince(Math.max(0, context.transcriptSize() - TITLE_TAIL_BYTES));
+  const quoted = [...tail.matchAll(CUSTOM_TITLE)].at(-1)?.[1];
+  try {
+    return quoted ? text(JSON.parse(quoted)) || null : null;
+  } catch {
+    return null;
+  }
+}
+
 const CLAUDE_REASONS = new Set(REASONS.filter((reason) => reason !== 'unknown'));
 
 export default defineProfile({
@@ -43,6 +58,7 @@ export default defineProfile({
     isIgnored: (payload) => Boolean(payload.agent_id),
     model: (payload) => text(payload.model) || null,
     agentVersion: (payload) => text(payload.agent_version) || null,
+    title: (payload, context) => latestTitleOf(context),
   },
   reply: {
     context: (strategy) => (strategy ? { append: strategy } : {}),

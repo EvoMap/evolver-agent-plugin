@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { recallStrategy, promptTextOf, taskTextOf } from '../lib/recall.js';
+import { recallStrategy, promptTextOf, recentTurnsOf, taskTextOf } from '../lib/recall.js';
 
 function stubProxy(recalled) {
   const calls = [];
@@ -60,18 +60,62 @@ test('quoted JSON credentials are redacted from the recall query and task contex
   }
 });
 
-test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+test('a CJK task of 4000 characters leaves for the Proxy whole within its 16 KiB', async () => {
   const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
   const task = taskTextOf('上传失败后重试'.repeat(600));
-  const context = { task, trigger: 'check_failed', language: ['TypeScript', 'Go'] };
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start' } });
+  assert.equal(task.length, 4000);
+  for (const sent of [calls[0].body.context, searches[0].context]) assert.equal(sent.task, task);
+});
+
+test('recent turns over the Proxy limit go oldest first, a prompt with its answer, and the task stays whole', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('上传失败后重试'.repeat(600));
+  const turns = ['一', '二', '三'].flatMap((mark) => [{ role: 'user', text: mark.repeat(500) }, { role: 'assistant', text: mark.repeat(800) }]);
+  await recallStrategy(proxyFetch, 'upload retry fails', { context: { task, trigger: 'turn_start', recent_turns: turns, title: '上传重试' } });
+  for (const sent of [calls[0].body.context, searches[0].context]) {
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 16_384);
+    assert.equal(sent.task, task);
+    assert.equal(sent.title, '上传重试');
+    assert.ok(sent.recent_turns.length > 0 && sent.recent_turns.length < turns.length);
+    assert.equal(sent.recent_turns[0].role, 'user', 'no answer is kept without its prompt');
+    assert.deepEqual(sent.recent_turns, turns.slice(-sent.recent_turns.length), 'the newest turns are the ones kept');
+  }
+});
+
+test('a task context over the Proxy limit is cut to fit, never dropped', async () => {
+  const { proxyFetch, calls, searches } = stubProxy({ assets: [] });
+  const task = taskTextOf('🔁'.repeat(4000));
+  const context = { task, trigger: 'check_failed', language: Array.from({ length: 40 }, (_, index) => `Language${index}`) };
   await recallStrategy(proxyFetch, 'upload retry fails', { context });
   for (const sent of [calls[0].body.context, searches[0].context]) {
-    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 4096);
-    assert.ok(sent.task.length > 1300);
+    assert.ok(Buffer.byteLength(JSON.stringify(sent)) <= 16_384);
+    assert.ok(sent.task.length > 1000);
     assert.ok(task.startsWith(sent.task));
     assert.doesNotMatch(sent.task, /\uFFFD/u);
-    assert.deepEqual(sent.language, ['TypeScript', 'Go']);
+    assert.deepEqual(sent.language, context.language);
   }
+});
+
+test('recent turns are each earlier prompt then its answer, oldest first, cleaned like a prompt', () => {
+  assert.deepEqual(recentTurnsOf([]), []);
+  assert.deepEqual(recentTurnsOf(undefined), []);
+  assert.deepEqual(recentTurnsOf([{ prompt: 'first', answer: '  done, 114 assets  ' }, { prompt: 'second', answer: '' }]), [
+    { role: 'user', text: 'first' }, { role: 'assistant', text: 'done, 114 assets' }, { role: 'user', text: 'second' },
+  ]);
+  const [prompt, answer] = recentTurnsOf([{ prompt: 'x'.repeat(900), answer: 'y'.repeat(1500) }]);
+  assert.equal(prompt.text.length, 500);
+  assert.equal(answer.text.length, 800, 'an answer keeps its opening');
+  const long = ['a', 'b', 'c', 'd'].map((mark) => ({ prompt: mark.repeat(500), answer: mark.repeat(800) }));
+  assert.deepEqual(recentTurnsOf(long).map(({ text }) => text[0]), ['b', 'b', 'c', 'c', 'd', 'd'], 'at most 4000 characters, whole turns, the newest kept');
+  assert.doesNotMatch(JSON.stringify(recentTurnsOf([{ prompt: 'retry it', answer: 'used {"token":"fixtureCredential123456"} to retry' }])), /fixtureCredential123456/);
+});
+
+test('recent turns are the newest three whole turns, and an answer whose prompt is gone is left out with its turn', () => {
+  const ten = Array.from({ length: 10 }, (_, index) => ({ prompt: `prompt ${index}`, answer: `answer ${index}` }));
+  assert.deepEqual(recentTurnsOf(ten).map(({ text }) => text), ['prompt 7', 'answer 7', 'prompt 8', 'answer 8', 'prompt 9', 'answer 9']);
+  const withLostPrompt = [{ prompt: 'kept', answer: 'kept answer' }, { prompt: '', answer: 'an answer nobody asked for' }, { prompt: '<system-reminder>x</system-reminder>', answer: 'orphan' }];
+  assert.deepEqual(recentTurnsOf(withLostPrompt).map(({ text }) => text), ['kept', 'kept answer']);
 });
 
 test('one call recalls by text and injects that asset\'s strategy alone', async () => {

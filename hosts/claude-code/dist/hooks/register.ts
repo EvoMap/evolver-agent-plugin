@@ -123,12 +123,16 @@ async function post($: EngineInterface, options: PluginOptions, path: string, bo
   return postTo($, await relayOf($, options, await $.clock.now()), path, body)
 }
 
-async function sessionFields($: EngineInterface): Promise<{ session_id: string; cwd: string; agent_version?: string }> {
+async function sessionFields($: EngineInterface): Promise<{ session_id: string; cwd: string; agent_version?: string; transcript_path?: string }> {
   const cwd = await $.session.cwd()
   const stat = await $.fs.stat(cwd, { resolve: true }).catch(() => undefined)
   const release = await quietly(Promise.resolve().then(() => $.session.version()))
   const agentVersion = release?.base ?? release?.version
-  return { session_id: await $.session.id(), cwd: stat?.realPath ?? cwd, ...(agentVersion ? { agent_version: agentVersion } : {}) }
+  const transcriptPath = (await quietly(Promise.resolve().then(() => $.session.info())))?.transcriptPath
+  return {
+    session_id: await $.session.id(), cwd: stat?.realPath ?? cwd,
+    ...(agentVersion ? { agent_version: agentVersion } : {}), ...(transcriptPath ? { transcript_path: transcriptPath } : {}),
+  }
 }
 
 async function raise($: EngineInterface, options: PluginOptions, hostEvent: string, fields: Record<string, unknown> = {}): Promise<Answer> {

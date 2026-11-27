@@ -85,3 +85,18 @@ test('the relay runs under Claude Code: its owner is the process that started it
   assert.deepEqual(profile.model, { kind: 'sdk' });
   assert.equal(profile.payload.model({ model: captured.session.model }), 'claude-haiku-5-5');
 });
+
+test('the session title is the newest custom-title in the transcript, and none without one', () => {
+  const transcriptOf = (lines) => {
+    const text = lines.map((line) => JSON.stringify(line)).join('\n');
+    return { transcriptSize: () => text.length, transcriptSince: () => text };
+  };
+  const named = transcriptOf([
+    { type: 'custom-title', customTitle: 'Distill openmotion', sessionId: 's' },
+    { type: 'user', message: { content: 'go' } },
+    { type: 'custom-title', customTitle: 'Distill "nexu-io"（视频）', sessionId: 's' },
+  ]);
+  assert.equal(profile.payload.title({}, named), 'Distill "nexu-io"（视频）');
+  assert.equal(profile.payload.title({}, transcriptOf([{ type: 'user', message: { content: 'go' } }])), null);
+  assert.equal(profile.payload.title({}, { transcriptSize: () => 0, transcriptSince: () => '' }), null);
+});
