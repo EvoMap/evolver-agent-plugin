@@ -72,8 +72,8 @@ test('a turn that reused a strategy ends with the one-line summary; any other tu
   const strategies = ['[Evolution Memory] Fix flaky Redis connection retries (EvoMap network):\n1. a.'];
   const record = { checks: [{ command: 'npm test', failed: false, label: 'Run the tests' }], changedLines: 12 };
   const line = summaryLineOf({ strategies, record }, { reason: 'answer', usage: { input_tokens: 1_000, output_tokens: 500 } });
-  assert.match(line, /^✓ Goal reached \(last check passed: Run the tests\) · reused EvoMap strategy "Fix flaky Redis connection retries"/);
-  assert.equal(summaryLineOf({ strategies, record: { checks: [] } }, { reason: 'answer' }), '✓ Goal reached · reused EvoMap strategy "Fix flaky Redis connection retries"');
+  assert.match(line, /^Evolver · injected "Fix flaky Redis connection retries" · ✓ last check passed: Run the tests/);
+  assert.equal(summaryLineOf({ strategies, record: { checks: [] } }), 'Evolver · injected "Fix flaky Redis connection retries" · no check ran, so its use is unverified');
   assert.deepEqual(profile.reply.turnEnd({ strategies: [], record: { checks: [] } }, 'turn.complete', {}), {});
 });
 

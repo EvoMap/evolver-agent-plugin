@@ -338,6 +338,38 @@ test('four steps is the least a strategy needs', async () => {
   assert.deepEqual((await recallStrategy(four.proxyFetch, 'add a retry to the uploader')).ids, ['sha256:four']);
 });
 
+test('a link ends where the Chinese text written right after it begins', () => {
+  assert.equal(
+    promptTextOf('我们新官网(https://canary.evomap.work/zh)本周上线，帮我做一条 20 秒的展示视频'),
+    '我们新官网( 本周上线，帮我做一条 20 秒的展示视频',
+  );
+  assert.equal(promptTextOf('看 https://example.com/a?b=1，帮我总结这篇文章'), '看 ，帮我总结这篇文章');
+  assert.equal(promptTextOf('参考 www.example.com/page这个页面的布局'), '参考 这个页面的布局');
+});
+
+test('a link keeps a non-ASCII host or path segment that URL structure follows, so its path and query never reach the Hub', () => {
+  assert.equal(promptTextOf('分析 https://example.com/患者张三/病例?access_code=ABC123 并给建议'), '分析 并给建议');
+  assert.equal(promptTextOf('阅读 https://例子.测试/docs 并总结'), '阅读 并总结');
+  assert.equal(promptTextOf('访问 https://例子.测试'), '访问');
+  assert.equal(promptTextOf('搜 https://example.com/search?q=患者张三 看结果'), '搜 看结果');
+  assert.equal(promptTextOf('跳到 https://example.com/doc#章节名称，再总结'), '跳到 ，再总结');
+  assert.equal(promptTextOf('看 https://example.com/a?b=1帮我总结'), '看 帮我总结');
+  assert.equal(promptTextOf('参考 https://sub.例子.测试，然后总结'), '参考 ，然后总结');
+  assert.equal(promptTextOf('打开 www.例子.测试 看看'), '打开 看看');
+  assert.equal(promptTextOf('跑 http://localhost:3000/api 看看'), '跑 看看');
+  assert.equal(promptTextOf('打开 https://例子.测试/文档.html 看看'), '打开 看看');
+  assert.equal(promptTextOf('照着这个视频https://v.douyin.com/abc123/复刻一条我们瑜伽App的版本'), '照着这个视频 复刻一条我们瑜伽App的版本');
+  assert.equal(promptTextOf('看下https://evomap.ai这个网站'), '看下 这个网站');
+  assert.equal(promptTextOf('阅读 https://zh.wikipedia.org/wiki/中文'), '阅读 中文', 'a last segment with nothing after it reads as the sentence');
+});
+
+test('a long non-ASCII run after a link is cleaned in linear time', () => {
+  const started = performance.now();
+  promptTextOf(`https://a.com/${'中'.repeat(200_000)}`);
+  promptTextOf(`https://${'中.'.repeat(50_000)}`);
+  assert.ok(performance.now() - started < 1_000);
+});
+
 test('engine reminders, markup and links are not matched, and a bare reminder recalls nothing', async () => {
   assert.equal(
     promptTextOf('<scheduled-task name="triage">Triage the open Sentry issues</scheduled-task> see https://example.sentry.io/issues/?project=1'),

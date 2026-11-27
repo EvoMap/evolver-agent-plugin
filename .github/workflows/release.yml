@@ -50,6 +50,8 @@ jobs:
       - run: npm run test:minimax
       - run: npm run test:zcode
       - run: npm run test:stepcode
+      - run: npm run test:copilot
+      - run: npm run test:cline
       - run: npm run pack
 
   macos-zcode:

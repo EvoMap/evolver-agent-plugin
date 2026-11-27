@@ -96,6 +96,43 @@ test('a session-end distillation posts each IR in the contract\'s shape, keeps t
   assert.deepEqual([kept.gate.passed, kept.kind, kept.record], [true, 'fix', body.record]);
 });
 
+test('a private preview passes both opt-outs and does not accept a stored result as a draft', async () => {
+  const made = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A separate private Gene' }]), distillAnswer: { status: 'stored' } });
+  made.ports.persistDistillationInProxy = false;
+  const outcome = await distillSession(made.ports, { sessionId: 's1' });
+  assert.equal(distills(made.requests).length, 1, 'never dispatch the next IR after a stored result');
+  const [{ body }] = distills(made.requests);
+  assert.deepEqual([body.persist, body.publish], [false, false]);
+  assert.equal(outcome.status, 'failed');
+  assert.equal(outcome.results[0].reason, 'private_preview_unavailable');
+  assert.deepEqual(await made.ports.drafts.read(), []);
+  assert.ok((await made.ports.candidates.read()).s1);
+});
+
+test('a stored response fails the private batch even after an earlier draft or refusal', async (t) => {
+  for (const first of ['drafted', 'rejected']) await t.test(first, async () => {
+    const made = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A separate private Gene' }]) });
+    const { ports } = made;
+    ports.persistDistillationInProxy = false;
+    const request = ports.proxy.request;
+    ports.proxy.request = async (...args) => {
+      await request(...args);
+      const data = distills(made.requests).length > 1 ? { status: 'stored' }
+        : first === 'drafted' ? DRAFTED : { quality: { ok: false, reason: 'quality_gate' } };
+      return { ok: true, data };
+    };
+
+    const outcome = await distillSession(ports, { sessionId: 's1' });
+
+    assert.equal(outcome.status, 'failed');
+    assert.deepEqual(outcome.results.map(({ status }) => status), [first, 'failed']);
+    assert.equal(distillText(outcome).ok, false);
+    assert.match(distillText(outcome).text, /private_preview_unavailable/);
+    assert.ok((await ports.candidates.read()).s1);
+    assert.equal((await ports.drafts.read()).length, first === 'drafted' ? 1 : 0);
+  });
+});
+
 test('a distillation names only the assets injected into the turns it read', async () => {
   const offTopic = { ...ASSET, asset_id: 'sha256:' + '1'.repeat(64), short_title: 'Weather lookups', signals_match: ['weather'] };
   const made = memoryPorts({ assets: [offTopic, ASSET], distillAnswer: DRAFTED, project: PROJECT, model: modelAnswering(IR) });
@@ -287,6 +324,83 @@ test('the model\'s answer is read as fenced JSON, an array or one object; up to 
   const made = await fixedSession({ model: modelAnswering(tooLong) });
   await endedAndDistilled(made);
   assert.deepEqual((await made.ports.outcomes.read()).at(-1), { status: 'rejected', title: IR.title, by: 'plugin', reason: 'ir_invalid', field: 'ir.scope.signals', session: 'testagent:s1', trigger: 'session_end', at: made.ports.clock.now() });
+});
+
+test('distillation preserves verified work when every IR fails the plugin schema check, then drafts on retry', async () => {
+  const made = await fixedSession({ model: modelAnswering({ ...IR, scope: null }) });
+  const { ports, requests, wakeUps, advance } = made;
+  const [outcome] = await endedAndDistilled(made);
+  assert.deepEqual(outcome.results.map(({ by, reason, field }) => [by, reason, field]), [['plugin', 'ir_invalid', 'ir.scope']]);
+  assert.deepEqual(distills(requests), []);
+  assert.deepEqual(await ports.drafts.read(), []);
+  assert.equal((await ports.candidates.read()).s1?.attempts, 1);
+  await armDistillWakeUp(ports);
+  assert.deepEqual(wakeUps.at(-1), { at: ports.clock.now() + RETRY_BASE_MS, tasks: [TASKS.DISTILL] });
+  ports.model = modelAnswering(IR);
+  advance(RETRY_BASE_MS - 1);
+  assert.deepEqual(await distillDue(ports), []);
+  advance(1);
+  assert.equal((await distillDue(ports))[0]?.status, 'drafted');
+  assert.deepEqual(distills(requests).map(({ body }) => [body.user_prompt, body.ir]), [['fix the flaky redis retries', IR]]);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
+test('manual distillation and --post share the three-try budget for schema rejections', async () => {
+  const invalid = { ...IR, scope: null };
+  const { ports, requests } = await fixedSession({ model: modelAnswering(invalid) });
+  const first = await runCommand(ports, { sessionId: 's1', name: 'evolver-distill' });
+  assert.equal(first.ok, false);
+  assert.match(first.text, /ir_invalid: ir\.scope/);
+  const range = (await ports.candidates.read()).s1;
+  assert.equal(range.attempts, 1);
+  const submission = { sessionId: 's1', text: JSON.stringify(invalid), writtenFor: ports.candidates.referenceOf('s1', range) };
+  assert.equal((await postAgentGene(ports, submission)).status, 'rejected');
+  assert.equal((await ports.candidates.read()).s1?.attempts, 2);
+  assert.equal((await postAgentGene(ports, submission)).status, 'rejected');
+  assert.deepEqual(await postAgentGene(ports, { ...submission, text: JSON.stringify(IR) }), { status: 'nothing' });
+  assert.deepEqual(distills(requests), []);
+});
+
+test('exhausting schema retries leaves a turn that joined while the model answered', async () => {
+  const invalid = { ...IR, scope: null };
+  const made = await fixedSession({ model: modelAnswering(invalid) });
+  const { ports, requests, advance } = made;
+  assert.equal((await endedAndDistilled(made))[0].status, 'rejected');
+  advance(RETRY_BASE_MS);
+  assert.equal((await distillDue(ports))[0].status, 'rejected');
+  ports.model = modelAnswering(invalid, () => changeTurn(ports, 's1', 2));
+  advance(RETRY_BASE_MS * 2 - 1);
+  assert.deepEqual(await distillDue(ports), []);
+  advance(1);
+  assert.equal((await distillDue(ports))[0].status, 'rejected');
+  const { s1 } = await ports.candidates.read();
+  assert.deepEqual(s1.turns.map(({ turn }) => turn), [2]);
+  assert.equal(s1.attempts, 0);
+  assert.deepEqual(distills(requests), []);
+});
+
+test('a mixed reply with a valid sent IR is not retried solely because the other IR failed schema validation', async () => {
+  const invalid = { ...IR, title: 'Invalid sibling', scope: null };
+  const cases = [
+    [{ ok: true, data: DRAFTED }, 'drafted'],
+    [{ ok: true, data: { status: 'stored' } }, 'stored'],
+    [{ ok: true, data: { quality: { ok: false, reason: 'too_project_specific' } } }, 'rejected', 'too_project_specific'],
+    [{ ok: false, error: 'fixture lost the Proxy response' }, 'failed', 'proxy_unreachable'],
+  ];
+  for (const [answer, validStatus, validReason] of cases) {
+    const made = await fixedSession({ model: modelAnswering([invalid, IR]) });
+    const { ports, requests, advance } = made;
+    const request = ports.proxy.request;
+    ports.proxy.request = async (...args) => {
+      const reply = await request(...args);
+      return args[1] === '/conversation/distill' ? answer : reply;
+    };
+    const [outcome] = await endedAndDistilled(made);
+    assert.deepEqual(outcome.results.map(({ status, reason }) => [status, reason]), [[validStatus, validReason], ['rejected', 'ir_invalid']]);
+    advance(RETRY_BASE_MS * 4);
+    assert.deepEqual(await distillDue(ports), []);
+    assert.deepEqual(distills(requests).map(({ body }) => body.ir), [IR]);
+  }
 });
 
 test('work turns that join the range or are judged again while the model answers stay for the next distillation', async () => {

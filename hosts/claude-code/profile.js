@@ -71,7 +71,7 @@ export default defineProfile({
       const line = endedTurnSummaryOf(ended, payload);
       return line ? { text: line } : {};
     },
-    late: (answer, late) => ({ ...answer, late }),
+    late: (answer, late, hostEvent, payload, traced) => ({ ...answer, late, ...(traced && { traced }) }),
     lifetime: 'turn',
     toolResultContext: true,
   },

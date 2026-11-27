@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkEvidenceOf, checkIdentityOf, checkKindOf } from '../lib/checks.js';
+import { checkEvidenceOf, checkIdentityOf, checkKindOf, staleSignalOf } from '../lib/checks.js';
 
 test('every check command maps onto the four kinds the Hub accepts', () => {
   assert.equal(checkKindOf('npx -p typescript tsc -p .'), 'typecheck');
@@ -41,3 +41,17 @@ test('different checks stay different, and a logical or is not an output pipe', 
   assert.equal(checkIdentityOf('npm test || true'), 'npm test || true');
   assert.equal(checkEvidenceOf([{ command: 'npm run lint | tail -3', failed: true }, { command: 'npm test | tail -3', failed: false }]).fail_then_pass, false);
 });
+
+test('a failed check whose output names a deprecated endpoint, unknown flag, missing export or missing path yields a sanitized stale signal', () => {
+  assert.equal(staleSignalOf({ command: 'npm test', failed: false, output: 'error: unknown option --legacy' }), null);
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, output: 'AssertionError: expected 1 to equal 2' }), null);
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, output: "error: unknown option '--legacy-mode'" }), 'unknown_flag');
+  assert.equal(staleSignalOf({ command: 'pytest', failed: true, output: 'pytest: error: unrecognized arguments: --old-flag' }), 'unknown_flag');
+  assert.equal(staleSignalOf({ command: 'pytest', failed: true, output: 'error: unrecognized option --old-flag' }), 'unknown_flag');
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, output: 'HTTP/1.1 410 Gone' }), 'http_404_410');
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, output: 'Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath ./v1 is not defined' }), 'missing_export');
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, output: "ENOENT: no such file or directory, open '/secret/refactored/path.js'" }), 'missing_target_path');
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, stale_signal: 'unknown_flag' }), 'unknown_flag');
+  assert.equal(staleSignalOf({ command: 'npm test', failed: true, stale_signal: 'arbitrary_untrusted_text' }), null);
+});
+

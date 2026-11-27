@@ -86,11 +86,56 @@ test('a failed Windows worker launch is reported by the hook', { skip: process.p
   assert.ifError(start.error);
   assert.equal(start.status, 0);
   assert.match(JSON.parse(start.stdout).systemMessage ?? '', /could not confirm that the Windows background worker started/);
+  assert.match(JSON.parse(start.stdout).systemMessage ?? '', /system \.NET Framework C# compiler.*temporary executables/);
   assert.equal(JSON.parse(start.stdout).continue, undefined);
 
   const end = invokeHook('SessionEnd');
   assert.ifError(end.error);
   assert.equal(end.status, 1);
   assert.match(end.stderr, /could not confirm that the Windows background worker started/);
+  assert.match(end.stderr, /system \.NET Framework C# compiler.*temporary executables/);
   assert.doesNotMatch(start.stdout + end.stderr, /missing-worker-cwd/);
+});
+
+test('a Windows worker timeout after its PID is reported as unconfirmed by the hook', { skip: process.platform !== 'win32' }, () => {
+  const runner = new URL('../../lib/channels/hook/runner.js', import.meta.url).href;
+  const codex = new URL('../../hosts/codex/profile.js', import.meta.url).href;
+  const marker = join(proxy.env.HOME, 'timed-out-bridge.json');
+  const code = `
+    import childProcess from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    import { writeFileSync } from 'node:fs';
+    const original = childProcess.spawnSync;
+    childProcess.spawnSync = (command, args, options) => {
+      if (command.endsWith('csc.exe')) return { status: 0 };
+      if (/[\\\\/]worker\\.exe$/.test(command)) {
+        writeFileSync(process.env.TEST_BRIDGE_MARKER, JSON.stringify({ event: process.argv[1], stdout: '1234\\n' }));
+        return { status: null, stdout: '1234\\n', error: { code: 'ETIMEDOUT' } };
+      }
+      return original(command, args, options);
+    };
+    syncBuiltinESMExports();
+    const { runHookProcess } = await import(${JSON.stringify(runner)});
+    const { default: codex } = await import(${JSON.stringify(codex)});
+    await runHookProcess('codex', process.argv[1], {
+      profileOf: async () => ({ ...codex, stateDir: () => process.env.TEST_HOOK_STATE }),
+    });
+  `;
+  const invokeHook = (event) => {
+    writeFileSync(marker, 'not reached');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', code, event], {
+      input: JSON.stringify({ session_id: 's-worker-timeout-after-pid', cwd: proxy.env.HOME }),
+      env: { ...proxy.env, TEST_BRIDGE_MARKER: marker, TEST_HOOK_STATE: join(proxy.env.HOME, 'timed-out-hook-state') },
+      encoding: 'utf8', timeout: 8_000, windowsHide: true,
+    });
+    assert.ifError(result.error);
+    assert.deepEqual(JSON.parse(readFileSync(marker, 'utf8')), { event, stdout: '1234\n' }, 'the bridge timed out after a complete PID');
+    return result;
+  };
+  const start = invokeHook('SessionStart');
+  const end = invokeHook('SessionEnd');
+  assert.equal(start.status, 0);
+  assert.match(JSON.parse(start.stdout).systemMessage ?? '', /could not confirm that the Windows background worker started/);
+  assert.equal(end.status, 1);
+  assert.match(end.stderr, /could not confirm that the Windows background worker started/);
 });

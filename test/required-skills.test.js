@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { recallStrategy } from '../lib/recall.js';
-import { requiredSkillLinesOf } from '../lib/required-skills.js';
+import { MAX_SKILL_TOKENS, requiredSkillLinesOf } from '../lib/required-skills.js';
+import { linesCostOf } from '../lib/token-budget.js';
 import { recipeSearchAnswer } from './helpers/recipe-search.js';
 
 const ID = `sha256:${'a'.repeat(64)}`;
@@ -99,3 +100,23 @@ test('a two-step Gene without a pin still gives way to one that fits', async () 
   const match = await recallStrategy(proxyOf([thin, full]), 'add a retry to the uploader');
   assert.deepEqual(match.ids, [ID]);
 });
+
+test('requiredSkillLinesOf enforces the skill token budget and switches to section-targeted reading when three or more skills are pinned', () => {
+  const three = [
+    PIN,
+    PIN.replace('skills/Quest_Gate', 'skills/report'),
+    PIN.replace('skills/Quest_Gate', 'skills/audit-trail'),
+  ];
+  const lines = requiredSkillLinesOf({ ...GENE, preconditions: three });
+  assert.equal(lines.length, 3);
+  assert.match(lines[2], /^-\s+Read only the needed section of \.agents\/skills\/quest-gate\/SKILL\.md, \.agents\/skills\/report\/SKILL\.md, \.agents\/skills\/audit-trail\/SKILL\.md/);
+  assert.ok(linesCostOf(lines) <= MAX_SKILL_TOKENS);
+
+  const manyLong = Array.from({ length: 8 }, (_, index) =>
+    `skill:git+https://github.com/EvoMap/gene-skills@release/${'v'.repeat(60)}-${index}#path=skills/${'long-skill-name-'.repeat(4)}${index}`);
+  const trimmed = requiredSkillLinesOf({ ...GENE, preconditions: manyLong }, { maxTokens: 160 });
+  assert.ok(trimmed.length === 3);
+  assert.ok(linesCostOf(trimmed) <= 160);
+  assert.deepEqual(requiredSkillLinesOf(GENE, { maxTokens: 10 }), []);
+});
+

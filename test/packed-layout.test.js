@@ -13,6 +13,7 @@ import { pack, packedHosts, packSpecOf } from '../scripts/pack.mjs';
 const CONTRACT = {
   'claude-code': { manifest: '.claude-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'hooks/register.ts', 'bin/relay.mjs'] },
   codex: { manifest: '.codex-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
+  copilot: { manifest: 'plugin.json', name: 'evolver-plugin', entries: ['extension.mjs', 'hosts/copilot/dist/adapter.js', 'bin/command.mjs'] },
   grok: { manifest: '.grok-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   qoder: { manifest: '.qoder-plugin/plugin.json', name: 'evolver-plugin', entries: ['hooks/hooks.json', 'bin/hook.mjs'] },
   kimi: { manifest: 'kimi.plugin.json', name: 'evolver-plugin', entries: ['bin/hook.mjs', 'bin/worker.mjs', 'bin/command.mjs'] },
@@ -22,6 +23,7 @@ const CONTRACT = {
   opencode: { manifest: 'package.json', name: '@evomap/evolver-opencode', entries: ['server.mjs', 'tui.mjs'], npm: true },
   dsh: { manifest: 'package.json', name: '@evomap/dsh-evolver', entries: ['plugin.mjs'], npm: true },
   stepcode: { manifest: 'package.json', name: '@evomap/stepcode-evolver', entries: ['plugin.mjs'], npm: true },
+  cline: { manifest: 'package.json', name: 'evolver-plugin', entries: ['evolver.js'] },
 };
 const REPOSITORY = /^(?:git\+)?https:\/\/github\.com\/EvoMap\/evolver-agent-plugin(?:\.git)?$/i;
 

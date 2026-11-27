@@ -58,6 +58,8 @@ The plugin is the access layer: shared logic lives in `lib/`, and each host is a
 | MiniMax Code CLI 0.7.4+ / Desktop 3.1.6 | Supported | `hosts/minimax`, native hooks; installs `dist/minimax` |
 | ZCode Desktop 3.18.2 / CLI 0.17.1 | Supported | `hosts/zcode`, native hooks; installs `dist/zcode` |
 | Step Code CLI 0.1.7 | Draft | `hosts/stepcode`, a native resident extension; installs `dist/stepcode`; paid-provider and real Hub acceptance pending |
+| GitHub Copilot CLI 1.0.112 | Experimental, Windows interactive | `hosts/copilot`, a native SDK extension; loads from the Copilot profile |
+| Cline CLI 3.0.73 on Windows | Draft | `hosts/cline`, native plugin for Recipe recall and evidence; installs `dist/cline` locally |
 | Muse Code | Not yet | No reviewed adapter yet |
 | OpenAI Dots, Claude Duet, Grok Bot, Meta Muse | Not yet | Cloud agents without hooks; need Evolver's remote MCP and routines |
 
@@ -179,6 +181,12 @@ injections, undelivered reports), so nothing is lost on the way over.
   `step install ./dist/stepcode` and start a new session. This uses Step's native extension interface.
   Read the [Step Code adapter guide](hosts/stepcode/dist/README.md) for foreground verification requirements
   and the native double Ctrl-C cleanup limitation before trying this draft.
+- **GitHub Copilot CLI 1.0.112 on Windows (experimental):** pack the adapter into the selected Copilot profile's
+  `extensions/evolver` directory, then start `copilot --experimental`. See the
+  [Copilot adapter guide](hosts/copilot/dist/README.md) for profile setup, verification and manual private drafts.
+- **Cline CLI 3.0.73 on Windows (draft):** pack `dist/cline`, then install the bundle with
+  `cline plugin install <absolute bundle path> --cwd <workspace>`. Follow the
+  [Cline adapter guide](hosts/cline/dist/README.md) for supported evidence, updates and removal.
 - **Antigravity:** `agy plugin uninstall evolver-antigravity-plugin`, then from the `release` branch,
   `git clone --depth 1 --branch release https://github.com/EvoMap/evolver-agent-plugin.git` and
   `agy plugin install evolver-agent-plugin/dist/antigravity`.

@@ -99,6 +99,19 @@ session id the use cases see is qualified with its host when it leaves (`claude-
 say which agent a report came from; a local ledger record's cycle is the host's bare session id, and its `platform`
 names the host.
 
+On Windows, handle-isolated workers require the system .NET Framework 4 C# compiler. The runtime builds a
+trusted Win32 bridge in its own temporary directory; compilation and launch share one two-second budget.
+It reads no project compiler configuration and writes no credentials to disk. The worker inherits no handles
+and stays in the host's job. An additional private job is assigned atomically at creation: if the launcher dies
+before flushing the PID acknowledgement, Windows ends its worker and descendants. After acknowledgement the
+guard is disabled, allowing a persistent Proxy to outlive the worker without relaxing the host's job limits.
+This guard requires Windows 10 / Server 2016 or newer. A missing or blocked compiler or unavailable job guard
+refuses the launch, using the existing retry/notice flow; the runtime never guesses a PID. On a bridge timeout,
+a complete PID is retained only for process tracking: `onUnconfirmed` signals the existing launch-failure notice
+even when a PID exists. SessionEnd reports that uncertainty on stderr with a nonzero exit; other hooks include
+the warning in their reply. Only a successful bridge exit confirms guard handoff. Cleanup of the bridge's
+temporary files is best-effort after the attempt.
+
 **Profiles.** `defineProfile` completes a host's profile with its channel's defaults and fails on load if a
 difference point is missing. The points are the channel; the event map onto eight canonical events
 (`sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene`); how to
@@ -159,9 +172,9 @@ distiller reads only the body fields it knows, so a Proxy from before the field 
 Gene with or without it and the request never fails over it. The record is
 fitted to the Proxy's 256 KiB before the model reads it (the diff is left out as `too_large` first, then the diff
 lines, then the oldest turns), so the lines an IR cites are the lines sent. The Proxy's answer is `stored`, a draft,
-or refused with a typed `quality.reason` and the `terms` it found; every outcome, the model's skip and a failure are
-logged with their reason in `<host>-distill-outcomes.json` (the last 20), and the turns read are done with, so they
-are never distilled again; turns that joined while the model answered start the next range.
+or refused with a typed `quality.reason` and the `terms` it found. Outcomes are logged with their reason in
+`<host>-distill-outcomes.json` (the last 20). Settled outcomes consume the turns read. Turns that joined while the
+model answered start the next range.
 
 Without a host verifier, which only an isolated Linux Proxy has, the Proxy stores nothing and answers the Gene and
 Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person publishes or discards it with
@@ -170,8 +183,10 @@ Capsule as a draft; it is kept in `<host>-distill-drafts.json` until the person 
 must authorize it; missing verification keeps the draft local. A successful response's complete bundle and receipt
 replace the local draft before `POST /asset/submit`, preserving them for retry. The plugin never configures the
 verifier or manufactures receipts; the Proxy validates the authorization. A failed distillation is tried again in the
-background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries, and a range
-no model here can take waits a day for an agent's IRs before it is dropped. A model runner that captures the session's
+background after 10 minutes, then 20 (doubling, at most 6 hours), and given up after three failed tries. If every IR
+fails the plugin's schema check, none is sent to the Proxy and the range uses this same retry budget. A manual
+`evolver-distill` or `--post` schema rejection counts toward the limit too. A range no model here can take waits a
+day for an agent's IRs before it is dropped. A model runner that captures the session's
 route and reports it unavailable (`MODEL_UNAVAILABLE`) parks the range without costing a try, out of background
 retries, until the route works again or seven days after it was first found blocked. IRs an agent wrote for a range
 that changed since (another turn, a correction) are not sent. A correction of a turn a distillation is reading
@@ -198,8 +213,14 @@ functions declared in the module's own file (`claude plugin validate` refuses `$
 `bin/relay.mjs claude-code` with `$.process.spawn`, which prints `{ port, token }` once it listens on loopback; the
 spawn's loop is the relay's life, so the relay ends with the module, and a relay that died is started again by the
 next event. The module sends each event over `$.http.fetch` with that token, as the profile's host events, and
-applies the answers: `$.session.append` for a strategy, `$.ui.toast` for a notice, `{ text, context }` for a
-command, `$.prompt.submit` for `/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. Text
+applies the answers: `$.session.append` for a strategy, `$.ui.toast` for a notice, `$.ui.status` for the recall's
+status line under the prompt (recalling, then what it decided: injected, none fits, none relevant enough, the Proxy
+did not answer, or arrived after the turn ended), `{ text, context }` for a command, `$.prompt.submit` for
+`/evolver-evolve`, and the turn summary as `turn.complete`'s `{ text }`. The turn summary names each injected
+strategy and its asset id, what the turn's last check says of its use (none ran: unverified), what EvoMap was told
+(and whether the report carried evidence), and a saving only behind a passing check. A recalled-for turn that
+reported no strategy ends with the relay's notice of what its recall did instead: none fits, the Proxy did not
+answer, the recall had not finished, or a strategy that landed after the model's last step and so went unused. Text
 appended in `turn.start` never reaches the turn's first request, so a recall never waits there: the strategy is
 appended when it lands, only while its turn is still open (and is then kept out of the session's later recalls), and
 booked at the turn's next main-loop `turn.step` after the first; a turn that ends first books nothing. In the

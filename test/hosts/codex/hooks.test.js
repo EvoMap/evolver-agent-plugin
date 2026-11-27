@@ -153,7 +153,7 @@ test('a whole turn through the packed hooks: the strategy rides the prompt, the 
   assert.deepEqual(await s.patch(), {});
   assert.deepEqual(await s.bash('npm test 2>&1 | tail -5', PASSED_RUN), {});
   assert.deepEqual(await s.stop('Retries fixed: maxRetriesPerRequest is null and npm test passes.'), {
-    systemMessage: `✓ Goal reached (last check passed: npm test 2>&1 | tail -5) · reused EvoMap strategy "${ASSET.short_title}"`,
+    systemMessage: `Evolver · injected "${ASSET.short_title}" (sha256:aaaaaaaa) · ✓ last check passed: npm test 2>&1 | tail -5 · reported to EvoMap as success`,
   });
 
   assert.deepEqual(await waitFor(() => reportOf('codex:s-turn:1')), {

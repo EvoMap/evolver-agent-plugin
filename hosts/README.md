@@ -15,7 +15,7 @@ a channel.
 | Events | `events: { hostEvent: canonicalEvent }`, onto `sessionStart`, `prompt`, `toolResult`, `beforeEdit`, `turnEnd`, `sessionEnd`, `command`, `agentGene` | — (MCP: its seven tools) |
 | Payload | `payload: { sessionId, turnId, prompt, projectDir, isIgnored, model, transcriptPath, gene, writtenFor }`, each `(payload, context)`; `context` has `env`, `transcriptSize()`, `transcriptSince(offset)`, and `turnStart` at a turn's end. `isIgnored` skips a subagent's event or any other that is no turn of the person's | Claude Code's field names |
 | Session start | `sessionStart: 'event' \| 'owner-change' \| 'connection'` | `event` |
-| Answer | `reply: { context, notice, empty, command, turnEnd, late?, lifetime: 'turn' \| 'call', strategyAt: 'prompt' \| 'tool-result', toolResultContext }`, each `(value, hostEvent, payload)`; `lifetime: 'call'` replays the turn's strategy before every model call; `late(answer, late)` lets a host that can add context to a running turn take a recall slower than the wait (`late` resolves to `{ text, show, join }`: `show()` while the turn is open, for a host that adds it before a model step carries it; `join()` books it once one does); `strategyAt: 'tool-result'`, for a host whose prompt hook cannot add context, holds the strategy recalled at the prompt for the open turn, unbooked, and `context(strategy, toolEvent)` answers the turn's first tool hook with it, under that tool event's name, booking it then; a turn with no tool call never gets it. Such a host takes no `owner-change` session start and no `late`; `toolResultContext: true` says `context(strategy, toolEvent)` reaches the model from any tool hook, which turns on the recall after a failed check (a `tool-result` host has it already) | `hookSpecificOutput.additionalContext`, `{}`, `strategyAt: 'prompt'`, `toolResultContext: false` |
+| Answer | `reply: { context, notice, empty, command, turnEnd, late?, lifetime: 'turn' \| 'call', strategyAt: 'prompt' \| 'tool-result', toolResultContext }`, each `(value, hostEvent, payload)`; `lifetime: 'call'` replays the turn's strategy before every model call; `late(answer, late, hostEvent, payload, traced)` lets a host that can add context to a running turn take a recall slower than the wait (`late` resolves to `{ text, show, join }`: `show()` while the turn is open, for a host that adds it before a model step carries it; `join()` books it once one does; `traced`, absent for a turn nobody typed for, resolves to the recall's last trace, which Claude Code pins as its status line under the prompt); `strategyAt: 'tool-result'`, for a host whose prompt hook cannot add context, holds the strategy recalled at the prompt for the open turn, unbooked, and `context(strategy, toolEvent)` answers the turn's first tool hook with it, under that tool event's name, booking it then; a turn with no tool call never gets it. Such a host takes no `owner-change` session start and no `late`; `toolResultContext: true` says `context(strategy, toolEvent)` reaches the model from any tool hook, which turns on the recall after a failed check (a `tool-result` host has it already) | `hookSpecificOutput.additionalContext`, `{}`, `strategyAt: 'prompt'`, `toolResultContext: false` |
 | Evidence | `evidence: { toolNote, editedFile \| editedFiles, turnStart?, turnRecord?, source }`: tool notes as hooks see them, or a turn record read from the host's transcript | required |
 | Turn end | `turnEnd: { reason → 'answer' \| 'aborted' \| 'refusal' \| 'error' \| 'unknown', answer, unclosed: { settleMs, as } }` | every end is `answer`; a turn with no end closes as `error` at the next prompt |
 | Commands | `commands: { entry: 'intercept' \| 'inline-script' \| 'prompt' \| 'tool' \| 'cli-only', parse, sessionOf?(env), scriptArgs?(text), scriptAnswer?(result, script), answerReachesModel }`; a script runs `bin/command.mjs <host> <command> [args…]`, from a host or a terminal; `answerReachesModel` defaults to true for `inline-script`, `prompt` and `tool` | `cli-only` |
@@ -63,6 +63,19 @@ and candidate creation. Native shell starts and terminal exit metadata are paire
 only a private distillation prompt, no tools or native session transcript, and retains the captured account/model route.
 Preferences and private data live under the selected `STEP_CODING_AGENT_DIR` in `evolver-plugin`.
 [The Step Code draft guide](stepcode/dist/README.md) records installation, supported commands and acceptance limits.
+
+GitHub Copilot CLI 1.0.112 on Windows uses Copilot's experimental resident SDK extension. Its prompt hook provides
+Recipe guidance and native foreground shell events supply verification evidence. Only `session.idle` confirms a
+finished interaction. A Stop hook can request more work before that event, and an abort suppresses reuse reports
+and candidates for that interaction. See the [Copilot adapter guide](copilot/dist/README.md) for scope,
+profile setup and the manual private draft flow.
+
+Cline CLI 3.0.73 on Windows uses native runtime hooks through the plugin channel. Recipe context is added to
+the active turn's model requests. The adapter pairs foreground command results by native tool call ID and
+uses `afterRun` to confirm completion before allowing new reports or candidates for that turn.
+Manual distillation runs on the verified OpenAI-compatible API-key route of the live Windows session
+and saves the Proxy's preview as a private draft.
+[The Cline draft guide](cline/dist/README.md) describes local package installation and scope.
 
 ## Adding a host
 

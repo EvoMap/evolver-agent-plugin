@@ -11,8 +11,8 @@ import { fakeProxy } from '../helpers/fake-proxy.js';
 
 const RELAY = fileURLToPath(new URL('../../bin/relay.mjs', import.meta.url));
 
-async function started(t, { delays } = {}) {
-  const proxy = await fakeProxy({ delays });
+async function started(t, { delays, assets } = {}) {
+  const proxy = await fakeProxy({ delays, ...(assets && { assets }) });
   const relay = createRelay({ profile: claudeCode, env: proxy.env });
   const port = await relay.listen();
   t.after(() => {
@@ -40,11 +40,27 @@ test('a turn\'s recall answers later, by id; the strategy is joined to its turn 
   const turn = { session_id: 's1', cwd: '/proj', turn_id: 't1', text: PROMPT, origin: { kind: 'composer' } };
   const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: turn });
   assert.equal(answer.append, undefined);
-  const { body: landed } = await post('/late', { id: answer.late });
+  assert.equal(answer.status, '⟳ recalling an EvoMap strategy…');
+  const { body: landed } = await post('/late', { id: answer.late, withStatus: true });
   assert.match(landed.text, /^\[Evolution Memory\] Fix flaky Redis connection retries/);
+  assert.match(landed.status, /^✓ injected "Fix flaky Redis connection retr…"$/);
   assert.deepEqual((await post('/late/join', { id: landed.id })).body, { joined: true });
   assert.deepEqual((await post('/late/join', { id: landed.id })).body, { joined: false });
   assert.deepEqual((await post('/event', { hostEvent: 'no.such.event', payload: turn })).body, {});
+});
+
+test('a recall that injects nothing still answers what it decided; a turn nobody typed for sets no status', async (t) => {
+  const { post } = await started(t, { assets: [] });
+  const typed = { session_id: 's2', cwd: '/proj', turn_id: 't1', text: 'translate the release notes into Japanese please', origin: { kind: 'composer' } };
+  const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: typed });
+  const { body: late } = await post('/late', { id: answer.late, withStatus: true });
+  assert.deepEqual(late, { status: '○ no EvoMap strategy fits this prompt' });
+  const { body: older } = await post('/event', { hostEvent: 'turn.start', payload: { ...typed, turn_id: 't1b' } });
+  assert.equal((await post('/late', { id: older.late })).body, null, 'a module older than the status line gets only a strategy, as before');
+  const notification = { session_id: 's2', cwd: '/proj', turn_id: 't2', text: '<task-notification>done</task-notification>', origin: { kind: 'task-notification' } };
+  const { body: quiet } = await post('/event', { hostEvent: 'turn.start', payload: notification });
+  assert.equal(quiet.status, undefined);
+  if (quiet.late) assert.equal((await post('/late', { id: quiet.late })).body, null);
 });
 
 test('a model request waits for the module, which answers it by id; an abandoned one is withdrawn', async () => {
@@ -69,4 +85,30 @@ test('the relay process serves only a relayed agent', () => {
   const refused = spawnSync(process.execPath, [RELAY, 'cursor'], { encoding: 'utf8' });
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /"cursor" is not a relayed agent/);
+});
+
+test('a recalled-for turn that reported no strategy ends with a notice of what its recall did', async (t) => {
+  const { post } = await started(t, { assets: [] });
+  const turn = { session_id: 's3', cwd: '/proj', turn_id: 't1', text: 'translate the release notes into Japanese please', origin: { kind: 'composer' } };
+  const { body: answer } = await post('/event', { hostEvent: 'turn.start', payload: turn });
+  await post('/late', { id: answer.late, withStatus: true });
+  const { body: ended } = await post('/event', { hostEvent: 'turn.complete', payload: { ...turn, reason: 'answer', answer: 'done' } });
+  assert.equal(ended.text, 'Evolver · ○ no EvoMap strategy fits this prompt');
+  const { body: again } = await post('/event', { hostEvent: 'turn.complete', payload: { ...turn, reason: 'answer', answer: 'done' } });
+  assert.equal(again.text, undefined, 'a turn ends with its notice once');
+});
+
+test('turns of two sessions that share a turn id each end with their own notice', async (t) => {
+  const { post } = await started(t, { assets: [] });
+  const turnOf = (session_id, text) => ({ session_id, cwd: '/proj', turn_id: 't1', text, origin: { kind: 'composer' } });
+  const first = turnOf('s4', 'translate the release notes into Japanese please');
+  const second = turnOf('s5', 'hi');
+  const { body: firstStart } = await post('/event', { hostEvent: 'turn.start', payload: first });
+  await post('/late', { id: firstStart.late, withStatus: true });
+  const { body: secondStart } = await post('/event', { hostEvent: 'turn.start', payload: second });
+  if (secondStart.late) await post('/late', { id: secondStart.late, withStatus: true });
+  const { body: secondEnd } = await post('/event', { hostEvent: 'turn.complete', payload: { ...second, reason: 'answer', answer: 'ok' } });
+  const { body: firstEnd } = await post('/event', { hostEvent: 'turn.complete', payload: { ...first, reason: 'answer', answer: 'done' } });
+  assert.equal(firstEnd.text, 'Evolver · ○ no EvoMap strategy fits this prompt');
+  assert.notEqual(secondEnd.text, firstEnd.text);
 });

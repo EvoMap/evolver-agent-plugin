@@ -1,0 +1,9 @@
+{
+  "entries": ["hosts/copilot/dist/extension.mjs", "bin/command.mjs"],
+  "root": {
+    "plugin.json": "hosts/copilot/dist/plugin.json",
+    "extension.mjs": "hosts/copilot/dist/root/extension.mjs",
+    "README.md": "hosts/copilot/dist/README.md",
+    "LICENSE": "LICENSE"
+  }
+}
