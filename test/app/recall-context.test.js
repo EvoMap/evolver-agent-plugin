@@ -174,3 +174,71 @@ test('overlapping re-judges in one clock tick retain the newest answer', async (
     });
   }
 });
+
+test('a superseded re-judge cannot replace, remove or restore the candidate', async (t) => {
+  for (const [name, oldWork, newWork] of [
+    ['replace newer work', true, true],
+    ['remove newer work', false, true],
+    ['restore work the newer record removed', true, false],
+  ]) {
+    await t.test(name, async () => {
+      const { ports } = memoryPorts();
+      const record = (answer, work) => ({
+        checks: work ? [{ command: 'npm test', failed: false }] : [],
+        commands: work ? ['npm test'] : [], paths: [], edits: [], answer,
+      });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      await endWith(() => record('Original result.', true));
+      const reading = Promise.withResolvers(), older = Promise.withResolvers();
+      const stale = endWith(() => { reading.resolve(); return older.promise; });
+      await reading.promise;
+      await endWith(() => record('Newer result.', newWork));
+      older.resolve(record('Older result.', oldWork));
+      await stale;
+
+      const candidate = (await ports.candidates.read()).s;
+      if (newWork) assert.equal(candidate?.turns[0].answer, 'Newer result.');
+      else assert.equal(candidate, undefined);
+    });
+  }
+});
+
+test('a candidate mutation is fenced against a re-judge that starts after its state read', async () => {
+  const { ports } = memoryPorts();
+  let lifecycle = Promise.resolve();
+  ports.sessions.withSession = (_sessionId, update) => {
+    const next = lifecycle.then(update);
+    lifecycle = next.catch(() => {});
+    return next;
+  };
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  const endWith = (answer, failed) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [{ command: 'npm test', failed }], commands: ['npm test'], paths: [], edits: [], answer }),
+  });
+  await endWith('The initial test ran.', true);
+
+  const olderReachedWrite = Promise.withResolvers(), releaseOlder = Promise.withResolvers();
+  const save = ports.candidates.update;
+  let pauseOnce = true;
+  ports.candidates.update = async (mutate) => {
+    if (pauseOnce) {
+      pauseOnce = false;
+      olderReachedWrite.resolve();
+      await releaseOlder.promise;
+    }
+    return save(mutate);
+  };
+
+  const old = endWith('The older failed record is stale.', true);
+  await olderReachedWrite.promise;
+  const newer = endWith('The latest record passed.', false);
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseOlder.resolve();
+  await Promise.all([old, newer]);
+
+  assert.equal((await ports.candidates.read()).s.turns[0].answer, 'The latest record passed.');
+});
