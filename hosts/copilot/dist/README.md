@@ -54,5 +54,6 @@ Get-Content -Raw ./gene.json | node "$bundle/bin/command.mjs" copilot evolver-di
 ```
 
 Set `$rangeReference` to the value printed by `evolver-distill`. The reference binds the answer to the
-exact verified range. Drafts remain private until you explicitly publish one. If the Proxy returns `stored`,
-it kept the result locally and no item is added to the plugin draft list.
+exact verified range. Drafts remain private until you explicitly publish one. If the Proxy returns `stored`
+instead of a draft, it did not keep the preview private: the command fails with `private_preview_unavailable`, no item
+is added to the plugin draft list, and the range stays for the next distillation.
