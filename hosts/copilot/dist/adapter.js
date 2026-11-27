@@ -156,9 +156,12 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
   const flushTerminal = async () => {
     if (!pendingTerminal) return true;
     let failed = false;
-    await raise('terminal', pendingTerminal, (error) => {
-      failed = true;
-      reportError(error);
+    await channel.handle('terminal', pendingTerminal.payload, {
+      retrySettlement: pendingTerminal.retrySettlement,
+      onError: (error) => {
+        failed = true;
+        reportError(error);
+      },
     });
     if (!failed) pendingTerminal = null;
     return !failed;
@@ -168,10 +171,13 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
     if (turn) {
       const answered = complete && turn.injected && !turn.incomplete && turn.step?.ended && turn.step.answer && checksCompleted(turn);
       const reason = aborted || turn.aborted ? 'aborted' : answered ? 'answer' : 'error';
-      pendingTerminal = { ...turn.at, reason, ...(reason === 'answer' && { answer: turn.step.answer }), notes: notesOf(turn) };
+      pendingTerminal = {
+        payload: { ...turn.at, reason, ...(reason === 'answer' && { answer: turn.step.answer }), notes: notesOf(turn) },
+        retrySettlement: {},
+      };
       current = null;
     }
-    // Copilot may emit idle only once. The driver safely ignores retries for a turn it has already closed.
+    // Copilot may emit idle only once. Retry before waiting for the next native callback.
     return await flushTerminal() || flushTerminal();
   };
   const endSession = async () => {
@@ -194,7 +200,14 @@ export async function connectCopilot(joinSession, { env = process.env, overrides
       || typeof prompt !== 'string' || typeof transformedPrompt !== 'string' || !Number.isFinite(occurredAt) || isIrPrompt(prompt)
       || !(await flushTerminal())) return {};
     const at = { sessionId, cwd: workingDirectory, turnId: randomUUID() };
-    if (!session) await raise('session_start', at);
+    if (!session) {
+      let failed = false;
+      await raise('session_start', at, (error) => {
+        failed = true;
+        reportError(error);
+      });
+      if (failed) return {};
+    }
     session = at;
     const { strategy } = await raise('prompt', { ...at, prompt });
     promptAt = occurredAt;
