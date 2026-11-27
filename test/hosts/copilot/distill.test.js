@@ -32,7 +32,7 @@ function candidate(at) {
   };
 }
 
-test('Copilot submits the exact writtenFor range privately and only lists a draft when the Proxy returns one', async (t) => {
+test('Copilot submits the exact writtenFor range privately, lists a draft only when the Proxy returns one, and fails a stored answer', async (t) => {
   for (const status of ['draft', 'stored']) await t.test(status, async (t) => {
     const proxy = await fakeProxy({ distillAnswer: { ...DRAFTED, status } });
     t.after(() => closeProxyWhenSettled(proxy));
@@ -57,15 +57,18 @@ test('Copilot submits the exact writtenFor range privately and only lists a draf
     assert.deepEqual(posted.map(({ method, body }) => [method, body.session_id, body.persist, body.publish]), [
       ['POST', 'copilot:copilot-original-session', false, false],
     ]);
-    assert.deepEqual(await stores.candidates.read(), { 'another-session': newer });
+    const ranges = await stores.candidates.read();
     assert.equal(proxy.requests.some(({ path }) => path === '/asset/submit' || path === '/asset/reverify'), false);
 
     const drafts = await terminal(env, 'evolver-drafts');
     if (status === 'draft') {
+      assert.deepEqual(ranges, { 'another-session': newer });
       assert.match(result, /Distilled "Stabilise Redis retries" into a draft/);
       assert.match(drafts, /Stabilise Redis retries/);
     } else {
-      assert.match(result, /Stored "Stabilise Redis retries"/);
+      assert.deepEqual(Object.keys(ranges).sort(), ['another-session', sessionId]);
+      assert.deepEqual(ranges['another-session'], newer);
+      assert.match(result, /private_preview_unavailable/);
       assert.equal(drafts, 'No distilled drafts are waiting.');
     }
   });
