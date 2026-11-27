@@ -139,3 +139,38 @@ test('a resumed session keeps its recent turns and title, the last turn before t
   assert.equal(context.title, 'Distill openmotion');
   assert.equal(context.task, 'Distill openmotion for dsh');
 });
+
+test('overlapping re-judges in one clock tick retain the newest answer', async (t) => {
+  for (const middleSettles of [false, true]) {
+    await t.test(middleSettles ? 'a newer re-judge already settled' : 'both re-judges are still pending', async () => {
+      const { ports, requests } = memoryPorts();
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      const record = (answer) => ({ checks: [], commands: [], paths: [], edits: [], answer });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await endWith(() => record('The initial test is running.'));
+
+      async function deferredEnd(answer) {
+        const reading = Promise.withResolvers(), result = Promise.withResolvers();
+        const work = endWith(() => { reading.resolve(); return result.promise; });
+        await reading.promise;
+        return async () => {
+          result.resolve(record(answer));
+          await work;
+        };
+      }
+
+      const settleOlder = await deferredEnd('The older run still showed a pending check.');
+      if (middleSettles) await endWith(() => record('The second run completed.'));
+      const settleNewest = await deferredEnd('The newest run confirmed the check passed.');
+      await settleOlder();
+      await settleNewest();
+      await turn(ports, 'Summarize the check result');
+
+      assert.deepEqual(fetchContexts(requests).at(-1).recent_turns.at(-1), {
+        role: 'assistant', text: 'The newest run confirmed the check passed.',
+      });
+    });
+  }
+});
