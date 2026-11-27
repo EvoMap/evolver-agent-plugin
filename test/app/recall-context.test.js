@@ -95,6 +95,25 @@ test('a host that tells the answer among its tool notes, not at the turn end, st
   assert.deepEqual(fetchContexts(requests).at(-1).recent_turns.at(-1), { role: 'assistant', text: 'Three uploads failed on a 413.' });
 });
 
+test('a re-judged host turn keeps its newest answer even if another record has none', async () => {
+  const { ports, requests } = memoryPorts();
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  const endWithRecord = (answer) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [], commands: [], paths: [], edits: [], answer }),
+  });
+
+  await endWithRecord('The check is still running.');
+  await endWithRecord('The check passed after the background run.');
+  await endWithRecord('');
+  await turn(ports, 'Summarize the check result');
+
+  assert.deepEqual(fetchContexts(requests).at(-1).recent_turns, [
+    { role: 'user', text: 'Add retries to the uploader client' },
+    { role: 'assistant', text: 'The check passed after the background run.' },
+  ]);
+});
+
 test('a turn nobody typed for keeps neither its own answer nor the typed turn before it from the recent turns', async () => {
   const { ports, requests } = memoryPorts();
   await turn(ports, 'Distill the nexu-io sources into Genes', '56 sources queued.');
