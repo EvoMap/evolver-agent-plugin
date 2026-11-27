@@ -55,3 +55,13 @@ test('a failed check whose output names a deprecated endpoint, unknown flag, mis
   assert.equal(staleSignalOf({ command: 'npm test', failed: true, stale_signal: 'arbitrary_untrusted_text' }), null);
 });
 
+test('stale HTTP signals use the actual status of a failed HTTP assertion', () => {
+  const signal = (output) => staleSignalOf({ command: 'npm test', failed: true, output });
+  assert.equal(signal('AssertionError: expected status code 404 but received 500'), null);
+  assert.equal(signal('AssertionError: expected status 410, got status 503'), null);
+  assert.equal(signal('AssertionError: expected status code 200 but received 404'), 'http_404_410');
+  assert.equal(signal('HTTP/2 404 Not Found'), 'http_404_410');
+  assert.equal(signal('HTTP/1.1 410 Gone'), 'http_404_410');
+  assert.equal(signal('expected status code 404 but received 500\nHTTP/1.1 410 Gone'), 'http_404_410');
+  assert.equal(signal('expected status code 404 but received 500\nerror: unknown option --legacy'), 'unknown_flag');
+});
