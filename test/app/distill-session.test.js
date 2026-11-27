@@ -109,6 +109,29 @@ test('a private preview passes both opt-outs and does not accept a stored result
   assert.ok((await made.ports.candidates.read()).s1);
 });
 
+test('explicit private previews keep verified work until the Proxy can return a draft', async () => {
+  const { ports } = await fixedSession({ model: modelAnswering(IR) });
+  ports.persistDistillationInProxy = false;
+  const request = ports.proxy.request;
+  let preview = { status: 'stored' };
+  ports.proxy.request = (...args) => args[1] === '/conversation/distill'
+    ? Promise.resolve({ ok: true, data: preview })
+    : request(...args);
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const outcome = await distillSession(ports, { sessionId: 's1' });
+    assert.equal(outcome.status, 'failed');
+    assert.equal(outcome.results[0].reason, 'private_preview_unavailable');
+    assert.ok((await ports.candidates.read()).s1, `the verified range survives attempt ${attempt}`);
+    assert.deepEqual(await ports.drafts.read(), []);
+  }
+
+  preview = DRAFTED;
+  assert.equal((await distillSession(ports, { sessionId: 's1' })).status, 'drafted');
+  assert.equal((await ports.drafts.read())[0].title, IR.title);
+  assert.equal((await ports.candidates.read()).s1, undefined);
+});
+
 test('a stored response fails the private batch even after an earlier draft or refusal', async (t) => {
   for (const first of ['drafted', 'rejected']) await t.test(first, async () => {
     const made = await fixedSession({ model: modelAnswering([IR, { ...IR, title: 'A separate private Gene' }]) });
