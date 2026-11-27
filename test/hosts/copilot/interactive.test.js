@@ -163,6 +163,27 @@ test('a failed Copilot event subscription deactivates retained and already queue
   });
 });
 
+test('Copilot retries a failed session start before recalling for a later prompt', async (t) => {
+  const failure = Object.assign(new Error('fixture state writer busy'), { code: 'ELOCKED' });
+  const host = await interactive(t, [failure]);
+  const writeSession = host.ports.sessions.update;
+  let writes = 0, setupChecks = 0;
+  host.ports.sessions.update = (...args) => {
+    if (++writes === 1) throw failure;
+    return writeSession(...args);
+  };
+  host.ports.engine.needsSetup = async () => { setupChecks++; return false; };
+
+  const first = await host.transform(PROMPT);
+  await host.emit('session.idle', { aborted: true });
+  const second = await host.transform(PROMPT);
+
+  assert.equal(setupChecks, 1, 'the successful retry runs session startup');
+  assert.equal(first, PROMPT);
+  assert.match(second, /\[Evolution Memory\] Recipe:/);
+  assert.equal(host.requests.filter(({ path }) => path === '/recipe/search').length, 1);
+});
+
 test('a blocked Copilot Stop followed by Ctrl-C after a passing check queues no report or candidate', async (t) => {
   const host = await interactive(t);
   await verificationAttempt(host, 0);
@@ -296,6 +317,49 @@ test('Copilot settles pending evidence before the next prompt and a replayed idl
   await host.emit('session.idle', { aborted: true });
   assert.deepEqual((await host.candidate()).steps.map(({ exit }) => exit), [0]);
   assert.equal(host.queued.length, 2);
+});
+
+test('Copilot resumes interrupted terminal settlement without duplicating saved evidence', async (t) => {
+  for (const candidateSaved of [false, true]) {
+    await t.test(candidateSaved ? 'candidate saved before the session write failed' : 'candidate write also failed', async (t) => {
+      const failure = Object.assign(new Error('fixture state writer busy'), { code: 'ELOCKED' });
+      const host = await interactive(t, [failure, failure]);
+      await verificationAttempt(host, 0);
+
+      const writeCandidate = host.ports.candidates.update;
+      let candidateWrites = 0;
+      host.ports.candidates.update = (mutate) => {
+        if (++candidateWrites === 1 && !candidateSaved) throw failure;
+        return writeCandidate(mutate);
+      };
+
+      const writeSession = host.ports.sessions.update;
+      let refused = 0;
+      host.ports.sessions.update = (sessionId, mutate) => writeSession(sessionId, (current) => {
+        const next = mutate(current);
+        if (refused < 2 && Number.isFinite(current.settling) && next?.settling === null) {
+          refused++;
+          throw failure;
+        }
+        return next;
+      });
+
+      const scheduled = [];
+      const schedule = host.ports.scheduler.schedule;
+      host.ports.scheduler.schedule = (tasks) => { scheduled.push(...tasks); return schedule(tasks); };
+      const idle = await host.emit('session.idle');
+      assert.equal(candidateWrites, 1);
+      assert.equal(Object.keys(await host.candidates()).length, candidateSaved ? 1 : 0);
+
+      await host.emit(idle.type, idle.data, idle);
+      assert.equal(candidateWrites, candidateSaved ? 1 : 2);
+      assert.equal((await host.ports.sessions.read(host.sessionId)).settling, null);
+      assert.equal((await host.candidate()).answer, answer);
+      assert.equal(refused, 2);
+      assert.equal(host.queued.length, 2);
+      assert.ok(scheduled.includes('drain'), 'the saved reports can be delivered after settlement recovers');
+    });
+  }
 });
 
 test('a failed Copilot close keeps pending terminal evidence retryable after storage recovers', async (t) => {
