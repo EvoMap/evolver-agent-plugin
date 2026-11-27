@@ -95,6 +95,25 @@ test('a host that tells the answer among its tool notes, not at the turn end, st
   assert.deepEqual(fetchContexts(requests).at(-1).recent_turns.at(-1), { role: 'assistant', text: 'Three uploads failed on a 413.' });
 });
 
+test('a re-judged host turn keeps its newest answer even if another record has none', async () => {
+  const { ports, requests } = memoryPorts();
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  const endWithRecord = (answer) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [], commands: [], paths: [], edits: [], answer }),
+  });
+
+  await endWithRecord('The check is still running.');
+  await endWithRecord('The check passed after the background run.');
+  await endWithRecord('');
+  await turn(ports, 'Summarize the check result');
+
+  assert.deepEqual(fetchContexts(requests).at(-1).recent_turns, [
+    { role: 'user', text: 'Add retries to the uploader client' },
+    { role: 'assistant', text: 'The check passed after the background run.' },
+  ]);
+});
+
 test('a turn nobody typed for keeps neither its own answer nor the typed turn before it from the recent turns', async () => {
   const { ports, requests } = memoryPorts();
   await turn(ports, 'Distill the nexu-io sources into Genes', '56 sources queued.');
@@ -119,4 +138,161 @@ test('a resumed session keeps its recent turns and title, the last turn before t
   ]);
   assert.equal(context.title, 'Distill openmotion');
   assert.equal(context.task, 'Distill openmotion for dsh');
+});
+
+test('overlapping re-judges in one clock tick retain the newest answer', async (t) => {
+  for (const middleSettles of [false, true]) {
+    await t.test(middleSettles ? 'a newer re-judge already settled' : 'both re-judges are still pending', async () => {
+      const { ports, requests } = memoryPorts();
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      const record = (answer) => ({ checks: [], commands: [], paths: [], edits: [], answer });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await endWith(() => record('The initial test is running.'));
+
+      async function deferredEnd(answer) {
+        const reading = Promise.withResolvers(), result = Promise.withResolvers();
+        const work = endWith(() => { reading.resolve(); return result.promise; });
+        await reading.promise;
+        return async () => {
+          result.resolve(record(answer));
+          await work;
+        };
+      }
+
+      const settleOlder = await deferredEnd('The older run still showed a pending check.');
+      if (middleSettles) await endWith(() => record('The second run completed.'));
+      const settleNewest = await deferredEnd('The newest run confirmed the check passed.');
+      await settleOlder();
+      await settleNewest();
+      await turn(ports, 'Summarize the check result');
+
+      assert.deepEqual(fetchContexts(requests).at(-1).recent_turns.at(-1), {
+        role: 'assistant', text: 'The newest run confirmed the check passed.',
+      });
+    });
+  }
+});
+
+test('a superseded re-judge cannot replace, remove or restore the candidate', async (t) => {
+  for (const [name, oldWork, newWork] of [
+    ['replace newer work', true, true],
+    ['remove newer work', false, true],
+    ['restore work the newer record removed', true, false],
+  ]) {
+    await t.test(name, async () => {
+      const { ports } = memoryPorts();
+      const record = (answer, work) => ({
+        checks: work ? [{ command: 'npm test', failed: false }] : [],
+        commands: work ? ['npm test'] : [], paths: [], edits: [], answer,
+      });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      await endWith(() => record('Original result.', true));
+      const reading = Promise.withResolvers(), older = Promise.withResolvers();
+      const stale = endWith(() => { reading.resolve(); return older.promise; });
+      await reading.promise;
+      await endWith(() => record('Newer result.', newWork));
+      older.resolve(record('Older result.', oldWork));
+      await stale;
+
+      const candidate = (await ports.candidates.read()).s;
+      if (newWork) assert.equal(candidate?.turns[0].answer, 'Newer result.');
+      else assert.equal(candidate, undefined);
+    });
+  }
+});
+
+test('a candidate mutation is fenced against a re-judge that starts after its state read', async () => {
+  const { ports } = memoryPorts();
+  let lifecycle = Promise.resolve();
+  ports.sessions.withCandidate = (_sessionId, update) => {
+    const next = lifecycle.then(update);
+    lifecycle = next.catch(() => {});
+    return next;
+  };
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  const endWith = (answer, failed) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [{ command: 'npm test', failed }], commands: ['npm test'], paths: [], edits: [], answer }),
+  });
+  await endWith('The initial test ran.', true);
+
+  const olderReachedWrite = Promise.withResolvers(), releaseOlder = Promise.withResolvers();
+  const save = ports.candidates.update;
+  let pauseOnce = true;
+  ports.candidates.update = async (mutate) => {
+    if (pauseOnce) {
+      pauseOnce = false;
+      olderReachedWrite.resolve();
+      await releaseOlder.promise;
+    }
+    return save(mutate);
+  };
+
+  const old = endWith('The older failed record is stale.', true);
+  await olderReachedWrite.promise;
+  const newer = endWith('The latest record passed.', false);
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseOlder.resolve();
+  await Promise.all([old, newer]);
+
+  assert.equal((await ports.candidates.read()).s.turns[0].answer, 'The latest record passed.');
+});
+
+test('a late first completion cannot replace or restore a re-judged candidate', async (t) => {
+  for (const rejudgedWork of [true, false]) {
+    await t.test(rejudgedWork ? 'replace newer work' : 'restore removed work', async () => {
+      const { ports } = memoryPorts();
+      const record = (answer, work) => ({
+        checks: work ? [{ command: 'npm test', failed: false }] : [],
+        commands: work ? ['npm test'] : [], paths: [], edits: [], answer,
+      });
+      const endWith = (read) => turnEnded(ports, {
+        sessionId: 's', turnId: 'first', reason: 'answer', recordOf: read,
+      });
+      await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+      const reading = Promise.withResolvers(), older = Promise.withResolvers();
+      const initial = endWith(() => { reading.resolve(); return older.promise; });
+      await reading.promise;
+      await endWith(() => record('Re-judged result.', rejudgedWork));
+      older.resolve(record('Initial result arrived late.', true));
+      await initial;
+
+      const candidate = (await ports.candidates.read()).s;
+      if (rejudgedWork) assert.equal(candidate?.turns[0].answer, 'Re-judged result.');
+      else assert.equal(candidate, undefined);
+    });
+  }
+});
+
+test('a failed re-judge cleanup leaves its newest answer available to recall', async () => {
+  const { ports, requests } = memoryPorts();
+  const endWith = (answer) => turnEnded(ports, {
+    sessionId: 's', turnId: 'first', reason: 'answer',
+    recordOf: () => ({ checks: [{ command: 'npm test', failed: false }], commands: ['npm test'], paths: [], edits: [], answer }),
+  });
+  await turn(ports, 'Add retries to the uploader client', undefined, { turnId: 'first' });
+  await endWith('Original check result.');
+
+  const write = ports.sessions.update;
+  const busy = Object.assign(new Error('fixture state writer busy'), { code: 'ELOCKED' });
+  let cleanupFailed = false;
+  ports.sessions.update = (sessionId, mutate) => write(sessionId, (current) => {
+    const next = mutate(current);
+    if (!cleanupFailed && Number.isFinite(current.settling) && next?.settling === null) {
+      cleanupFailed = true;
+      throw busy;
+    }
+    return next;
+  });
+
+  await assert.rejects(endWith('Newest check result.'), busy);
+  assert.equal((await ports.candidates.read()).s.turns[0].answer, 'Newest check result.');
+  await ports.clock.sleep(30_001);
+  await turn(ports, 'Summarize the check result');
+  assert.equal(fetchContexts(requests).at(-1).recent_turns.at(-1).text, 'Newest check result.');
 });
